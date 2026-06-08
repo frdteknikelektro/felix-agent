@@ -59,12 +59,10 @@ describe("FelixEngine Mattermost routing", () => {
       source_thread_ref: mattermostThreadRef("channel", "root", "evt-2"),
     });
 
-    // Unmentioned reply in a managed thread should be accepted (⏳ reaction, queued)
-    expect(calls.updateEventStatus).toHaveBeenCalledWith(
+    // Unmentioned reply in a managed thread should be rejected (needs explicit @mention)
+    expect(calls.updateEventStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({ status: "processing" }),
     );
-    expect(await hasThreadEvent(thread, "mattermost", "evt-2")).toBe(true);
-    const session = await loadSessionState(thread);
-    expect(session.queue.length).toBeGreaterThanOrEqual(1);
+    expect(await hasThreadEvent(thread, "mattermost", "evt-2")).toBe(false);
   });
 });

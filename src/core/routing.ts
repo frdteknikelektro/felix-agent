@@ -2,16 +2,14 @@ import type { UniversalEvent } from "../types.js";
 
 /**
  * Returns true when an incoming event should be accepted for processing.
- * DMs are always accepted. Channel posts require an explicit bot mention,
- * unless the event is a reply in a thread already managed by Felix.
+ * DMs are always accepted. Channel posts always require an explicit bot mention.
  */
 export function shouldAcceptEvent(
   event: UniversalEvent,
-  thread?: { managed_by_felix: boolean },
+  _thread?: { managed_by_felix: boolean },
 ): boolean {
   if (event.visibility === "dm") return true;
   if (event.mentions_bot) return true;
-  if (thread?.managed_by_felix) return true;
   return false;
 }
 
