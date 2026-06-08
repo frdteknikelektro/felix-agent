@@ -186,6 +186,7 @@ export function buildTurnPrompt(
     `Source: ${input.event.source}`,
     `Thread key: ${input.event.thread_key}`,
     `Thread dir: ${input.thread.dir}`,
+    `Project workspace (clone and work on repos here): ${cfg.paths.projects}`,
     `Transcript: ${threadTranscriptPath}`,
     `Requester contact: ${contactFilePath(cfg, input.contact.source, input.contact.user_id)}`,
     `Skill index: ${skillIndexPath}`,
