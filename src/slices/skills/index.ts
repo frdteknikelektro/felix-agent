@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
-import type { AppConfig } from "./config.js";
-import { ensureDir, pathExists, readText, writeTextAtomic } from "./lib/fs.js";
-import type { SkillRecord } from "./types.js";
+import type { AppConfig } from "../../config.js";
+import { ensureDir, pathExists, readText, writeTextAtomic } from "../../lib/fs.js";
+import type { SkillRecord } from "../../types.js";
 
 interface SkillFrontmatter {
   id?: string;
@@ -22,11 +22,12 @@ export async function loadSkills(cfg: AppConfig): Promise<SkillRecord[]> {
     if (!(await pathExists(skillPath))) continue;
     const raw = await readText(skillPath);
     const { frontmatter, body } = parseSkill(raw);
+    const id = frontmatter.id ?? entry.name;
     out.push({
-      id: frontmatter.id ?? entry.name,
+      id,
       name: frontmatter.name,
       description: frontmatter.description,
-      permissions: normalizePermissions(frontmatter.permissions),
+      permissions: normalizePermissions(frontmatter.permissions).map((p) => `${id}:${p}`),
       path: skillPath,
       body,
     });
@@ -76,5 +77,8 @@ function parseSkill(raw: string): { frontmatter: SkillFrontmatter; body: string 
 
 function normalizePermissions(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }

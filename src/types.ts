@@ -1,11 +1,21 @@
-export type SourceName = "mattermost" | string;
+// Persisted record types are defined via Zod schemas in core/schemas.ts.
+// Re-export them here so existing callers don't need to update imports.
+export type {
+  SourceMessageAnchor,
+  SourceSender,
+  SourceThreadRef,
+  ThreadState,
+  SessionQueueItem,
+  SessionPermissionRequest,
+  SessionState,
+  ApprovalRecord,
+} from "./core/schemas.js";
 
-export interface SourceSender {
-  source: SourceName;
-  id: string;
-  username?: string;
-  display?: string;
-}
+// ---------------------------------------------------------------------------
+// Runtime-only types (not persisted to JSON, no Zod schema needed)
+// ---------------------------------------------------------------------------
+
+export type SourceName = "mattermost" | string;
 
 export interface UniversalAttachment {
   file_id: string;
@@ -23,57 +33,11 @@ export interface UniversalEvent {
   received_at: string;
   visibility: "dm" | "channel";
   mentions_bot: boolean;
-  sender: SourceSender;
+  sender: import("./core/schemas.js").SourceSender;
   text: string;
   attachments: UniversalAttachment[];
   raw_path: string;
-  source_thread: {
-    channel_id?: string;
-    root_id?: string;
-    user_id?: string;
-  };
-}
-
-export interface ThreadState {
-  thread_key: string;
-  source: SourceName;
-  created_at: string;
-  updated_at: string;
-  managed_by_felix: boolean;
-  source_thread: {
-    channel_id?: string;
-    root_id?: string;
-    user_id?: string;
-  };
-  participants: string[];
-}
-
-export interface SessionQueueItem {
-  received_at: string;
-  event_file: string;
-  source_event_id: string;
-}
-
-export interface SessionPermissionRequest {
-  requested_at: string;
-  skill_id: string;
-  permissions: string[];
-  reason: string;
-  owner_message: string;
-  owner_message_post_id?: string;
-  owner_message_channel_id?: string;
-  thread_key: string;
-  requester: SourceSender;
-  requester_event_file: string;
-}
-
-export interface SessionState {
-  codex_session_id?: string;
-  busy: boolean;
-  queue: SessionQueueItem[];
-  pending_permission?: SessionPermissionRequest | null;
-  last_event_at?: string;
-  last_turn_at?: string;
+  source_thread_ref: import("./core/schemas.js").SourceThreadRef;
 }
 
 export interface SkillRecord {
@@ -91,10 +55,19 @@ export interface ContactRecord {
   display?: string;
   username?: string;
   allowed_permissions: string[];
-  allowed_skills: string[];
   notes?: string;
 }
 
 export interface PermissionDecision {
   mode: "once" | "always" | "reject";
+}
+
+export type OwnerDecisionTarget =
+  | { kind: "thread"; threadKey: string }
+  | { kind: "owner_message"; anchor: import("./core/schemas.js").SourceMessageAnchor };
+
+export interface OwnerDecision {
+  mode: "once" | "always" | "reject";
+  decidedBy: string;
+  target: OwnerDecisionTarget;
 }

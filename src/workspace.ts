@@ -1,43 +1,73 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { ensureDir, pathExists } from "./lib/fs.js";
+import { ensureDir } from "./lib/fs.js";
 
 export interface WorkspacePaths {
   root: string;
-  raw: string;
-  threads: string;
-  contacts: string;
+  intake: string;
+  records: string;
+  sessions: string;
+  approvals: string;
+  audit: string;
+  catalog: string;
   skills: string;
-  logs: string;
-  media: string;
-  codex: string;
+  contacts: string;
+  runtime: string;
   health: string;
+  bin: string;
+  tools: string;
+  python: string;
+  index: string;
+  threadKeyIndex: string;
+  projects: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
+  const intake = path.join(root, "intake");
+  const records = path.join(root, "records");
+  const catalog = path.join(root, "catalog");
+  const runtime = path.join(root, "runtime");
+  const index = path.join(root, "index");
+  const projects = path.join(root, "projects");
   return {
     root,
-    raw: path.join(root, "raw"),
-    threads: path.join(root, "threads"),
-    contacts: path.join(root, "contacts"),
-    skills: path.join(root, "skills"),
-    logs: path.join(root, "logs"),
-    media: path.join(root, "media"),
-    codex: path.join(root, "codex"),
-    health: path.join(root, ".health"),
+    intake,
+    records,
+    sessions: path.join(records, "sessions"),
+    approvals: path.join(records, "approvals"),
+    audit: path.join(records, "audit.jsonl"),
+    catalog,
+    skills: path.join(catalog, "skills"),
+    contacts: path.join(catalog, "contacts"),
+    runtime,
+    health: path.join(runtime, "health"),
+    bin: path.join(runtime, "bin"),
+    tools: path.join(runtime, "tools"),
+    python: path.join(runtime, "python"),
+    index,
+    threadKeyIndex: path.join(index, "thread-key"),
+    projects,
   };
 }
 
 export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
   await Promise.all([
     ensureDir(paths.root),
-    ensureDir(paths.raw),
-    ensureDir(paths.threads),
-    ensureDir(paths.contacts),
+    ensureDir(paths.intake),
+    ensureDir(paths.records),
+    ensureDir(paths.sessions),
+    ensureDir(paths.approvals),
+    ensureDir(paths.catalog),
     ensureDir(paths.skills),
-    ensureDir(paths.logs),
-    ensureDir(paths.media),
-    ensureDir(paths.codex),
+    ensureDir(paths.contacts),
+    ensureDir(paths.runtime),
+    ensureDir(paths.health),
+    ensureDir(paths.bin),
+    ensureDir(paths.tools),
+    ensureDir(paths.python),
+    ensureDir(paths.index),
+    ensureDir(paths.threadKeyIndex),
+    ensureDir(paths.projects),
   ]);
 }
 
@@ -57,8 +87,8 @@ export async function syncBundledSkills(
   }
 }
 
-export function sourceDir(paths: WorkspacePaths, source: string): string {
-  return path.join(paths.threads, source);
+export function sourceSessionsDir(paths: WorkspacePaths, source: string): string {
+  return path.join(paths.sessions, source);
 }
 
 export function sourceContactsDir(paths: WorkspacePaths, source: string): string {
@@ -66,5 +96,21 @@ export function sourceContactsDir(paths: WorkspacePaths, source: string): string
 }
 
 export function sourceRawDir(paths: WorkspacePaths, source: string): string {
-  return path.join(paths.raw, source);
+  return path.join(paths.intake, source, "raw");
+}
+
+export function sourceThreadKeyIndexDir(paths: WorkspacePaths, source: string): string {
+  return path.join(paths.threadKeyIndex, source);
+}
+
+export function projectProviderDir(paths: WorkspacePaths, provider: string): string {
+  return path.join(paths.projects, provider);
+}
+
+export function projectNamespaceDir(paths: WorkspacePaths, provider: string, namespace: string): string {
+  return path.join(projectProviderDir(paths, provider), namespace);
+}
+
+export function projectRepoDir(paths: WorkspacePaths, provider: string, namespace: string, repo: string): string {
+  return path.join(projectNamespaceDir(paths, provider, namespace), repo);
 }

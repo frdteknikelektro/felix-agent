@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadSkills } from "../src/skills.js";
-import { syncBundledSkills } from "../src/workspace.js";
+import { loadSkills } from "../src/slices/skills/index.js";
+import { buildWorkspacePaths, syncBundledSkills } from "../src/workspace.js";
 
 describe("bundled skills", () => {
   it("copies bundled skills into the workspace skill directory", async () => {
@@ -18,22 +18,12 @@ describe("bundled skills", () => {
       "utf8",
     );
 
-    const paths = {
-      root: workspace,
-      raw: path.join(workspace, "raw"),
-      threads: path.join(workspace, "threads"),
-      contacts: path.join(workspace, "contacts"),
-      skills: path.join(workspace, "skills"),
-      logs: path.join(workspace, "logs"),
-      media: path.join(workspace, "media"),
-      codex: path.join(workspace, "codex"),
-      health: path.join(workspace, ".health"),
-    };
+    const paths = buildWorkspacePaths(workspace);
 
     await syncBundledSkills(paths, sourceSkills);
     const loaded = await loadSkills({ WORKSPACE_DIR: workspace, paths } as never);
 
-    expect(await fs.stat(path.join(workspace, "skills", "general", "SKILL.md"))).toBeTruthy();
+    expect(await fs.stat(path.join(paths.skills, "general", "SKILL.md"))).toBeTruthy();
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.id).toBe("general");
   });

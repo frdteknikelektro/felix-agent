@@ -1,15 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import type { AppConfig } from "./config.js";
-import { loadContact, upsertContact } from "./contacts.js";
-import { hasRenderableOutput, parseAgentOutput, runCodexTurn, type PermissionRequiredOutput } from "./codex.js";
+import { requestApproval } from "./slices/approvals/index.js";
+import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendPermissionEvent, appendEventToThread, appendFelixReply, createOrLoadThread, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setPendingPermission, setThreadBusy, setThreadCodexSessionId, updateThreadState, type ThreadHandle, listThreadHandles } from "./thread-store.js";
-import type { ContactRecord, PermissionDecision, SessionPermissionRequest, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
-import { loadSkills, writeSkillIndex } from "./skills.js";
-import type { SourceAdapter } from "./source-adapter.js";
+import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearCodexSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
+import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/approvals/index.js";
+import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
+import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
+import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
+import { shouldAcceptEvent, isOwnMattermostMessage } from "./core/routing.js";
+import { decideTurnResult } from "./core/decide-turn.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
-import { parseFrontmatter, renderFrontmatter } from "./lib/markdown.js";
+import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { fsTimestamp } from "./lib/time.js";
 
 export class FelixEngine {
@@ -20,6 +24,7 @@ export class FelixEngine {
   constructor(
     private readonly cfg: AppConfig,
     adapters: SourceAdapter[],
+    private readonly harness: Harness,
   ) {
     for (const adapter of adapters) {
       this.sourceAdapters.set(adapter.source, adapter);
@@ -38,7 +43,7 @@ export class FelixEngine {
 
   async ingest(event: UniversalEvent): Promise<void> {
     const adapter = this.requireAdapter(event.source);
-    const thread = await this.findThreadHandle(event.thread_key);
+    const thread = await findThreadHandle(this.cfg, event.thread_key);
     if (!this.shouldAccept(thread, event)) {
       await this.persistRawIgnored(event);
       return;
@@ -72,7 +77,7 @@ export class FelixEngine {
           adapter.downloadAttachment({
             event,
             attachment,
-            destinationDir: thread.mediaDir,
+            destinationDir: thread.attachmentsDir,
           }),
         ),
       );
@@ -84,9 +89,7 @@ export class FelixEngine {
       updated_at: new Date().toISOString(),
     });
 
-    if (event.source === "mattermost") {
-      await adapter.addReaction({ event, emoji: "⏳" });
-    }
+    await adapter.updateEventStatus({ event, status: "processing" });
 
     const session = await loadSessionState(thread);
     const queued = await queueThreadEvent(thread, {
@@ -102,9 +105,7 @@ export class FelixEngine {
   }
 
   private shouldAccept(thread: ThreadHandle | null, event: UniversalEvent): boolean {
-    if (event.visibility === "dm") return true;
-    if (thread) return thread.state.managed_by_felix;
-    return event.mentions_bot;
+    return shouldAcceptEvent(event, thread?.state);
   }
 
   async processThread(thread: ThreadHandle): Promise<void> {
@@ -132,69 +133,51 @@ export class FelixEngine {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
       while (true) {
-        let session = await loadSessionState(thread);
-        if (session.queue.length === 0) {
+        const next = await shiftNextEvent(thread);
+        if (!next) {
           break;
         }
-        const item = session.queue.shift()!;
-        await saveSessionState(thread, session);
+        const { item, session } = next;
         const event = await this.readEventFromPath(item.event_file);
         if (this.isOwnMattermostMessage(event)) {
           continue;
         }
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
-        await this.ensureContactDefaults(contact);
-        const permissionEvents = await this.collectPermissionEventPaths(thread);
-        const images = event.attachments
-          .filter((attachment) => attachment.is_image && attachment.local_path)
-          .map((attachment) => attachment.local_path!)
-          .filter(Boolean);
+        const adapter = this.requireAdapter(event.source);
+        const sourceContext = await adapter.getTurnContext({ event });
         let resumed = Boolean(session.codex_session_id);
         let retriedFreshStart = false;
         while (true) {
           let result;
           try {
-            result = await runCodexTurn(this.cfg, {
+            result = await this.harness.run({
               thread,
               event,
               eventFile: item.event_file,
               contact,
               skills: this.skills,
-              skillIndexPath: path.join(this.cfg.paths.skills, "index.md"),
-              permissionEvents,
-              threadTranscriptPath: thread.transcriptFile,
-              images,
+              sourceContext,
               resumed,
             });
           } catch (error) {
-            const current = await loadSessionState(thread);
-            current.queue.unshift(item);
-            await saveSessionState(thread, current);
+            await requeueEvent(thread, item);
             throw error;
           }
-          const parsed = parseAgentOutput(result.lastMessage);
-          const success = result.exitCode === 0 && hasRenderableOutput(parsed);
-          if (!success && resumed && !retriedFreshStart) {
+          const decision = decideTurnResult(result, resumed, retriedFreshStart);
+          if (decision.kind === "retry_fresh") {
             log.warn("codex.resume_fallback", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,
               exit_code: result.exitCode,
               log_path: result.logPath,
             });
-            const current = await loadSessionState(thread);
-            current.codex_session_id = undefined;
-            await saveSessionState(thread, current);
-            await setThreadCodexSessionId(thread, undefined);
+            await clearCodexSession(thread);
             resumed = false;
             retriedFreshStart = true;
             continue;
           }
-
-          if (!success) {
-            const current = await loadSessionState(thread);
-            current.queue.unshift(item);
-            current.codex_session_id = resumed ? undefined : current.codex_session_id;
-            await saveSessionState(thread, current);
+          if (decision.kind === "fail") {
+            await requeueEvent(thread, item, { clearCodexSession: resumed });
             log.error("codex.empty_output", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,
@@ -203,28 +186,14 @@ export class FelixEngine {
             });
             break;
           }
-
-          session = await loadSessionState(thread);
-          session.codex_session_id = result.sessionId;
-          session.last_turn_at = new Date().toISOString();
-          await saveSessionState(thread, session);
-          await setThreadCodexSessionId(thread, result.sessionId);
-          if (parsed.kind === "reply") {
-            await this.postThreadReply(thread, event, result.sessionId, parsed.text);
-            break;
+          await recordTurn(thread, result.sessionId);
+          if (decision.kind === "permission_required") {
+            await this.postThreadReply(thread, event, result.sessionId, (result.parsed as PermissionRequiredOutput).text);
+            await this.handlePermissionRequired(thread, event, result.parsed as PermissionRequiredOutput);
+          } else {
+            await this.postThreadReply(thread, event, result.sessionId, result.parsed.text);
           }
-          if (parsed.kind === "no_skill") {
-            await this.postThreadReply(thread, event, result.sessionId, parsed.text);
-            break;
-          }
-          if (parsed.kind === "permission_required") {
-            await this.handlePermissionRequired(thread, event, parsed as PermissionRequiredOutput);
-            break;
-          }
-          if (parsed.kind === "unknown") {
-            await this.postThreadReply(thread, event, result.sessionId, parsed.text);
-            break;
-          }
+          break;
         }
       }
     } finally {
@@ -241,9 +210,7 @@ export class FelixEngine {
     const adapter = this.requireAdapter(event.source);
     await adapter.sendThreadReply({ event, text });
     await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
-    if (event.source === "mattermost") {
-      await adapter.removeReaction({ event, emoji: "⏳" });
-    }
+    await adapter.updateEventStatus({ event, status: "replied" });
   }
 
   private async handlePermissionRequired(
@@ -251,10 +218,12 @@ export class FelixEngine {
     event: UniversalEvent,
     parsed: PermissionRequiredOutput,
   ): Promise<void> {
+    const skillId = parsed.skillId ?? "(unknown)";
     const request: SessionPermissionRequest = {
+      request_id: crypto.randomUUID(),
       requested_at: new Date().toISOString(),
-      skill_id: parsed.skillId ?? "(unknown)",
-      permissions: parsed.permissions ?? [],
+      skill_id: skillId,
+      permissions: namespacePermissions(skillId, parsed.permissions ?? []),
       reason: parsed.reason ?? "permission required",
       owner_message: parsed.ownerMessage ?? "Owner approval required.",
       thread_key: thread.state.thread_key,
@@ -262,29 +231,35 @@ export class FelixEngine {
       requester_event_file: path.join(thread.eventsDir, `${fsTimestamp(new Date())}_permission_request.md`),
     };
     const ownerMessage = await this.notifyOwner(thread, event, request);
-    request.owner_message_post_id = ownerMessage?.post_id;
-    request.owner_message_channel_id = ownerMessage?.channel_id;
-    await setPendingPermission(thread, request);
-    await appendPermissionRequestEvent(thread, request);
-    const adapter = this.requireAdapter(event.source);
-    if (event.source === "mattermost") {
-      await adapter.removeReaction({ event, emoji: "⏳" });
-      await adapter.addReaction({ event, emoji: "🔒" });
+    request.owner_message_anchor = ownerMessage ?? undefined;
+    if (!ownerMessage) {
+      // The request is still persisted below so the owner can act on it — an
+      // un-anchored reply resolves via resolvePendingPermissionThread's fallback
+      // — but without a post id we can't match a reply to this thread by post,
+      // so flag it for the operator.
+      log.warn("owner.notify_undelivered", {
+        thread_key: thread.state.thread_key,
+        request_id: request.request_id,
+        skill_id: request.skill_id,
+      });
     }
+    await requestApproval(this.cfg, thread, request);
+    const adapter = this.requireAdapter(event.source);
+    await adapter.updateEventStatus({ event, status: "permission_required" });
   }
 
   private async notifyOwner(
     thread: ThreadHandle,
     event: UniversalEvent,
     request: SessionPermissionRequest,
-  ): Promise<{ post_id: string; channel_id: string } | null> {
+  ): Promise<SourceMessageAnchor | null> {
     const ownerId = this.cfg.MATTERMOST_OWNER_USER_ID;
     if (!ownerId) {
       log.warn("owner.missing", { thread_key: thread.state.thread_key });
       return null;
     }
     const adapter = this.requireAdapter(event.source);
-    const threadLink = adapter.getThreadLink(event.thread_key);
+    const threadLink = await adapter.getThreadLink(event.thread_key);
     const message = [
       `Permission request for thread ${event.thread_key}`,
       `Requester: ${event.sender.display ?? event.sender.id} (${event.sender.id})`,
@@ -300,76 +275,46 @@ export class FelixEngine {
     ]
       .filter(Boolean)
       .join("\n");
-    return adapter.sendUserMessage({ userId: ownerId, text: message });
+    try {
+      return await adapter.sendUserMessage({ userId: ownerId, text: message });
+    } catch (error) {
+      log.warn("owner.notify_failed", {
+        thread_key: thread.state.thread_key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
-  async handleOwnerDecision(event: UniversalEvent, decision: PermissionDecision): Promise<void> {
-    const thread = await this.findPendingPermissionThreadForEvent(event);
-    if (!thread) {
-      log.warn("owner.permission_thread_not_found", {
-        event_thread_key: event.thread_key,
-        event_id: event.event_id,
-      });
-      return;
-    }
+  async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
+    const thread = await resolvePendingPermissionThread(this.cfg, target);
+    if (!thread) return false;
     const session = await loadSessionState(thread);
-    const pending = session.pending_permission;
-    if (!pending) {
-      return;
-    }
-    const now = new Date().toISOString();
-    if (decision.mode === "reject") {
-      const decisionFile = await appendPermissionEvent(thread, now, "rejected", {
-      owner_user_id: event.sender.id,
-      skill_id: pending.skill_id,
-      permissions: pending.permissions,
-      scope: "once",
-      source_thread: thread.state.source_thread,
-      reason: pending.reason,
-    });
-      await setPendingPermission(thread, null);
-      await queueThreadEvent(thread, {
-        received_at: now,
-        event_file: decisionFile,
-        source_event_id: `owner-reject-${now}`,
-      });
-      await this.processThread(thread);
-      return;
-    }
+    return Boolean(session.pending_permission);
+  }
 
-    const scope = decision.mode === "always" ? "always" : "once";
-    const decisionFile = await appendPermissionEvent(thread, now, "approved", {
-      owner_user_id: event.sender.id,
-      skill_id: pending.skill_id,
-      permissions: pending.permissions,
-      scope,
-      source_thread: thread.state.source_thread,
-      reason: pending.reason,
-    });
-    if (decision.mode === "always") {
-      const contact = await loadContact(
-        this.cfg,
-        pending.requester.source,
-        pending.requester.id,
-      );
-      const next: ContactRecord = {
-        ...contact,
-        source: pending.requester.source,
-        user_id: pending.requester.id,
-        display: pending.requester.display ?? contact.display,
-        username: pending.requester.username ?? contact.username,
-        allowed_permissions: Array.from(new Set([...contact.allowed_permissions, ...pending.permissions])),
-        allowed_skills: Array.from(new Set([...contact.allowed_skills, pending.skill_id])),
-      };
-      await upsertContact(this.cfg, pending.requester.source, pending.requester.id, next);
+  async handleOwnerDecision(decision: OwnerDecision): Promise<void> {
+    const outcome = await applyOwnerDecision(this.cfg, decision);
+    if (!outcome) {
+      return;
     }
-    await setPendingPermission(thread, null);
-    await queueThreadEvent(thread, {
-      received_at: now,
-      event_file: decisionFile,
-      source_event_id: `owner-approve-${now}`,
+    await queueThreadEvent(outcome.thread, {
+      received_at: outcome.at,
+      event_file: outcome.decisionFile,
+      source_event_id: `owner-${decision.mode === "reject" ? "reject" : "approve"}-${outcome.at}`,
     });
-    await this.processThread(thread);
+    await this.processThread(outcome.thread);
+  }
+
+  /** Wait for all in-flight thread processing to settle, up to timeoutMs. */
+  async drain(timeoutMs = 15_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (this.processing.size > 0 && Date.now() < deadline) {
+      await Promise.race([
+        Promise.allSettled(Array.from(this.processing.values())),
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
+    }
   }
 
   async recoverThreads(): Promise<void> {
@@ -377,11 +322,10 @@ export class FelixEngine {
     for (const thread of threads) {
       const session = await loadSessionState(thread);
       await this.sanitizeThreadQueue(thread);
-      const sanitized = await loadSessionState(thread);
       if (session.busy) {
-        sanitized.busy = false;
-        await saveSessionState(thread, sanitized);
+        await setThreadBusy(thread, false);
       }
+      const sanitized = await loadSessionState(thread);
       if (sanitized.queue.length > 0 && !sanitized.busy) {
         void this.processThread(thread).catch((error) => {
           log.error("thread.recover_failed", { thread_key: thread.state.thread_key, error: error.message });
@@ -417,67 +361,9 @@ export class FelixEngine {
     });
   }
 
-  private async collectPermissionEventPaths(thread: ThreadHandle): Promise<string[]> {
-    const files = await fs.readdir(thread.eventsDir).catch(() => []);
-    return files
-      .filter((file) => file.includes("owner_permission") || file.includes("permission_request"))
-      .sort()
-      .map((file) => path.join(thread.eventsDir, file));
-  }
-
   private async readEventFromPath(eventFile: string): Promise<UniversalEvent> {
     const raw = await readText(eventFile);
-    const { frontmatter, body } = parseFrontmatter<{
-      type?: string;
-      source?: string;
-      event_id?: string;
-      thread_key?: string;
-      received_at?: string;
-      visibility?: "dm" | "channel";
-      mentions_bot?: boolean;
-      sender?: UniversalEvent["sender"];
-      attachments?: UniversalAttachment[];
-      source_thread?: UniversalEvent["source_thread"];
-      owner_user_id?: string;
-    }>(raw);
-    if (frontmatter.type === "owner_permission") {
-      return {
-        source: frontmatter.source ?? "mattermost",
-        event_id: frontmatter.event_id ?? path.basename(eventFile),
-        thread_key: frontmatter.thread_key ?? "unknown",
-        received_at: frontmatter.received_at ?? new Date().toISOString(),
-        visibility: "dm",
-        mentions_bot: true,
-        sender: {
-          source: frontmatter.source ?? "mattermost",
-          id: frontmatter.owner_user_id ?? "owner",
-          display: frontmatter.owner_user_id ?? "owner",
-        },
-        text: body.trim(),
-        attachments: [],
-        raw_path: eventFile,
-        source_thread: frontmatter.source_thread ?? {},
-      };
-    }
-    return {
-      source: frontmatter.source ?? "mattermost",
-      event_id: frontmatter.event_id ?? path.basename(eventFile),
-      thread_key: frontmatter.thread_key ?? "unknown",
-      received_at: frontmatter.received_at ?? new Date().toISOString(),
-      visibility: frontmatter.visibility ?? "channel",
-      mentions_bot: Boolean(frontmatter.mentions_bot),
-      sender: frontmatter.sender ?? { source: "mattermost", id: "unknown" },
-      text: body.trim(),
-      attachments: frontmatter.attachments ?? [],
-      raw_path: eventFile,
-      source_thread: frontmatter.source_thread ?? {},
-    };
-  }
-
-  private async ensureContactDefaults(contact: ContactRecord): Promise<void> {
-    if (contact.allowed_permissions.length === 0 && contact.allowed_skills.length === 0 && !contact.display && !contact.username) {
-      return;
-    }
+    return toUniversalEvent(parseEventFile(raw), eventFile);
   }
 
   private requireAdapter(source: string): SourceAdapter {
@@ -494,75 +380,11 @@ export class FelixEngine {
   }
 
   private isOwnMattermostMessage(event: UniversalEvent): boolean {
-    return event.source === "mattermost" && Boolean(this.cfg.MATTERMOST_BOT_USER_ID) && (
-      event.sender.id === this.cfg.MATTERMOST_BOT_USER_ID ||
-      event.sender.id.endsWith(`:${this.cfg.MATTERMOST_BOT_USER_ID}`)
-    );
+    return isOwnMattermostMessage(event, this.cfg.MATTERMOST_BOT_USER_ID);
   }
 
-  private async findPendingPermissionThreadForEvent(event: UniversalEvent): Promise<ThreadHandle | null> {
-    const threads = await listThreadHandles(this.cfg);
-    const channelId = event.source_thread.channel_id?.trim();
-    const rootId = event.source_thread.root_id?.trim();
-    for (const thread of threads) {
-      const session = await loadSessionState(thread);
-      const pending = session.pending_permission;
-      if (!pending) {
-        continue;
-      }
-      if (
-        pending.owner_message_post_id &&
-        rootId &&
-        pending.owner_message_post_id === rootId &&
-        (!pending.owner_message_channel_id || !channelId || pending.owner_message_channel_id === channelId)
-      ) {
-        return thread;
-      }
-    }
-    for (const thread of threads) {
-      const session = await loadSessionState(thread);
-      if (session.pending_permission && !session.pending_permission.owner_message_post_id) {
-        return thread;
-      }
-    }
-    return null;
-  }
-
-  private async findThreadHandle(threadKey: string): Promise<ThreadHandle | null> {
-    const threads = await listThreadHandles(this.cfg);
-    return threads.find((thread) => thread.state.thread_key === threadKey) ?? null;
-  }
 }
 
-async function appendPermissionRequestEvent(
-  thread: ThreadHandle,
-  request: SessionPermissionRequest,
-): Promise<void> {
-  await writeTextAtomic(
-    request.requester_event_file,
-    renderFrontmatter(
-      {
-        type: "permission_request",
-        requested_at: request.requested_at,
-        skill_id: request.skill_id,
-        permissions: request.permissions,
-        reason: request.reason,
-        owner_message: request.owner_message,
-        owner_message_post_id: request.owner_message_post_id,
-        owner_message_channel_id: request.owner_message_channel_id,
-      },
-      [
-        `Permission required for ${request.skill_id}.`,
-        `Permissions: ${request.permissions.join(", ") || "(none)"}`,
-        `Reason: ${request.reason}`,
-        `Owner message: ${request.owner_message}`,
-        request.owner_message_post_id ? `Owner post: ${request.owner_message_post_id}` : "",
-      ].join("\n"),
-    ),
-  );
-  await appendFelixReply(
-    thread,
-    new Date().toISOString(),
-    `Permission requested for ${request.skill_id}. Waiting for owner approval.`,
-  );
+export function namespacePermissions(skillId: string, permissions: string[]): string[] {
+  return permissions.map((p) => (p.includes(":") ? p : `${skillId}:${p}`));
 }

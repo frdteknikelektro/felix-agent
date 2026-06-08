@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { ZodType } from "zod";
 
 export async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
@@ -43,6 +44,26 @@ export async function readJson<T>(file: string, fallback: T): Promise<T> {
   }
 }
 
+/** Like readJson but validates against a Zod schema; returns fallback on parse or validation failure. */
+export async function readJsonParsed<T>(
+  file: string,
+  schema: ZodType<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    const result = schema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
   await writeTextAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/** Sanitize an arbitrary string into a filesystem-safe name segment. */
+export function safeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

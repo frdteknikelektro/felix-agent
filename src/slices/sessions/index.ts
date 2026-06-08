@@ -1,18 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AppConfig } from "./config.js";
-import { ensureDir, pathExists, readJson, readText, writeJsonAtomic, writeTextAtomic } from "./lib/fs.js";
-import { fsTimestamp, safeTimestamp } from "./lib/time.js";
-import { parseFrontmatter, renderFrontmatter } from "./lib/markdown.js";
+import type { AppConfig } from "../../config.js";
+import { ensureDir, pathExists, readJson, readJsonParsed, readText, safeFileName, writeJsonAtomic, writeTextAtomic } from "../../lib/fs.js";
+import { fsTimestamp, safeTimestamp } from "../../lib/time.js";
+import { parseFrontmatter, renderFrontmatter } from "../../lib/markdown.js";
+import { buildEventFile, type EventFileSpec, type OwnerPermissionDetails } from "../events/index.js";
+import { ThreadStateSchema, SessionStateSchema } from "../../core/schemas.js";
 import type {
   SessionPermissionRequest,
   SessionQueueItem,
   SessionState,
   ThreadState,
-  UniversalAttachment,
   UniversalEvent,
-} from "./types.js";
-import { sourceDir } from "./workspace.js";
+} from "../../types.js";
+import { sourceSessionsDir, sourceThreadKeyIndexDir } from "../../workspace.js";
 
 export interface ThreadHandle {
   dir: string;
@@ -20,32 +21,32 @@ export interface ThreadHandle {
   sessionFile: string;
   transcriptFile: string;
   eventsDir: string;
-  mediaDir: string;
-  codexDir: string;
+  attachmentsDir: string;
+  turnsDir: string;
   state: ThreadState;
   session: SessionState;
 }
 
 export async function createOrLoadThread(
   cfg: AppConfig,
-  event: Pick<UniversalEvent, "source" | "thread_key" | "source_thread" | "received_at">,
+  event: Pick<UniversalEvent, "source" | "thread_key" | "source_thread_ref" | "received_at">,
 ): Promise<ThreadHandle> {
-  const existing = await findThreadHandle(cfg, event.thread_key);
+  const existing = await findThreadHandle(cfg, event.thread_key, event.source);
   if (existing) {
     await touchThread(existing);
     return existing;
   }
 
   const createdAt = event.received_at;
-  const dir = path.join(sourceDir(cfg.paths, event.source), buildThreadDirName(event.thread_key, createdAt));
+  const dir = path.join(sourceSessionsDir(cfg.paths, event.source), buildThreadDirName(event.thread_key, createdAt));
   const threadFile = path.join(dir, "thread.json");
   const sessionFile = path.join(dir, "session.json");
   const transcriptFile = path.join(dir, "transcript.md");
   const eventsDir = path.join(dir, "events");
-  const mediaDir = path.join(dir, "media");
-  const codexDir = path.join(dir, "codex");
+  const attachmentsDir = path.join(dir, "attachments");
+  const turnsDir = path.join(dir, "turns");
   await ensureDir(dir);
-  await Promise.all([ensureDir(eventsDir), ensureDir(mediaDir), ensureDir(codexDir)]);
+  await Promise.all([ensureDir(eventsDir), ensureDir(attachmentsDir), ensureDir(turnsDir)]);
 
   const state: ThreadState = {
     thread_key: event.thread_key,
@@ -53,7 +54,7 @@ export async function createOrLoadThread(
     created_at: createdAt,
     updated_at: createdAt,
     managed_by_felix: true,
-    source_thread: event.source_thread,
+    source_thread_ref: event.source_thread_ref,
     participants: [],
   };
   const session: SessionState = {
@@ -65,56 +66,56 @@ export async function createOrLoadThread(
   await writeJsonAtomic(threadFile, state);
   await writeJsonAtomic(sessionFile, session);
   await writeTextAtomic(transcriptFile, `# Thread ${event.thread_key}\n\nCreated ${createdAt}\n`);
-  return {
+  const handle = {
     dir,
     threadFile,
     sessionFile,
     transcriptFile,
     eventsDir,
-    mediaDir,
-    codexDir,
+    attachmentsDir,
+    turnsDir,
     state,
     session,
   };
+  await writeThreadKeyIndex(cfg, handle);
+  return handle;
 }
 
 export async function findThreadHandle(
   cfg: AppConfig,
   threadKey: string,
+  source?: string,
 ): Promise<ThreadHandle | null> {
-  const sources = await fs.readdir(cfg.paths.threads, { withFileTypes: true }).catch(() => []);
-  for (const sourceDirEntry of sources) {
-    if (!sourceDirEntry.isDirectory()) continue;
-    const sourcePath = path.join(cfg.paths.threads, sourceDirEntry.name);
-    const candidates = await fs.readdir(sourcePath, { withFileTypes: true }).catch(() => []);
-    for (const candidate of candidates) {
-      if (!candidate.isDirectory()) continue;
-      const dir = path.join(sourcePath, candidate.name);
-      const threadFile = path.join(dir, "thread.json");
-      if (!(await pathExists(threadFile))) continue;
-      const state = await repairThreadState(dir, await readJson<ThreadState>(threadFile, null as unknown as ThreadState));
-      if (!state || state.thread_key !== threadKey) continue;
-      return loadThreadHandle(dir, state);
-    }
+  const sources = source ? [source] : await listThreadKeyIndexSources(cfg);
+  const indexName = `${safeFileName(threadKey)}.json`;
+  for (const candidateSource of sources) {
+    const indexFile = path.join(sourceThreadKeyIndexDir(cfg.paths, candidateSource), indexName);
+    const index = await readJson<ThreadKeyIndexRecord | null>(indexFile, null);
+    if (!index || index.thread_key !== threadKey) continue;
+    const dir = path.resolve(cfg.paths.root, index.session_path);
+    const handle = await loadThreadHandleByDir(dir);
+    if (handle?.state.thread_key === threadKey) return handle;
   }
   return null;
 }
 
 export async function listThreadHandles(cfg: AppConfig): Promise<ThreadHandle[]> {
   const out: ThreadHandle[] = [];
-  const sources = await fs.readdir(cfg.paths.threads, { withFileTypes: true }).catch(() => []);
+  const sources = await fs.readdir(cfg.paths.sessions, { withFileTypes: true }).catch(() => []);
   for (const sourceDirEntry of sources) {
     if (!sourceDirEntry.isDirectory()) continue;
-    const sourcePath = path.join(cfg.paths.threads, sourceDirEntry.name);
+    const sourcePath = path.join(cfg.paths.sessions, sourceDirEntry.name);
     const candidates = await fs.readdir(sourcePath, { withFileTypes: true }).catch(() => []);
     for (const candidate of candidates) {
       if (!candidate.isDirectory()) continue;
       const dir = path.join(sourcePath, candidate.name);
       const threadFile = path.join(dir, "thread.json");
       if (!(await pathExists(threadFile))) continue;
-      const state = await repairThreadState(dir, await readJson<ThreadState>(threadFile, null as unknown as ThreadState));
+      const state = await repairThreadState(cfg, dir, await readJsonParsed(threadFile, ThreadStateSchema, null as unknown as ThreadState));
       if (!state) continue;
-      out.push(await loadThreadHandle(dir, state));
+      const handle = await loadThreadHandle(dir, state);
+      await writeThreadKeyIndex(cfg, handle);
+      out.push(handle);
     }
   }
   return out;
@@ -123,51 +124,25 @@ export async function listThreadHandles(cfg: AppConfig): Promise<ThreadHandle[]>
 export async function loadThreadHandleByDir(dir: string): Promise<ThreadHandle | null> {
   const threadFile = path.join(dir, "thread.json");
   if (!(await pathExists(threadFile))) return null;
-  const state = await readJson<ThreadState>(threadFile, null as unknown as ThreadState);
+  const state = await readJsonParsed(threadFile, ThreadStateSchema, null as unknown as ThreadState);
   if (!state) return null;
   return loadThreadHandle(dir, state);
 }
 
-export async function appendEventToThread(
-  handle: ThreadHandle,
-  event: UniversalEvent,
-): Promise<string> {
-  const file = path.join(
-    handle.eventsDir,
-    `${safeTimestamp(new Date(event.received_at))}_${safeFileName(event.source)}_${safeFileName(event.event_id)}.md`,
-  );
-  const attachmentLines = event.attachments.length
-    ? [
-        "",
-        "Attachments:",
-        ...event.attachments.map((attachment) => `- ${attachment.local_path ?? attachment.filename}`),
-      ]
-    : [];
-  const raw = renderFrontmatter(
-    {
-      type: "source_event",
-      source: event.source,
-      event_id: event.event_id,
-      thread_key: event.thread_key,
-      received_at: event.received_at,
-      visibility: event.visibility,
-      mentions_bot: event.mentions_bot,
-      sender: event.sender,
-      source_thread: event.source_thread,
-      attachments: event.attachments,
-    },
-    `${event.text.trim()}\n${attachmentLines.join("\n")}\n`,
-  );
-  await writeTextAtomic(file, raw);
-  await appendTranscript(handle, [
-    `### [${event.received_at}] ${event.source}:${event.sender.id}`,
-    event.text.trim(),
-    ...attachmentLines,
-    "",
-    `Event file: ${path.relative(handle.dir, file)}`,
-    "",
-  ].join("\n"));
+async function writeThreadEventAt(handle: ThreadHandle, file: string, spec: EventFileSpec): Promise<string> {
+  await writeTextAtomic(file, renderFrontmatter(spec.frontmatter, spec.body));
+  const lines = [...spec.transcriptLines, "", `Event file: ${path.relative(handle.dir, file)}`, ""];
+  await appendTranscript(handle, (spec.compactTranscript ? lines.filter(Boolean) : lines).join("\n"));
   return file;
+}
+
+async function writeThreadEvent(handle: ThreadHandle, spec: EventFileSpec): Promise<string> {
+  const file = path.join(handle.eventsDir, `${safeTimestamp(new Date(spec.at))}_${spec.slug}.md`);
+  return writeThreadEventAt(handle, file, spec);
+}
+
+export async function appendEventToThread(handle: ThreadHandle, event: UniversalEvent): Promise<string> {
+  return writeThreadEvent(handle, buildEventFile({ kind: "source_event", event }));
 }
 
 export async function appendFelixReply(
@@ -176,76 +151,41 @@ export async function appendFelixReply(
   text: string,
   codexSessionId?: string,
 ): Promise<string> {
-  const file = path.join(handle.eventsDir, `${safeTimestamp(new Date(at))}_felix_reply.md`);
-  const raw = renderFrontmatter(
-    {
-      type: "felix_reply",
-      at,
-      codex_session_id: codexSessionId,
-    },
-    `${text.trim()}\n`,
-  );
-  await writeTextAtomic(file, raw);
-  await appendTranscript(handle, [`### [${at}] felix`, text.trim(), "", `Event file: ${path.relative(handle.dir, file)}`, ""].join("\n"));
-  return file;
+  return writeThreadEvent(handle, buildEventFile({ kind: "felix_reply", at, text, codexSessionId }));
 }
 
 export async function appendPermissionEvent(
   handle: ThreadHandle,
   at: string,
   decision: "approved" | "rejected",
-  details: {
-    owner_user_id?: string;
-    skill_id: string;
-    permissions: string[];
-    scope: "once" | "always";
-    source_thread?: {
-      channel_id?: string;
-      root_id?: string;
-      user_id?: string;
-    };
-    reason?: string;
-  },
+  details: OwnerPermissionDetails,
 ): Promise<string> {
-  const file = path.join(handle.eventsDir, `${safeTimestamp(new Date(at))}_owner_permission_${decision}.md`);
-  const raw = renderFrontmatter(
-    {
-      type: "owner_permission",
-      source: handle.state.source,
-      thread_key: handle.state.thread_key,
-      decision,
-      approved_at: at,
-      ...details,
-    },
-    [
-      `${decision === "approved" ? "Approved" : "Rejected"} permission for ${details.skill_id}.`,
-      `Scope: ${details.scope}`,
-      details.reason ? `Reason: ${details.reason}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n") + "\n",
-  );
-  await writeTextAtomic(file, raw);
-  await appendTranscript(
+  return writeThreadEvent(
     handle,
-    [
-      `### [${at}] owner_permission:${decision}`,
-      `Skill: ${details.skill_id}`,
-      `Scope: ${details.scope}`,
-      `Permissions: ${details.permissions.join(", ")}`,
-      details.reason ? `Reason: ${details.reason}` : "",
-      "",
-      `Event file: ${path.relative(handle.dir, file)}`,
-      "",
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    buildEventFile({
+      kind: "owner_permission",
+      at,
+      source: handle.state.source,
+      threadKey: handle.state.thread_key,
+      decision,
+      details,
+    }),
   );
-  return file;
+}
+
+export async function appendPermissionRequest(
+  handle: ThreadHandle,
+  request: SessionPermissionRequest,
+): Promise<string> {
+  return writeThreadEventAt(
+    handle,
+    request.requester_event_file,
+    buildEventFile({ kind: "permission_request", request }),
+  );
 }
 
 export async function loadSessionState(handle: ThreadHandle): Promise<SessionState> {
-  return readJson<SessionState>(handle.sessionFile, {
+  return readJsonParsed(handle.sessionFile, SessionStateSchema, {
     busy: false,
     queue: [],
     pending_permission: null,
@@ -258,7 +198,7 @@ export async function saveSessionState(handle: ThreadHandle, session: SessionSta
 }
 
 export async function loadThreadState(handle: ThreadHandle): Promise<ThreadState> {
-  return readJson<ThreadState>(handle.threadFile, handle.state);
+  return readJsonParsed(handle.threadFile, ThreadStateSchema, handle.state);
 }
 
 export async function saveThreadState(handle: ThreadHandle, state: ThreadState): Promise<void> {
@@ -280,13 +220,6 @@ export async function queueThreadEvent(
   return session;
 }
 
-export async function dequeueThreadEvent(handle: ThreadHandle): Promise<SessionQueueItem | null> {
-  const session = await loadSessionState(handle);
-  const item = session.queue.shift() ?? null;
-  await saveSessionState(handle, session);
-  return item;
-}
-
 export async function setThreadBusy(handle: ThreadHandle, busy: boolean): Promise<SessionState> {
   const session = await loadSessionState(handle);
   session.busy = busy;
@@ -294,16 +227,42 @@ export async function setThreadBusy(handle: ThreadHandle, busy: boolean): Promis
   return session;
 }
 
-export async function setThreadCodexSessionId(
+export interface ShiftedEvent {
+  item: SessionQueueItem;
+  session: SessionState;
+}
+
+export async function shiftNextEvent(handle: ThreadHandle): Promise<ShiftedEvent | null> {
+  const session = await loadSessionState(handle);
+  const item = session.queue.shift();
+  if (!item) return null;
+  await saveSessionState(handle, session);
+  return { item, session };
+}
+
+export async function requeueEvent(
   handle: ThreadHandle,
-  sessionId: string | undefined,
+  item: SessionQueueItem,
+  opts: { clearCodexSession?: boolean } = {},
 ): Promise<SessionState> {
   const session = await loadSessionState(handle);
-  if (sessionId) {
-    session.codex_session_id = sessionId;
-  } else {
-    delete session.codex_session_id;
-  }
+  session.queue.unshift(item);
+  if (opts.clearCodexSession) delete session.codex_session_id;
+  await saveSessionState(handle, session);
+  return session;
+}
+
+export async function recordTurn(handle: ThreadHandle, codexSessionId: string): Promise<SessionState> {
+  const session = await loadSessionState(handle);
+  session.codex_session_id = codexSessionId;
+  session.last_turn_at = new Date().toISOString();
+  await saveSessionState(handle, session);
+  return session;
+}
+
+export async function clearCodexSession(handle: ThreadHandle): Promise<SessionState> {
+  const session = await loadSessionState(handle);
+  delete session.codex_session_id;
   await saveSessionState(handle, session);
   return session;
 }
@@ -354,27 +313,27 @@ async function touchThread(handle: ThreadHandle): Promise<void> {
 }
 
 async function loadThreadHandle(dir: string, state: ThreadState): Promise<ThreadHandle> {
-  state = await repairThreadState(dir, state);
+  state = await repairThreadStateByDir(dir, state);
   const threadFile = path.join(dir, "thread.json");
   const sessionFile = path.join(dir, "session.json");
   const transcriptFile = path.join(dir, "transcript.md");
   const eventsDir = path.join(dir, "events");
-  const mediaDir = path.join(dir, "media");
-  const codexDir = path.join(dir, "codex");
-  const session = await readJson<SessionState>(sessionFile, {
+  const attachmentsDir = path.join(dir, "attachments");
+  const turnsDir = path.join(dir, "turns");
+  const session = await readJsonParsed(sessionFile, SessionStateSchema, {
     busy: false,
     queue: [],
     pending_permission: null,
   });
-  await Promise.all([ensureDir(eventsDir), ensureDir(mediaDir), ensureDir(codexDir)]);
+  await Promise.all([ensureDir(eventsDir), ensureDir(attachmentsDir), ensureDir(turnsDir)]);
   return {
     dir,
     threadFile,
     sessionFile,
     transcriptFile,
     eventsDir,
-    mediaDir,
-    codexDir,
+    attachmentsDir,
+    turnsDir,
     state,
     session,
   };
@@ -384,12 +343,16 @@ function buildThreadDirName(threadKey: string, createdAt: string): string {
   return `${safeTimestamp(new Date(createdAt))}_${safeFileName(threadKey).slice(0, 120)}`;
 }
 
-function safeFileName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+async function repairThreadState(cfg: AppConfig, dir: string, state: ThreadState): Promise<ThreadState> {
+  const repaired = await repairThreadStateByDir(dir, state);
+  if (repaired !== state) {
+    await writeThreadKeyIndex(cfg, await loadThreadHandle(dir, repaired));
+  }
+  return repaired;
 }
 
-async function repairThreadState(dir: string, state: ThreadState): Promise<ThreadState> {
-  const rootId = state.source_thread.root_id?.trim();
+async function repairThreadStateByDir(dir: string, state: ThreadState): Promise<ThreadState> {
+  const rootId = state.source_thread_ref.root_message_id?.trim();
   if (state.source !== "mattermost" || rootId) {
     return state;
   }
@@ -406,16 +369,18 @@ async function repairThreadState(dir: string, state: ThreadState): Promise<Threa
     const parsed = parseFrontmatter<Record<string, unknown>>(raw);
     if (parsed.frontmatter.type !== "source_event") continue;
     const eventId = typeof parsed.frontmatter.event_id === "string" ? parsed.frontmatter.event_id.trim() : "";
-    const sourceThread = parsed.frontmatter.source_thread as Record<string, unknown> | undefined;
-    const channelId = typeof sourceThread?.channel_id === "string" ? sourceThread.channel_id.trim() : "";
+    const sourceThread = parsed.frontmatter.source_thread_ref as Record<string, unknown> | undefined;
+    const channelId = typeof sourceThread?.conversation_id === "string" ? sourceThread.conversation_id.trim() : "";
     if (!eventId || !channelId) continue;
     const repaired: ThreadState = {
       ...state,
       thread_key: `mattermost:${channelId}:${eventId}`,
-      source_thread: {
-        ...state.source_thread,
-        channel_id: channelId,
-        root_id: eventId,
+      source_thread_ref: {
+        ...state.source_thread_ref,
+        source: "mattermost",
+        conversation_id: channelId,
+        root_message_id: eventId,
+        thread_id: eventId,
       },
       updated_at: new Date().toISOString(),
     };
@@ -424,4 +389,28 @@ async function repairThreadState(dir: string, state: ThreadState): Promise<Threa
   }
 
   return state;
+}
+
+interface ThreadKeyIndexRecord {
+  thread_key: string;
+  source: string;
+  session_path: string;
+}
+
+async function writeThreadKeyIndex(cfg: AppConfig, handle: ThreadHandle): Promise<void> {
+  const file = path.join(
+    sourceThreadKeyIndexDir(cfg.paths, handle.state.source),
+    `${safeFileName(handle.state.thread_key)}.json`,
+  );
+  const record: ThreadKeyIndexRecord = {
+    thread_key: handle.state.thread_key,
+    source: handle.state.source,
+    session_path: path.relative(cfg.paths.root, handle.dir),
+  };
+  await writeJsonAtomic(file, record);
+}
+
+async function listThreadKeyIndexSources(cfg: AppConfig): Promise<string[]> {
+  const entries = await fs.readdir(cfg.paths.threadKeyIndex, { withFileTypes: true }).catch(() => []);
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }

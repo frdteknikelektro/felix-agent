@@ -1,8 +1,8 @@
 import path from "node:path";
-import type { AppConfig } from "./config.js";
-import { ensureDir, pathExists, readText, writeTextAtomic } from "./lib/fs.js";
-import { parseFrontmatter, renderFrontmatter } from "./lib/markdown.js";
-import type { ContactRecord } from "./types.js";
+import type { AppConfig } from "../../config.js";
+import { ensureDir, pathExists, readText, writeTextAtomic } from "../../lib/fs.js";
+import { parseFrontmatter, renderFrontmatter } from "../../lib/markdown.js";
+import type { ContactRecord, SourceSender } from "../../types.js";
 
 interface ContactFrontmatter {
   source?: string;
@@ -10,7 +10,6 @@ interface ContactFrontmatter {
   display?: string;
   username?: string;
   allowed_permissions?: string[];
-  allowed_skills?: string[];
   notes?: string;
 }
 
@@ -30,7 +29,6 @@ export async function loadContact(
       source,
       user_id: userId,
       allowed_permissions: [],
-      allowed_skills: [],
     };
   }
   const raw = await readText(file);
@@ -41,7 +39,6 @@ export async function loadContact(
     display: frontmatter.display,
     username: frontmatter.username,
     allowed_permissions: normalizeList(frontmatter.allowed_permissions),
-    allowed_skills: normalizeList(frontmatter.allowed_skills),
     notes: normalizeNotes(frontmatter.notes, body),
   };
 }
@@ -55,34 +52,45 @@ export async function saveContact(cfg: AppConfig, contact: ContactRecord): Promi
     display: contact.display,
     username: contact.username,
     allowed_permissions: contact.allowed_permissions,
-    allowed_skills: contact.allowed_skills,
     notes: contact.notes,
   };
   await writeTextAtomic(file, renderFrontmatter(frontmatter, contact.notes ? `\n${contact.notes}\n` : "\n"));
 }
 
-export async function upsertContact(
+/**
+ * Additively grant a contact one skill and a set of permissions, de-duplicated
+ * against whatever they already hold. This is the single home for the
+ * "approved permissions accumulate" invariant — the engine calls it after an
+ * "always" decision; nothing else merges contact grants.
+ */
+export async function grantPermissions(
   cfg: AppConfig,
-  source: string,
-  userId: string,
-  patch: Partial<ContactRecord> & { display?: string; username?: string },
+  requester: SourceSender,
+  permissions: string[],
 ): Promise<ContactRecord> {
-  const current = await loadContact(cfg, source, userId);
+  const current = await loadContact(cfg, requester.source, requester.id);
   const next: ContactRecord = {
     ...current,
-    ...patch,
-    source,
-    user_id: userId,
-    allowed_permissions: patch.allowed_permissions ?? current.allowed_permissions,
-    allowed_skills: patch.allowed_skills ?? current.allowed_skills,
+    source: requester.source,
+    user_id: requester.id,
+    display: requester.display ?? current.display,
+    username: requester.username ?? current.username,
+    allowed_permissions: dedup([...current.allowed_permissions, ...permissions]),
   };
   await saveContact(cfg, next);
   return next;
 }
 
+function dedup(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
 function normalizeList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function normalizeNotes(frontmatterNotes: unknown, body: string): string | undefined {

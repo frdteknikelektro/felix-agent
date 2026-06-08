@@ -4,3 +4,5 @@ workspace
 config/.env
 .DS_Store
 *.log
+.idea
+*.png

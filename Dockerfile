@@ -11,15 +11,58 @@ RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates dumb-init \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        dumb-init \
+        ghostscript \
+        git \
+        imagemagick \
+        jq \
+        poppler-utils \
+        python3 \
+        python3-dev \
+        python3-pip \
+        python3-venv \
+        unzip \
+        zip \
     && useradd --create-home --uid 1001 --shell /bin/bash agent \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        matplotlib \
+        numpy \
+        openpyxl \
+        pandas \
+        pillow \
+        python-dateutil \
+        requests \
+        seaborn \
+        xlsxwriter \
+    && node --version \
+    && python3 --version \
+    && python3 - <<'PY'
+import dateutil
+import matplotlib
+import numpy
+import openpyxl
+import pandas
+import PIL
+import requests
+import seaborn
+import xlsxwriter
+
+print("python core data stack ok")
+PY
 
 WORKDIR /app
 
 ENV NODE_ENV=production \
     HOME=/home/agent \
     WORKSPACE_DIR=/home/agent/workspace \
+    PYTHONUSERBASE=/home/agent/workspace/runtime/python \
+    PATH="/home/agent/workspace/runtime/bin:/home/agent/workspace/runtime/python/bin:$PATH" \
     HEALTH_PORT=3000 \
     CODEX_MODEL=gpt-5.4-mini \
     CODEX_BYPASS_SANDBOX=true \

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { parseAgentOutput, buildTurnPrompt } from "../src/codex.js";
+import { parseAgentOutput, buildTurnPrompt } from "../src/adapters/codex/index.js";
+import { buildWorkspacePaths } from "../src/workspace.js";
+import { mattermostThreadRef } from "./helpers/workspace.js";
 
 describe("codex output parser", () => {
   it("parses reply blocks", () => {
@@ -29,6 +31,36 @@ describe("codex output parser", () => {
     }
   });
 
+  it("captures user-facing text before PERMISSION_REQUIRED block as the reply", () => {
+    const parsed = parseAgentOutput([
+      "Saya perlu izin dulu ya.",
+      "",
+      "PERMISSION_REQUIRED",
+      "skill: repo.fix",
+      "permissions:",
+      "- repo.write",
+      "reason: need access",
+      "owner_message: ask owner",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("permission_required");
+    expect(parsed.text).toBe("Saya perlu izin dulu ya.");
+  });
+
+  it("uses default fallback text when no user-facing text precedes the permission block", () => {
+    const parsed = parseAgentOutput([
+      "PERMISSION_REQUIRED",
+      "skill: shell",
+      "permissions:",
+      "- shell.run",
+      "reason: need shell",
+      "owner_message: ask",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("permission_required");
+    expect(parsed.text).toBe("Waiting for owner permission.");
+  });
+
   it("describes the general skill as a conservative fallback in the prompt", () => {
     const prompt = buildTurnPrompt(
       {
@@ -43,8 +75,8 @@ describe("codex output parser", () => {
         MATTERMOST_URL: undefined,
         MATTERMOST_TOKEN: undefined,
         MATTERMOST_BOT_USER_ID: undefined,
-        MATTERMOST_BOT_USERNAME: undefined,
-        MATTERMOST_BOT_DISPLAY: "Felix",
+        MATTERMOST_BOT_USERNAME: "felix-agent",
+        MATTERMOST_BOT_DISPLAY: "Felix Agent",
         MATTERMOST_OWNER_USER_ID: undefined,
         MATTERMOST_OWNER_DISPLAY: "Owner",
         SOURCE: "mattermost",
@@ -53,22 +85,12 @@ describe("codex output parser", () => {
         SECRET_ENV_FILE: "/run/secrets/.env",
         HEALTH_PORT: 3000,
         CODEX_TIMEOUT_SECONDS: 1800,
-        paths: {
-          root: "/workspace",
-          raw: "/workspace/raw",
-          threads: "/workspace/threads",
-          contacts: "/workspace/contacts",
-          skills: "/workspace/skills",
-          logs: "/workspace/logs",
-          media: "/workspace/media",
-          codex: "/workspace/codex",
-          health: "/workspace/.health",
-        },
+        paths: buildWorkspacePaths("/workspace"),
       } as never,
       {
         thread: {
-          dir: "/workspace/threads/thread",
-          transcriptFile: "/workspace/threads/thread/transcript.md",
+          dir: "/workspace/records/sessions/mattermost/thread",
+          transcriptFile: "/workspace/records/sessions/mattermost/thread/transcript.md",
         } as never,
         event: {
           source: "mattermost",
@@ -80,15 +102,14 @@ describe("codex output parser", () => {
           received_at: "2026-05-25T00:00:00.000Z",
           visibility: "channel",
           mentions_bot: true,
-          raw_path: "/workspace/raw/event.json",
-          source_thread: { channel_id: "channel", root_id: "root" },
+          raw_path: "/workspace/intake/mattermost/raw/event.json",
+          source_thread_ref: mattermostThreadRef("channel", "root", "evt"),
         },
-        eventFile: "/workspace/threads/thread/events/event.md",
+        eventFile: "/workspace/records/sessions/mattermost/thread/events/event.md",
         contact: {
           source: "mattermost",
           user_id: "user",
           allowed_permissions: [],
-          allowed_skills: [],
         },
         skills: [
           {
@@ -96,22 +117,53 @@ describe("codex output parser", () => {
             name: "general",
             description: "Default skill",
             permissions: [],
-            path: path.join("/workspace/skills", "general", "SKILL.md"),
+            path: path.join("/workspace/catalog/skills", "general", "SKILL.md"),
             body: "",
           },
         ],
-        skillIndexPath: "/workspace/skills/index.md",
-        permissionEvents: [],
-        threadTranscriptPath: "/workspace/threads/thread/transcript.md",
-        images: [],
+        sourceContext: {
+          behaviorInstructions: [
+            "9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions @felix-agent or @Felix Agent. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.",
+            "10. For Mattermost public threads, when a post mentions @felix-agent or @Felix Agent, fetch the current thread history before answering. Use a read-only shell script or command sequence like this:",
+            "```bash",
+            "set -a",
+            "source /run/secrets/.env",
+            "set +a",
+            'THREAD_POST_ID="root"',
+            'curl -sS -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
+            '  "$MATTERMOST_URL/api/v4/posts/$THREAD_POST_ID/thread"',
+            "```",
+            "If the fetch fails, do not claim you read live Mattermost history. Reply that the thread could not be fetched and ask for the Mattermost link or a retry. Do not use the local thread transcript as a substitute for live Mattermost history in that case.",
+          ],
+        },
         resumed: false,
       },
       "session-1",
+      [],
     );
 
     expect(prompt).toContain("reply-only");
     expect(prompt).toContain("ask one clarifying question");
     expect(prompt).toContain("defer to a more specialized skill");
     expect(prompt).toContain("simple informational help");
+    expect(prompt).toContain("Source API posting is allowed only when the active source context");
+    expect(prompt).toContain("normal reply channel, not as a separate Felix permission");
+    expect(prompt).toContain("upload only files generated for this current session/request");
+    expect(prompt).toContain("Never upload secrets, credential files, raw env files");
+    expect(prompt).toContain("final FELIX_REPLY must be concise and mention what was posted");
+    expect(prompt).toContain("Future source adapters must provide their own source-specific posting instructions");
+    expect(prompt).toContain("Do not assume Slack or any non-Mattermost API details");
+    expect(prompt).toContain("only answer when the post explicitly mentions @felix-agent");
+    expect(prompt).toContain("fetch the current thread history before answering");
+    expect(prompt).toContain("when a post mentions @felix-agent");
+    expect(prompt).toContain("@Felix Agent");
+    expect(prompt).not.toContain("only answer requests from @frdinawan");
+    expect(prompt).toContain("source /run/secrets/.env");
+    expect(prompt).toContain("curl -sS -H \"Authorization: Bearer $MATTERMOST_TOKEN\"");
+    expect(prompt).toContain('THREAD_POST_ID="root"');
+    expect(prompt).toContain('"conversation_id":"channel"');
+    expect(prompt).toContain('"root_message_id":"root"');
+    expect(prompt).toContain("If the fetch fails, do not claim you read live Mattermost history");
+    expect(prompt).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
   });
 });
