@@ -39,7 +39,6 @@ export class OpencodeHarness implements Harness {
 
     const baseArgs = [
       "run",
-      "--format", "json",
       "--dir", this.cfg.paths.root,
       "--model", this.cfg.OPENCODE_MODEL,
     ];
@@ -74,18 +73,6 @@ export class OpencodeHarness implements Harness {
         const text = chunk.toString("utf8");
         stdoutBuf.push(text);
         await appendText(logPath, text);
-        for (const line of text.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("{")) continue;
-          try {
-            const event = JSON.parse(trimmed) as Record<string, unknown>;
-            if (event.type === "step_start" && typeof event.sessionID === "string") {
-              capturedSessionId = event.sessionID;
-            }
-          } catch {
-            // keep going
-          }
-        }
       });
       child.stderr.on("data", async (chunk: Buffer) => {
         await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
@@ -146,7 +133,6 @@ export class OpencodeHarness implements Harness {
 
     const args = [
       "run",
-      "--format", "json",
       "--dir", this.cfg.paths.root,
       "--model",
       this.cfg.OPENCODE_MODEL,
