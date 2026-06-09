@@ -5,6 +5,7 @@ import { FelixEngine } from "./engine.js";
 import { createMattermostAdapter, startMattermostSource } from "./adapters/mattermost/index.js";
 import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
+import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
 
 // ---------------------------------------------------------------------------
 // Supervisor — restarts a subsystem with exponential backoff on failure
@@ -88,9 +89,17 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   await ensureWorkspace(cfg.paths);
   await syncBundledSkills(cfg.paths);
-  await ensureCodexAuth(cfg);
-
-  const harness = new CodexHarness(cfg);
+  let harness: import("./core/ports.js").Harness;
+  switch (cfg.HARNESS) {
+    case "opencode":
+      await ensureOpencodeAuth(cfg);
+      harness = new OpencodeHarness(cfg);
+      break;
+    case "codex":
+    default:
+      await ensureCodexAuth(cfg);
+      harness = new CodexHarness(cfg);
+  }
   const engine = new FelixEngine(cfg, [createMattermostAdapter(cfg)], harness);
   await engine.boot();
 

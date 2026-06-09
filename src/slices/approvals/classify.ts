@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
@@ -27,7 +27,17 @@ const CLASSIFY_PROMPT = [
   "END_FELIX_REPLY",
 ].join("\n");
 
-export async function classifyOwnerDecisionViaCodex(
+export async function classifyOwnerDecision(
+  text: string,
+  cfg: AppConfig,
+): Promise<"once" | "always" | "reject" | null> {
+  if (cfg.HARNESS === "opencode") {
+    return classifyViaOpencode(text, cfg);
+  }
+  return classifyViaCodex(text, cfg);
+}
+
+async function classifyViaCodex(
   text: string,
   cfg: AppConfig,
 ): Promise<"once" | "always" | "reject" | null> {
@@ -89,13 +99,68 @@ export async function classifyOwnerDecisionViaCodex(
   }
 
   const lastMessage = await readText(outputLastMessagePath, "");
-  // Extract word between FELIX_REPLY / END_FELIX_REPLY, or take first word
   const reply = between(lastMessage, "FELIX_REPLY", "END_FELIX_REPLY");
   const result = ((reply ?? lastMessage) || "").trim().toLowerCase();
   if (result.startsWith("once")) return "once";
   if (result.startsWith("always")) return "always";
   if (result.startsWith("reject")) return "reject";
   return null;
+}
+
+async function classifyViaOpencode(
+  text: string,
+  cfg: AppConfig,
+): Promise<"once" | "always" | "reject" | null> {
+  const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
+  const workDir = path.join(cfg.paths.approvals, "_classify");
+  const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
+  const turnPath = path.join(workDir, `${runId}.md`);
+
+  await ensureDir(workDir);
+  await writeTextAtomic(turnPath, prompt);
+
+  const args = [
+    "run",
+    "--dir",
+    workDir,
+    "--dangerously-skip-permissions",
+    "--model",
+    cfg.OPENCODE_MODEL,
+    prompt,
+  ];
+
+  try {
+    const result = spawnSync(cfg.OPENCODE_BIN, args, {
+      cwd: workDir,
+      env: {
+        ...process.env,
+        OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
+        DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
+        PATH: buildSpawnPath(),
+      },
+      timeout: 15_000,
+      encoding: "utf8",
+    });
+
+    if (result.status !== 0) {
+      const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
+      log.warn("classify.opencode_nonzero_exit", { exitCode: result.status, stderr: stderr.slice(0, 200) });
+      return null;
+    }
+
+    const stdout = result.stdout ?? "";
+    const reply = between(stdout, "FELIX_REPLY", "END_FELIX_REPLY");
+    const word = ((reply ?? stdout) || "").trim().toLowerCase();
+    if (word.startsWith("once")) return "once";
+    if (word.startsWith("always")) return "always";
+    if (word.startsWith("reject")) return "reject";
+    return null;
+  } catch (error) {
+    log.warn("classify.opencode_error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 function between(text: string, startMarker: string, endMarker: string): string | null {

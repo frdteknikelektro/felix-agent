@@ -149,9 +149,9 @@ export async function appendFelixReply(
   handle: ThreadHandle,
   at: string,
   text: string,
-  codexSessionId?: string,
+  harnessSessionId?: string,
 ): Promise<string> {
-  return writeThreadEvent(handle, buildEventFile({ kind: "felix_reply", at, text, codexSessionId }));
+  return writeThreadEvent(handle, buildEventFile({ kind: "felix_reply", at, text, harnessSessionId }));
 }
 
 export async function appendPermissionEvent(
@@ -243,26 +243,26 @@ export async function shiftNextEvent(handle: ThreadHandle): Promise<ShiftedEvent
 export async function requeueEvent(
   handle: ThreadHandle,
   item: SessionQueueItem,
-  opts: { clearCodexSession?: boolean } = {},
+  opts: { clearHarnessSession?: boolean } = {},
 ): Promise<SessionState> {
   const session = await loadSessionState(handle);
   session.queue.unshift(item);
-  if (opts.clearCodexSession) delete session.codex_session_id;
+  if (opts.clearHarnessSession) delete session.harness_session_id;
   await saveSessionState(handle, session);
   return session;
 }
 
-export async function recordTurn(handle: ThreadHandle, codexSessionId: string): Promise<SessionState> {
+export async function recordTurn(handle: ThreadHandle, harnessSessionId: string): Promise<SessionState> {
   const session = await loadSessionState(handle);
-  session.codex_session_id = codexSessionId;
+  session.harness_session_id = harnessSessionId;
   session.last_turn_at = new Date().toISOString();
   await saveSessionState(handle, session);
   return session;
 }
 
-export async function clearCodexSession(handle: ThreadHandle): Promise<SessionState> {
+export async function clearHarnessSession(handle: ThreadHandle): Promise<SessionState> {
   const session = await loadSessionState(handle);
-  delete session.codex_session_id;
+  delete session.harness_session_id;
   await saveSessionState(handle, session);
   return session;
 }

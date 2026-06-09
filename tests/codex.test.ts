@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { parseAgentOutput, buildTurnPrompt } from "../src/adapters/codex/index.js";
+import { parseAgentOutput, buildTurnPrompt } from "../src/core/harness-common.js";
 import { buildWorkspacePaths } from "../src/workspace.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
 

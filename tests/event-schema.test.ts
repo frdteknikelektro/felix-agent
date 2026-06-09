@@ -54,11 +54,11 @@ describe("buildEventFile / parseEventFile round-trip", () => {
     expect(rebuilt.source_thread_ref).toEqual(mattermostThreadRef("c", "r", "evt-1"));
   });
 
-  it("felix_reply carries its codex session id and timestamp", () => {
-    const parsed = parseEventFile(render({ kind: "felix_reply", at: "2026-05-25T02:00:00.000Z", text: "done", codexSessionId: "cx-9" }));
+  it("felix_reply carries its harness session id and timestamp", () => {
+    const parsed = parseEventFile(render({ kind: "felix_reply", at: "2026-05-25T02:00:00.000Z", text: "done", harnessSessionId: "session-9" }));
     expect(parsed.kind).toBe("felix_reply");
     if (parsed.kind !== "felix_reply") throw new Error("kind");
-    expect(parsed.frontmatter.codex_session_id).toBe("cx-9");
+    expect(parsed.frontmatter.harness_session_id).toBe("session-9");
     expect(eventAt(parsed)).toBe("2026-05-25T02:00:00.000Z");
   });
 

@@ -69,7 +69,8 @@ ENV NODE_ENV=production \
     HEALTH_PORT=3000 \
     CODEX_MODEL=gpt-5.4-mini \
     CODEX_BYPASS_SANDBOX=true \
-    CODEX_TIMEOUT_SECONDS=1800
+    CODEX_TIMEOUT_SECONDS=1800 \
+    OPENCODE_MODEL=opencode/deepseek-v4-flash-free
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \

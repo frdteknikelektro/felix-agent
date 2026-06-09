@@ -5,7 +5,7 @@ import type { AppConfig } from "./config.js";
 import { requestApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearCodexSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
+import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/approvals/index.js";
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
@@ -145,7 +145,7 @@ export class FelixEngine {
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
         const adapter = this.requireAdapter(event.source);
         const sourceContext = await adapter.getTurnContext({ event });
-        let resumed = Boolean(session.codex_session_id);
+        let resumed = Boolean(session.harness_session_id);
         let retriedFreshStart = false;
         while (true) {
           let result;
@@ -171,13 +171,13 @@ export class FelixEngine {
               exit_code: result.exitCode,
               log_path: result.logPath,
             });
-            await clearCodexSession(thread);
+            await clearHarnessSession(thread);
             resumed = false;
             retriedFreshStart = true;
             continue;
           }
           if (decision.kind === "fail") {
-            await requeueEvent(thread, item, { clearCodexSession: resumed });
+            await requeueEvent(thread, item, { clearHarnessSession: resumed });
             log.error("codex.empty_output", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,

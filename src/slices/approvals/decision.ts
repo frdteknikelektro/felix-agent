@@ -1,6 +1,6 @@
 import type { PermissionDecision } from "../../types.js";
 import type { AppConfig } from "../../config.js";
-import { classifyOwnerDecisionViaCodex } from "./classify.js";
+import { classifyOwnerDecision } from "./classify.js";
 
 /**
  * The owner's reply grammar for a pending permission request. Pure — adapters
@@ -26,7 +26,7 @@ export async function parseOwnerDecisionAsync(
 ): Promise<PermissionDecision | null> {
   const exact = parseOwnerDecision(text);
   if (exact) return exact;
-  const classified = await classifyOwnerDecisionViaCodex(text, cfg);
+  const classified = await classifyOwnerDecision(text, cfg);
   if (!classified) return null;
   return { mode: classified };
 }

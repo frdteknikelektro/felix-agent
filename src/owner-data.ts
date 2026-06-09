@@ -21,7 +21,7 @@ export interface SessionSummary {
   managedByFelix: boolean;
   busy: boolean;
   queueLength: number;
-  codexSessionId?: string;
+  harnessSessionId?: string;
   lastEventAt?: string;
   lastTurnAt?: string;
   pendingPermissionId?: string;
@@ -243,7 +243,7 @@ async function buildSessionSummary(thread: ThreadHandle, session?: SessionState)
     managedByFelix: thread.state.managed_by_felix,
     busy: current.busy,
     queueLength: current.queue.length,
-    codexSessionId: current.codex_session_id,
+    harnessSessionId: current.harness_session_id,
     lastEventAt: current.last_event_at,
     lastTurnAt: current.last_turn_at,
     pendingPermissionId: current.pending_permission ? approvalIdForPending(thread, current.pending_permission) : undefined,

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { appendEventToThread, appendFelixReply, appendPermissionRequest, clearCodexSession, createOrLoadThread, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurn, requeueEvent, shiftNextEvent } from "../src/slices/sessions/index.js";
+import { appendEventToThread, appendFelixReply, appendPermissionRequest, clearHarnessSession, createOrLoadThread, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurn, requeueEvent, shiftNextEvent } from "../src/slices/sessions/index.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
 async function makeThread() {
@@ -109,41 +109,41 @@ describe("session transitions", () => {
     expect(await shiftNextEvent(thread)).toBeNull();
   });
 
-  it("requeueEvent puts the event back at the head and can drop the codex session", async () => {
+  it("requeueEvent puts the event back at the head and can drop the harness session", async () => {
     const thread = await makeThread();
     await queueThreadEvent(thread, item("b"));
-    await recordTurn(thread, "codex-123");
+    await recordTurn(thread, "session-123");
 
-    await requeueEvent(thread, item("a"), { clearCodexSession: true });
+    await requeueEvent(thread, item("a"), { clearHarnessSession: true });
 
     const session = await loadSessionState(thread);
     expect(session.queue.map((q) => q.source_event_id)).toEqual(["a", "b"]);
-    expect(session.codex_session_id).toBeUndefined();
+    expect(session.harness_session_id).toBeUndefined();
   });
 
-  it("recordTurn stamps the codex session and turn time in one write", async () => {
+  it("recordTurn stamps the harness session and turn time in one write", async () => {
     const thread = await makeThread();
-    const session = await recordTurn(thread, "codex-xyz");
-    expect(session.codex_session_id).toBe("codex-xyz");
+    const session = await recordTurn(thread, "session-xyz");
+    expect(session.harness_session_id).toBe("session-xyz");
     expect(session.last_turn_at).toBeTruthy();
 
     const reloaded = await loadSessionState(thread);
-    expect(reloaded.codex_session_id).toBe("codex-xyz");
+    expect(reloaded.harness_session_id).toBe("session-xyz");
     expect(reloaded.last_turn_at).toBe(session.last_turn_at);
   });
 
-  it("clearCodexSession forgets the codex session", async () => {
+  it("clearHarnessSession forgets the harness session", async () => {
     const thread = await makeThread();
-    await recordTurn(thread, "codex-xyz");
-    await clearCodexSession(thread);
-    expect((await loadSessionState(thread)).codex_session_id).toBeUndefined();
+    await recordTurn(thread, "session-xyz");
+    await clearHarnessSession(thread);
+    expect((await loadSessionState(thread)).harness_session_id).toBeUndefined();
   });
 });
 
 describe("thread event writer", () => {
   it("writes the event file and a transcript block that points back at it", async () => {
     const thread = await makeThread();
-    const file = await appendFelixReply(thread, "2026-05-25T00:00:00.000Z", "hello owner", "codex-1");
+    const file = await appendFelixReply(thread, "2026-05-25T00:00:00.000Z", "hello owner", "session-1");
 
     await expect(fs.stat(file)).resolves.toBeTruthy();
     const body = await fs.readFile(file, "utf8");

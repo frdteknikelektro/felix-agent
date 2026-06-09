@@ -64,7 +64,7 @@ export const SessionPermissionRequestSchema = z.object({
 
 export const SessionStateSchema = z.object({
   schema_version: z.number().optional(),
-  codex_session_id: z.string().optional(),
+  harness_session_id: z.string().optional(),
   busy: z.boolean(),
   queue: z.array(SessionQueueItemSchema),
   pending_permission: SessionPermissionRequestSchema.nullable().optional(),

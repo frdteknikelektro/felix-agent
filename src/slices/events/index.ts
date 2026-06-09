@@ -32,7 +32,7 @@ export interface OwnerPermissionDetails {
 
 export type EventFileInput =
   | { kind: "source_event"; event: UniversalEvent }
-  | { kind: "felix_reply"; at: string; text: string; codexSessionId?: string }
+  | { kind: "felix_reply"; at: string; text: string; harnessSessionId?: string }
   | {
       kind: "owner_permission";
       at: string;
@@ -57,7 +57,7 @@ export function buildEventFile(input: EventFileInput): EventFileSpec {
     case "source_event":
       return buildSourceEvent(input.event);
     case "felix_reply":
-      return buildFelixReply(input.at, input.text, input.codexSessionId);
+      return buildFelixReply(input.at, input.text, input.harnessSessionId);
     case "owner_permission":
       return buildOwnerPermission(input.at, input.source, input.threadKey, input.decision, input.details);
     case "permission_request":
@@ -93,14 +93,14 @@ function buildSourceEvent(event: UniversalEvent): EventFileSpec {
   };
 }
 
-function buildFelixReply(at: string, text: string, codexSessionId?: string): EventFileSpec {
+function buildFelixReply(at: string, text: string, harnessSessionId?: string): EventFileSpec {
   return {
     at,
     slug: "felix_reply",
     frontmatter: {
       type: "felix_reply",
       at,
-      codex_session_id: codexSessionId,
+      harness_session_id: harnessSessionId,
     },
     body: `${text.trim()}\n`,
     transcriptLines: [`### [${at}] felix`, text.trim()],
@@ -195,7 +195,7 @@ interface SourceEventFrontmatter {
 interface FelixReplyFrontmatter {
   type?: string;
   at?: string;
-  codex_session_id?: string;
+  harness_session_id?: string;
 }
 
 interface OwnerPermissionFrontmatter {
