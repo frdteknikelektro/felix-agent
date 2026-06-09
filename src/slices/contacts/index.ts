@@ -9,6 +9,7 @@ interface ContactFrontmatter {
   user_id?: string;
   display?: string;
   username?: string;
+  alias?: string;
   allowed_permissions?: string[];
   notes?: string;
 }
@@ -38,6 +39,7 @@ export async function loadContact(
     user_id: userId,
     display: frontmatter.display,
     username: frontmatter.username,
+    alias: frontmatter.alias,
     allowed_permissions: normalizeList(frontmatter.allowed_permissions),
     notes: normalizeNotes(frontmatter.notes, body),
   };
@@ -51,6 +53,7 @@ export async function saveContact(cfg: AppConfig, contact: ContactRecord): Promi
     user_id: contact.user_id,
     display: contact.display,
     username: contact.username,
+    alias: contact.alias,
     allowed_permissions: contact.allowed_permissions,
     notes: contact.notes,
   };

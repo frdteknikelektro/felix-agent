@@ -58,3 +58,8 @@ Use this skill when the request is:
 - If the request is unclear, ask for the missing detail before doing anything else.
 - Do not generate creative text here.
 - Do not claim support for capabilities that belong to a different skill.
+
+## Use Cases
+Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
+
+- **Record alias** — when the user asks to be called by a specific name, nickname, or alias, or asks to stop using an alias, read `references/use-cases/record-alias.md` and follow it.

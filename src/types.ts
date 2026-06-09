@@ -54,6 +54,7 @@ export interface ContactRecord {
   user_id: string;
   display?: string;
   username?: string;
+  alias?: string;
   allowed_permissions: string[];
   notes?: string;
 }
