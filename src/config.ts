@@ -11,6 +11,7 @@ const Env = z.object({
   CODEX_BIN: z.string().default("codex"),
   CODEX_MODEL: z.string().default("gpt-5.4-mini"),
   CODEX_BYPASS_SANDBOX: z.coerce.boolean().default(true),
+  CODEX_REASONING_EFFORT: z.string().default("high"),
   CODEX_TIMEOUT_SECONDS: z.coerce.number().default(1800),
   OWNER_UI_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),

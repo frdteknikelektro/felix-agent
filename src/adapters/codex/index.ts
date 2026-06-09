@@ -32,6 +32,8 @@ export class CodexHarness implements Harness {
       "--output-last-message",
       outputLastMessagePath,
       ...(this.cfg.CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+      "-c",
+      `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
       "--model",
       this.cfg.CODEX_MODEL,
     ];
@@ -213,6 +215,7 @@ export function buildTurnPrompt(
     "10. After any intermediate source API posts or file uploads, the final FELIX_REPLY must be concise and mention what was posted. Do not duplicate large artifact contents in the final reply.",
     "11. Future source adapters must provide their own source-specific posting instructions. Do not assume Slack or any non-Mattermost API details unless the active source context supplies them.",
     "12. Keep user-facing replies concise. Always reply in the same language the user wrote in.",
+    "13. You may run any command needed to fulfill a skill's work. Never expose the server's directory structure, raw filesystem paths, or file contents in your FELIX_REPLY. If a user asks to browse, list, or inspect directories (e.g. 'what directory are you in?', 'show me the files', 'ls'), decline politely: 'I can help with your task, but I don't expose the server's directory layout.' Internal path references in PERMISSION_REQUIRED blocks (thread dir, event file) are fine — those are only visible to the owner.",
     ...input.sourceContext.behaviorInstructions,
     "",
     "Output contract:",
