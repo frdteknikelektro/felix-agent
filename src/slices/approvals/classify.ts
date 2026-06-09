@@ -1,10 +1,12 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { AppConfig } from "../../config.js";
+import { between, buildSpawnPath } from "../../core/harness-common.js";
+import { opencodeRunAndExport } from "../../adapters/opencode/index.js";
 
 const CLASSIFY_PROMPT = [
   "Classify this message from an owner responding to a permission request.",
@@ -71,7 +73,7 @@ async function classifyViaCodex(
       OPENAI_BASE_URL: cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
       OPENAI_ORGANIZATION: cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
       OPENAI_PROJECT: cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-      PATH: buildSpawnPath(),
+      PATH: buildSpawnPath(cfg),
     },
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 15_000,
@@ -115,42 +117,41 @@ async function classifyViaOpencode(
   const workDir = path.join(cfg.paths.approvals, "_classify");
   const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
   const turnPath = path.join(workDir, `${runId}.md`);
+  const logPath = `${turnPath}.log`;
 
   await ensureDir(workDir);
   await writeTextAtomic(turnPath, prompt);
 
   const args = [
     "run",
-    "--dir",
-    workDir,
+    "--dir", workDir,
+    "--model", cfg.OPENCODE_MODEL,
+    "--format", "json",
     "--dangerously-skip-permissions",
-    "--model",
-    cfg.OPENCODE_MODEL,
     prompt,
   ];
 
   try {
-    const result = spawnSync(cfg.OPENCODE_BIN, args, {
-      cwd: workDir,
-      env: {
-        ...process.env,
+    const { exitCode, assistantText } = await opencodeRunAndExport(
+      cfg.OPENCODE_BIN,
+      args,
+      workDir,
+      {
         OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
         DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-        PATH: buildSpawnPath(),
+        XDG_DATA_HOME: cfg.paths.runtime,
+        PATH: buildSpawnPath(cfg),
       },
-      timeout: 15_000,
-      encoding: "utf8",
-    });
+      logPath,
+    );
 
-    if (result.status !== 0) {
-      const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
-      log.warn("classify.opencode_nonzero_exit", { exitCode: result.status, stderr: stderr.slice(0, 200) });
+    if (exitCode !== 0) {
+      log.warn("classify.opencode_nonzero_exit", { exitCode });
       return null;
     }
 
-    const stdout = result.stdout ?? "";
-    const reply = between(stdout, "FELIX_REPLY", "END_FELIX_REPLY");
-    const word = ((reply ?? stdout) || "").trim().toLowerCase();
+    const reply = between(assistantText, "FELIX_REPLY", "END_FELIX_REPLY");
+    const word = ((reply ?? assistantText) || "").trim().toLowerCase();
     if (word.startsWith("once")) return "once";
     if (word.startsWith("always")) return "always";
     if (word.startsWith("reject")) return "reject";
@@ -163,17 +164,4 @@ async function classifyViaOpencode(
   }
 }
 
-function between(text: string, startMarker: string, endMarker: string): string | null {
-  const start = text.indexOf(startMarker);
-  if (start < 0) return null;
-  const after = start + startMarker.length;
-  const end = text.indexOf(endMarker, after);
-  if (end < 0) return null;
-  return text.slice(after, end);
-}
 
-function buildSpawnPath(): string {
-  const localBin = path.resolve(process.cwd(), "node_modules", ".bin");
-  const current = process.env.PATH ?? "";
-  return current.includes(localBin) ? current : `${localBin}:${current}`;
-}

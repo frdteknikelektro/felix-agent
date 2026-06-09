@@ -19,8 +19,120 @@ import {
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
+// ─── Shared spawn-and-export ──────────────────────────────────────────────
+
+export interface RunAndExportResult {
+  exitCode: number;
+  sessionId: string;
+  assistantText: string;
+}
+
+export async function opencodeRunAndExport(
+  bin: string,
+  args: string[],
+  cwd: string,
+  env: Record<string, string | undefined>,
+  logPath: string,
+): Promise<RunAndExportResult> {
+  await ensureDir(path.dirname(logPath));
+
+  const child = spawn(bin, args, {
+    cwd,
+    env: { ...process.env, ...env } as NodeJS.ProcessEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const logStream = await fs.open(logPath, "a");
+  const stderrStream = await fs.open(`${logPath}.stderr`, "a");
+
+  const stdoutLines: string[] = [];
+
+  const exitCode = await new Promise<number>((resolve) => {
+    child.stdout.on("data", async (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      stdoutLines.push(...text.split(/\r?\n/).filter(Boolean));
+      await appendText(logPath, text);
+    });
+    child.stderr.on("data", async (chunk: Buffer) => {
+      await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
+    });
+    child.on("close", (code) => resolve(code ?? -1));
+    child.on("error", (error) => {
+      log.error("opencode.spawn_error", { error: error.message });
+      resolve(-1);
+    });
+  });
+
+  await logStream.close();
+  await stderrStream.close();
+
+  let capturedSessionId = "";
+  for (const line of stdoutLines) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === "step_start" && typeof event.sessionID === "string") {
+        capturedSessionId = event.sessionID;
+        break;
+      }
+    } catch {
+    }
+  }
+
+  let assistantText = "";
+  if (capturedSessionId) {
+    try {
+      const exportResult = spawnSync(bin, ["export", capturedSessionId], {
+        cwd,
+        env: { ...process.env, ...env } as NodeJS.ProcessEnv,
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      if (exportResult.status === 0 && exportResult.stdout) {
+        const sessionData = JSON.parse(exportResult.stdout) as {
+          messages?: Array<{
+            info?: { role?: string };
+            parts?: Array<{ type?: string; text?: string }>;
+          }>;
+        };
+        const messages = sessionData.messages ?? [];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].info?.role === "assistant") {
+            const parts = messages[i].parts ?? [];
+            const textParts = parts
+              .filter((p) => p.type === "text" && typeof p.text === "string")
+              .map((p) => p.text as string)
+              .join("");
+            assistantText = textParts;
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      log.warn("opencode.export_failed", {
+        sessionId: capturedSessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return { exitCode, sessionId: capturedSessionId, assistantText };
+}
+
+// ─── Harness ──────────────────────────────────────────────────────────────
+
 export class OpencodeHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
+
+  private buildEnv(): Record<string, string | undefined> {
+    return {
+      WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+      OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+      OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
+      DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
+      XDG_DATA_HOME: this.cfg.paths.runtime,
+      PATH: buildSpawnPath(this.cfg),
+    };
+  }
 
   async run(input: TurnInput): Promise<TurnResult> {
     await ensureDir(input.thread.turnsDir);
@@ -41,6 +153,8 @@ export class OpencodeHarness implements Harness {
       "run",
       "--dir", this.cfg.paths.root,
       "--model", this.cfg.OPENCODE_MODEL,
+      "--format", "json",
+      "--dangerously-skip-permissions",
     ];
     if (this.cfg.OPENCODE_VARIANT) {
       baseArgs.push("--variant", this.cfg.OPENCODE_VARIANT);
@@ -50,84 +164,24 @@ export class OpencodeHarness implements Harness {
       ? [...baseArgs, "--session", sessionId, prompt]
       : [...baseArgs, prompt];
 
-    let capturedSessionId = sessionId;
-    const child = spawn(this.cfg.OPENCODE_BIN, args, {
-      cwd: this.cfg.paths.root,
-      env: {
-        ...process.env,
-        WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-        OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-        OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
-        DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-        PATH: buildSpawnPath(this.cfg),
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    await ensureDir(path.dirname(logPath));
-    const logStream = await fs.open(logPath, "a");
-    const stderrStream = await fs.open(`${logPath}.stderr`, "a");
+    const { exitCode, sessionId: capturedSessionId, assistantText } =
+      await opencodeRunAndExport(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath);
 
-    const stdoutBuf: string[] = [];
-
-    const exitCode = await new Promise<number>((resolve) => {
-      child.stdout.on("data", async (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        stdoutBuf.push(text);
-        await appendText(logPath, text);
-      });
-      child.stderr.on("data", async (chunk: Buffer) => {
-        await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
-      });
-      child.on("close", (code) => resolve(code ?? -1));
-      child.on("error", (error) => {
-        log.error("opencode.spawn_error", { error: error.message });
-        resolve(-1);
-      });
-    });
-
-    await logStream.close();
-    await stderrStream.close();
-
-    // If no session existed before, capture the session ID from opencode
-    if (!hasSession) {
-      try {
-        const listResult = spawnSync(this.cfg.OPENCODE_BIN, ["session", "list", "--format", "json", "--max-count", "1"], {
-          cwd: this.cfg.paths.root,
-          env: {
-            ...process.env,
-            WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-            PATH: buildSpawnPath(this.cfg),
-          },
-          encoding: "utf8",
-          timeout: 10_000,
-        });
-        if (listResult.status === 0 && listResult.stdout) {
-          const entries = JSON.parse(listResult.stdout) as Array<{ id: string }>;
-          if (Array.isArray(entries) && entries.length > 0 && entries[0].id) {
-            capturedSessionId = entries[0].id;
-          }
-        }
-      } catch {
-        // keep captured or generated session ID
-      }
-    }
-
-    if (capturedSessionId !== sessionState.harness_session_id) {
+    if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
     }
 
-    // Parse the full stdout for FELIX_REPLY/PERMISSION_REQUIRED markers
-    const fullOutput = stdoutBuf.join("");
-    const parsed = parseAgentOutput(fullOutput);
+    const parsed = parseAgentOutput(assistantText);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
 
-    return { sessionId: capturedSessionId, exitCode, success, parsed, logPath };
+    return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath };
   }
 
   async generateDecisionNotification(input: DecisionNotificationInput): Promise<string> {
     await ensureDir(input.thread.turnsDir);
     const baseName = `${fsTimestamp(new Date())}_decision_notification`;
     const promptPath = path.join(input.thread.turnsDir, `${baseName}.md`);
+    const logPath = path.join(input.thread.turnsDir, `${baseName}.log`);
 
     const prompt = buildDecisionNotificationPrompt(input);
     await writeTextAtomic(promptPath, prompt);
@@ -135,28 +189,21 @@ export class OpencodeHarness implements Harness {
     const args = [
       "run",
       "--dir", this.cfg.paths.root,
-      "--model",
-      this.cfg.OPENCODE_MODEL,
+      "--model", this.cfg.OPENCODE_MODEL,
+      "--format", "json",
+      "--dangerously-skip-permissions",
       prompt,
     ];
 
     try {
-      const result = spawnSync(this.cfg.OPENCODE_BIN, args, {
-        cwd: this.cfg.paths.root,
-        env: {
-          ...process.env,
-          WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-          OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-          OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
-          DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-          PATH: buildSpawnPath(this.cfg),
-        },
-        timeout: 60_000,
-        encoding: "utf8",
-      });
-
-      const stdout = result.stdout ?? "";
-      const reply = between(stdout, "FELIX_REPLY", "END_FELIX_REPLY");
+      const { assistantText } = await opencodeRunAndExport(
+        this.cfg.OPENCODE_BIN,
+        args,
+        this.cfg.paths.root,
+        this.buildEnv(),
+        logPath,
+      );
+      const reply = between(assistantText, "FELIX_REPLY", "END_FELIX_REPLY");
       return reply?.trim() || fallbackNotification(input.mode);
     } catch (error) {
       log.warn("opencode.decision_notification_failed", {
@@ -175,6 +222,7 @@ export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
     env: {
       ...process.env,
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
+      XDG_DATA_HOME: cfg.paths.runtime,
       PATH: buildSpawnPath(cfg),
     },
     encoding: "utf8",
