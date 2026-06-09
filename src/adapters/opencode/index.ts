@@ -56,6 +56,7 @@ export class OpencodeHarness implements Harness {
       env: {
         ...process.env,
         WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+        OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
         OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
         DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
         PATH: buildSpawnPath(this.cfg),
@@ -145,6 +146,7 @@ export class OpencodeHarness implements Harness {
         env: {
           ...process.env,
           WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+          OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
           OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
           DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
           PATH: buildSpawnPath(this.cfg),
