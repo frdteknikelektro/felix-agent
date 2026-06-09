@@ -1,13 +1,13 @@
 # Felix Agent — Agent Guide
 
-Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI) and routes messages from source adapters (currently Mattermost) through skill-gated LLM turns.
+Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI) and routes messages from source adapters (Mattermost, Discord, or Slack) through skill-gated LLM turns.
 
 ## Project layout
 
 ```
 src/
   core/          ports.ts · routing.ts · decide-turn.ts · schemas.ts
-  adapters/      codex/ · mattermost/
+  adapters/      codex/ · opencode/ · mattermost/ · discord/ · slack/
   slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/
   server/        app.ts (HTTP + owner console) · routes.ts (API route table) · owner-client.ts
   engine.ts      main dispatch loop
@@ -25,7 +25,7 @@ config/          local secrets — .env file (git-ignored)
 npm install
 npm run dev          # tsx watch — no build step needed
 npm run lint         # tsc --noEmit
-npm test             # vitest run (62 tests, ~1 s)
+npm test             # vitest run (104 tests, ~1 s)
 npm run build        # tsc → dist/
 npm start            # node dist/index.js
 ```
@@ -104,17 +104,19 @@ Runtime config is loaded from environment variables. In production the container
 
 Key variables:
 
-| Variable | Required | Description |
+| Variable | Required for | Description |
 |---|---|---|
-| `MATTERMOST_URL` | yes | e.g. `https://mattermost.example.com` |
-| `MATTERMOST_TOKEN` | yes | bot user token |
-| `MATTERMOST_BOT_USER_ID` | yes | bot's Mattermost user ID |
-| `MATTERMOST_OWNER_USER_ID` | yes | owner's Mattermost user ID (receives permission requests) |
-| `OPENAI_API_KEY` | yes | for Codex |
-| `OWNER_UI_SECRET` | yes | shared secret for owner console login |
-| `WORKSPACE_DIR` | no | default `/home/agent/workspace` |
-| `HEALTH_PORT` | no | default `3000` |
-| `CODEX_MODEL` | no | default `gpt-5.4-mini` |
+| `OWNER_UI_SECRET` | owner console | shared secret for login |
+| `OPENAI_API_KEY` | Codex harness | OpenAI API key |
+| `HARNESS` | — | `codex` (default) or `opencode` |
+| `WORKSPACE_DIR` | — | default `/home/agent/workspace` |
+| `HEALTH_PORT` | — | default `3000` |
+| `CODEX_MODEL` | — | default `gpt-5.4-mini` |
+| `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
+| `DISCORD_TOKEN` | Discord | enables the adapter when set |
+| `SLACK_TOKEN` | Slack | enables the adapter when set |
+
+See `.env.example` for the complete list with all defaults.
 
 ## Owner console
 
@@ -123,9 +125,9 @@ Login with `OWNER_UI_SECRET`. Sessions, approvals, contacts, skills, audit log.
 
 ## Architecture notes
 
-- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. `CodexHarness` and `MattermostAdapter` are the only concrete implementations.
+- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. Concrete implementations: `CodexHarness` / `OpencodeHarness` (harnesses); `MattermostAdapter` / `DiscordAdapter` / `SlackAdapter` (sources).
 - **Pure core**: `decideTurnResult()` and routing predicates have zero IO — fully unit-testable.
-- **Supervised source**: `startMattermostSource` returns `{ stop(), done }`. The supervisor in `index.ts` awaits `done`; transient WS drops are handled internally by the adapter's own reconnect backoff (1 s → 30 s).
+- **Supervised source**: Each `startXxxSource` returns `{ stop(), done }`. The supervisor in `index.ts` awaits `done`. Transient connection drops are handled per adapter: Mattermost uses exponential backoff (1 s → 30 s); Discord and Slack use library-managed reconnection.
 - **Graceful shutdown**: SIGTERM → stop all sources → `engine.drain(15 s)` → close HTTP server → hard exit after 10 s.
 - **Schemas**: Zod schemas in `src/core/schemas.ts` are the single source of truth for all persisted JSON records. `readJsonParsed()` validates on read.
 - **Route table**: `src/server/routes.ts` owns all API routes. Adding a route = one entry in `API_ROUTES`, not a new if-branch.

@@ -1,8 +1,8 @@
 # Felix Agent Docker
 
-Felix is a persistent thread/session agent that wraps the Codex CLI and routes messages from source adapters through skill-gated LLM turns.
+Felix is a persistent thread/session agent that wraps Codex or Opencode LLM backends and routes messages from source adapters through skill-gated LLM turns.
 
-Mattermost is the current source adapter. Each source thread maps to one persisted Felix session, and each session uses skills copied from disk into the runtime workspace.
+Mattermost, Discord, and Slack are the current source adapters. Each source thread maps to one persisted Felix session, and each session uses skills copied from disk into the runtime workspace.
 
 ```text
 source thread -> Felix session -> Codex turn -> skill-gated response or permission request
@@ -13,7 +13,7 @@ source thread -> Felix session -> Codex turn -> skill-gated response or permissi
 ```text
 src/
   core/          ports, routing, turn decisions, schemas
-  adapters/      Codex harness and Mattermost source adapter
+  adapters/      Codex & Opencode harnesses; Mattermost, Discord & Slack adapters
   slices/        sessions, events, approvals, contacts, skills, audit
   server/        owner console, health endpoint, API routes
   engine.ts      main dispatch loop
@@ -128,17 +128,19 @@ cp .env.example config/.env
 
 Key variables:
 
-| Variable | Required | Description |
-|---|---:|---|
-| `MATTERMOST_URL` | yes | Mattermost base URL |
-| `MATTERMOST_TOKEN` | yes | Bot user token |
-| `MATTERMOST_BOT_USER_ID` | yes | Bot Mattermost user ID |
-| `MATTERMOST_OWNER_USER_ID` | yes | Owner user ID for permission requests |
-| `OPENAI_API_KEY` | yes | Codex/OpenAI authentication |
-| `OWNER_UI_SECRET` | yes | Owner console login secret |
-| `WORKSPACE_DIR` | no | Defaults to `/home/agent/workspace` in Docker |
-| `HEALTH_PORT` | no | Defaults to `3000` |
-| `CODEX_MODEL` | no | Defaults to the image/runtime setting |
+| Variable | Required for | Description |
+|---|---|---|
+| `OWNER_UI_SECRET` | owner console | shared secret for login |
+| `OPENAI_API_KEY` | Codex harness | OpenAI API key |
+| `HARNESS` | — | `codex` (default) or `opencode` |
+| `WORKSPACE_DIR` | — | default `/home/agent/workspace` |
+| `HEALTH_PORT` | — | default `3000` |
+| `CODEX_MODEL` | — | default `gpt-5.4-mini` |
+| `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
+| `DISCORD_TOKEN` | Discord | enables the adapter when set |
+| `SLACK_TOKEN` | Slack | enables the adapter when set |
+
+See `.env.example` for the complete list with all defaults.
 
 ## Owner Console
 
@@ -176,6 +178,6 @@ workspace/
   projects/<provider>/<namespace>/<repo>/
 ```
 
-`thread_key` is an opaque stable key produced by each source adapter. Mattermost uses `mattermost:<channel_id>:<root_post_id>`.
+`thread_key` is an opaque stable key produced by each source adapter. Mattermost uses `mattermost:<channel_id>:<root_post_id>`, Discord uses `discord:<channel_id>:<root_message_id>`, Slack uses `slack:<channel_id>:<timestamp>`.
 
 `projects/` is reserved for checked-out target repositories Felix can edit, commit, branch, review, and open PRs/MRs for through future GitHub or GitLab adapters.

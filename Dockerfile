@@ -70,6 +70,9 @@ ENV NODE_ENV=production \
     CODEX_MODEL=gpt-5.4-mini \
     CODEX_BYPASS_SANDBOX=true \
     CODEX_TIMEOUT_SECONDS=1800 \
+    CODEX_REASONING_EFFORT=high \
+    HARNESS=codex \
+    SECRET_ENV_FILE=/run/secrets/.env \
     OPENCODE_MODEL=opencode/deepseek-v4-flash-free
 
 COPY package.json package-lock.json ./
