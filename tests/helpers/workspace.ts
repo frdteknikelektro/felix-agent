@@ -25,6 +25,7 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     MATTERMOST_BOT_DISPLAY: "Felix",
     MATTERMOST_OWNER_DISPLAY: "Owner",
     DISCORD_OWNER_DISPLAY: "Owner",
+    SLACK_OWNER_DISPLAY: "Owner",
     SOURCE: "mattermost",
     THREAD_SCAN_INTERVAL_MS: 1000,
     paths: buildWorkspacePaths(workspace),

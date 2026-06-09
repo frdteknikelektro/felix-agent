@@ -35,6 +35,11 @@ const Env = z.object({
   DISCORD_BOT_USER_ID: z.string().optional(),
   DISCORD_OWNER_USER_ID: z.string().optional(),
   DISCORD_OWNER_DISPLAY: z.string().default("Owner"),
+  SLACK_TOKEN: z.string().optional(),
+  SLACK_APP_TOKEN: z.string().optional(),
+  SLACK_BOT_USER_ID: z.string().optional(),
+  SLACK_OWNER_USER_ID: z.string().optional(),
+  SLACK_OWNER_DISPLAY: z.string().default("Owner"),
   SOURCE: z.string().default("mattermost"),
   THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
 });

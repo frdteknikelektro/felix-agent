@@ -4,6 +4,7 @@ import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
 import { createMattermostAdapter, startMattermostSource } from "./adapters/mattermost/index.js";
 import { createDiscordAdapter, startDiscordSource } from "./adapters/discord/index.js";
+import { createSlackAdapter, startSlackSource } from "./adapters/slack/index.js";
 import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
@@ -103,13 +104,15 @@ async function main(): Promise<void> {
   }
   const mmAdapter = createMattermostAdapter(cfg);
   const discordAdapter = createDiscordAdapter(cfg);
-  const engine = new FelixEngine(cfg, [mmAdapter, discordAdapter], harness);
+  const slackAdapter = createSlackAdapter(cfg);
+  const engine = new FelixEngine(cfg, [mmAdapter, discordAdapter, slackAdapter], harness);
   await engine.boot();
 
   const { server: health, port: healthPort } = await startAppServer(cfg, engine, cfg.HEALTH_PORT);
 
   await supervise("mattermost", () => startMattermostSource(cfg, engine));
   await supervise("discord", () => startDiscordSource(cfg, engine, discordAdapter));
+  await supervise("slack", () => startSlackSource(cfg, engine, slackAdapter));
 
   log.info("felix.started", {
     workspace: cfg.paths.root,

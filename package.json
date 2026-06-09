@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@openai/codex": "^0.133.0",
+    "@slack/bolt": "^4.7.3",
     "discord.js": "^14.18.0",
     "opencode-ai": "^0.1.0",
     "ws": "^8.18.3",
