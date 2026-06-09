@@ -5,6 +5,10 @@ import type { ThreadHandle } from "../slices/sessions/index.js";
 
 export interface SourceAdapter {
   source: string;
+  /** Bot's user ID on this source, used for self-message filtering. */
+  botUserId?: string;
+  /** Owner's user ID on this source, used for permission-request DMs. */
+  ownerUserId?: string;
   getThreadLink(threadKey: string): Promise<string | undefined>;
   getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext>;
   updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void>;

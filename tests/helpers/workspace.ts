@@ -24,6 +24,7 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     OPENCODE_MODEL: "opencode/deepseek-v4-flash-free",
     MATTERMOST_BOT_DISPLAY: "Felix",
     MATTERMOST_OWNER_DISPLAY: "Owner",
+    DISCORD_OWNER_DISPLAY: "Owner",
     SOURCE: "mattermost",
     THREAD_SCAN_INTERVAL_MS: 1000,
     paths: buildWorkspacePaths(workspace),

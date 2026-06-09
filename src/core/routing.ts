@@ -15,11 +15,11 @@ export function shouldAcceptEvent(
 
 /**
  * Returns true when the event was sent by the bot itself, identified by
- * botUserId. The `source:id` compound form handles cases where the adapter
- * prefixes the source name.
+ * botUserId and source. The `source:id` compound form handles cases where
+ * the adapter prefixes the source name.
  */
-export function isOwnMattermostMessage(event: UniversalEvent, botUserId?: string): boolean {
-  if (event.source !== "mattermost") return false;
+export function isOwnMessage(event: UniversalEvent, source: string, botUserId?: string): boolean {
+  if (event.source !== source) return false;
   if (!botUserId) return false;
   return event.sender.id === botUserId || event.sender.id.endsWith(`:${botUserId}`);
 }

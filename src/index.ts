@@ -3,6 +3,7 @@ import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
 import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
 import { createMattermostAdapter, startMattermostSource } from "./adapters/mattermost/index.js";
+import { createDiscordAdapter, startDiscordSource } from "./adapters/discord/index.js";
 import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
@@ -100,12 +101,15 @@ async function main(): Promise<void> {
       await ensureCodexAuth(cfg);
       harness = new CodexHarness(cfg);
   }
-  const engine = new FelixEngine(cfg, [createMattermostAdapter(cfg)], harness);
+  const mmAdapter = createMattermostAdapter(cfg);
+  const discordAdapter = createDiscordAdapter(cfg);
+  const engine = new FelixEngine(cfg, [mmAdapter, discordAdapter], harness);
   await engine.boot();
 
   const { server: health, port: healthPort } = await startAppServer(cfg, engine, cfg.HEALTH_PORT);
 
   await supervise("mattermost", () => startMattermostSource(cfg, engine));
+  await supervise("discord", () => startDiscordSource(cfg, engine, discordAdapter));
 
   log.info("felix.started", {
     workspace: cfg.paths.root,

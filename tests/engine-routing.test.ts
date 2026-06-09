@@ -19,6 +19,8 @@ describe("FelixEngine Mattermost routing", () => {
 
     const adapter: SourceAdapter = {
       source: "mattermost",
+      botUserId: undefined,
+      ownerUserId: undefined,
       getThreadLink: async () => undefined,
       getTurnContext: async () => ({ behaviorInstructions: [] }),
       updateEventStatus: async (input) => {

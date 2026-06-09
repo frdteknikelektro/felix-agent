@@ -67,6 +67,12 @@ export function startMattermostSource(
 
 class MattermostAdapter implements SourceAdapter {
   source = "mattermost";
+  get botUserId(): string | undefined {
+    return this.cfg.MATTERMOST_BOT_USER_ID;
+  }
+  get ownerUserId(): string | undefined {
+    return this.cfg.MATTERMOST_OWNER_USER_ID;
+  }
   private socket?: WebSocket;
   private reconnectTimer?: NodeJS.Timeout;
   private reconnectDelay = 1000;
@@ -398,7 +404,7 @@ class MattermostAdapter implements SourceAdapter {
     this.remember(postId);
     await this.writeRawEvent(post);
     const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
-    if (ownerDecision && this.cfg.MATTERMOST_OWNER_USER_ID === post.sender.id) {
+    if (ownerDecision && this.ownerUserId === post.sender.id) {
       const target = {
         kind: "owner_message" as const,
         anchor: {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldAcceptEvent, isOwnMattermostMessage } from "../src/core/routing.js";
+import { shouldAcceptEvent, isOwnMessage } from "../src/core/routing.js";
 import type { UniversalEvent } from "../src/types.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -52,29 +52,29 @@ describe("shouldAcceptEvent", () => {
   });
 });
 
-describe("isOwnMattermostMessage", () => {
+describe("isOwnMessage", () => {
   it("returns true when sender id matches bot user id", () => {
     const event = makeEvent({ sender: { source: "mattermost", id: "bot-123" } });
-    expect(isOwnMattermostMessage(event, "bot-123")).toBe(true);
+    expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(true);
   });
 
   it("returns true for compound source:id form", () => {
     const event = makeEvent({ sender: { source: "mattermost", id: "mattermost:bot-123" } });
-    expect(isOwnMattermostMessage(event, "bot-123")).toBe(true);
+    expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(true);
   });
 
   it("returns false when sender differs from bot user id", () => {
     const event = makeEvent({ sender: { source: "mattermost", id: "other-user" } });
-    expect(isOwnMattermostMessage(event, "bot-123")).toBe(false);
+    expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(false);
   });
 
   it("returns false when no bot user id is set", () => {
     const event = makeEvent({ sender: { source: "mattermost", id: "bot-123" } });
-    expect(isOwnMattermostMessage(event, undefined)).toBe(false);
+    expect(isOwnMessage(event, "mattermost", undefined)).toBe(false);
   });
 
-  it("returns false for non-mattermost sources", () => {
+  it("returns false when source does not match event source", () => {
     const event = makeEvent({ source: "slack" as never, sender: { source: "slack", id: "bot-123" } });
-    expect(isOwnMattermostMessage(event, "bot-123")).toBe(false);
+    expect(isOwnMessage(event, "discord", "bot-123")).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/app
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
-import { shouldAcceptEvent, isOwnMattermostMessage } from "./core/routing.js";
+import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
 import { decideTurnResult } from "./core/decide-turn.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
@@ -139,7 +139,7 @@ export class FelixEngine {
         }
         const { item, session } = next;
         const event = await this.readEventFromPath(item.event_file);
-        if (this.isOwnMattermostMessage(event)) {
+        if (this.isOwnMessage(event)) {
           continue;
         }
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
@@ -253,12 +253,12 @@ export class FelixEngine {
     event: UniversalEvent,
     request: SessionPermissionRequest,
   ): Promise<SourceMessageAnchor | null> {
-    const ownerId = this.cfg.MATTERMOST_OWNER_USER_ID;
+    const adapter = this.requireAdapter(event.source);
+    const ownerId = adapter.ownerUserId;
     if (!ownerId) {
-      log.warn("owner.missing", { thread_key: thread.state.thread_key });
+      log.warn("owner.missing", { source: event.source, thread_key: thread.state.thread_key });
       return null;
     }
-    const adapter = this.requireAdapter(event.source);
     const threadLink = await adapter.getThreadLink(event.thread_key);
     const message = [
       `Permission request for thread ${event.thread_key}`,
@@ -388,7 +388,7 @@ export class FelixEngine {
     let dropped = 0;
     for (const item of session.queue) {
       const event = await this.readEventFromPath(item.event_file);
-      if (this.isOwnMattermostMessage(event)) {
+      if (this.isOwnMessage(event)) {
         dropped++;
         continue;
       }
@@ -424,8 +424,9 @@ export class FelixEngine {
     await writeTextAtomic(event.raw_path, JSON.stringify(event, null, 2));
   }
 
-  private isOwnMattermostMessage(event: UniversalEvent): boolean {
-    return isOwnMattermostMessage(event, this.cfg.MATTERMOST_BOT_USER_ID);
+  private isOwnMessage(event: UniversalEvent): boolean {
+    const adapter = this.requireAdapter(event.source);
+    return isOwnMessage(event, adapter.source, adapter.botUserId);
   }
 
 }
