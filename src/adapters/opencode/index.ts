@@ -39,11 +39,6 @@ export class OpencodeHarness implements Harness {
 
     const baseArgs = [
       "run",
-      "--format",
-      "json",
-      "--dir",
-      this.cfg.paths.root,
-      "--dangerously-skip-permissions",
       "--model",
       this.cfg.OPENCODE_MODEL,
     ];
@@ -104,29 +99,8 @@ export class OpencodeHarness implements Harness {
     await logStream.close();
     await stderrStream.close();
 
-    // If no session existed before, capture the session ID from opencode
-    if (!hasSession) {
-      try {
-        const listResult = spawnSync(this.cfg.OPENCODE_BIN, ["session", "list", "--format", "json", "--max-count", "1"], {
-          cwd: this.cfg.paths.root,
-          env: {
-            ...process.env,
-            WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-            PATH: buildSpawnPath(this.cfg),
-          },
-          encoding: "utf8",
-          timeout: 10_000,
-        });
-        if (listResult.status === 0 && listResult.stdout) {
-          const entries = JSON.parse(listResult.stdout) as Array<{ id: string }>;
-          if (Array.isArray(entries) && entries.length > 0 && entries[0].id) {
-            capturedSessionId = entries[0].id;
-          }
-        }
-      } catch {
-        // keep generated session ID
-      }
-    }
+    // Session tracking: always pass --session so opencode creates-or-continues.
+    // opencode v0.1.x has no `session list` subcommand; our stored ID is canonical.
 
     if (capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
@@ -150,9 +124,6 @@ export class OpencodeHarness implements Harness {
 
     const args = [
       "run",
-      "--dir",
-      this.cfg.paths.root,
-      "--dangerously-skip-permissions",
       "--model",
       this.cfg.OPENCODE_MODEL,
       prompt,
