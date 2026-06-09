@@ -10,6 +10,8 @@ COPY skills ./skills
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
+ARG AGENT_UID=1000
+ARG AGENT_GID=1000
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -27,7 +29,8 @@ RUN apt-get update \
         python3-venv \
         unzip \
         zip \
-    && useradd --create-home --uid 1001 --shell /bin/bash agent \
+    && groupadd --gid "${AGENT_GID}" agent \
+    && useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \

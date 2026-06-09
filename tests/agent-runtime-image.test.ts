@@ -55,6 +55,15 @@ describe("agent runtime image contract", () => {
     expect(dockerfile).toContain("/home/agent/workspace/runtime/bin:/home/agent/workspace/runtime/python/bin:$PATH");
   });
 
+  it("creates the runtime user from configurable uid and gid", async () => {
+    const dockerfile = await read("Dockerfile");
+
+    expect(dockerfile).toContain("ARG AGENT_UID=1000");
+    expect(dockerfile).toContain("ARG AGENT_GID=1000");
+    expect(dockerfile).toContain('groupadd --gid "${AGENT_GID}" agent');
+    expect(dockerfile).toContain('useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent');
+  });
+
   it("documents exclusions for provider CLIs, LibreOffice, and browser runtimes", async () => {
     const adr = await read("docs/adr/0002-agent-runtime-image-contract.md");
     const readme = await read("README.md");

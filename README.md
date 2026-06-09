@@ -43,7 +43,10 @@ npm start
 Image name convention:
 
 ```bash
-docker build -t felix-agent-docker .
+docker build \
+  --build-arg AGENT_UID=$(id -u) \
+  --build-arg AGENT_GID=$(id -g) \
+  -t felix-agent-docker .
 ```
 
 Run with persistent workspace and secret env:
@@ -58,6 +61,8 @@ docker run -d \
   -v $(pwd)/workspace:/home/agent/workspace \
   felix-agent-docker:latest
 ```
+
+Build the image with the same numeric UID/GID as the host user that owns the bind-mounted `workspace/` directory. That avoids permission mismatches inside the container.
 
 Rebuild and relaunch:
 

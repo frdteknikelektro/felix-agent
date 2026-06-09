@@ -36,7 +36,10 @@ Image name convention: `felix-agent-docker`
 
 **Build:**
 ```bash
-docker build -t felix-agent-docker .
+docker build \
+  --build-arg AGENT_UID=$(id -u) \
+  --build-arg AGENT_GID=$(id -g) \
+  -t felix-agent-docker .
 ```
 
 **Run:**
@@ -52,6 +55,7 @@ docker run -d \
 - Port `53318` on host → `3000` in container (owner console + healthz)
 - `/run/secrets/.env` — secret env file (see Config below)
 - `/home/agent/workspace` — persistent runtime data (threads, contacts, approvals, skills)
+- Build the image with `AGENT_UID` / `AGENT_GID` matching the host user that owns the bind-mounted workspace.
 
 **Rebuild and relaunch (full cycle):**
 ```bash
