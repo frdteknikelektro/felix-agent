@@ -30,7 +30,7 @@ RUN apt-get update \
         unzip \
         zip \
     && (groupadd --gid "${AGENT_GID}" agent 2>/dev/null || true) \
-    && useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent \
+    && (useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent 2>/dev/null || true) \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
