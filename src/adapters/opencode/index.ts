@@ -41,6 +41,7 @@ export class OpencodeHarness implements Harness {
       "run",
       "--dir", this.cfg.paths.root,
       "--model", this.cfg.OPENCODE_MODEL,
+      "--title", input.event.thread_key,
     ];
     if (this.cfg.OPENCODE_VARIANT) {
       baseArgs.push("--variant", this.cfg.OPENCODE_VARIANT);
@@ -137,6 +138,7 @@ export class OpencodeHarness implements Harness {
       "--dir", this.cfg.paths.root,
       "--model",
       this.cfg.OPENCODE_MODEL,
+      "--title", "decision-notification",
       prompt,
     ];
 
