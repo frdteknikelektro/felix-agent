@@ -39,8 +39,9 @@ export class OpencodeHarness implements Harness {
 
     const baseArgs = [
       "run",
-      "--model",
-      this.cfg.OPENCODE_MODEL,
+      "--format", "json",
+      "--dir", this.cfg.paths.root,
+      "--model", this.cfg.OPENCODE_MODEL,
     ];
     if (this.cfg.OPENCODE_VARIANT) {
       baseArgs.push("--variant", this.cfg.OPENCODE_VARIANT);
@@ -78,8 +79,8 @@ export class OpencodeHarness implements Harness {
           if (!trimmed.startsWith("{")) continue;
           try {
             const event = JSON.parse(trimmed) as Record<string, unknown>;
-            if (event.type === "session.created" && typeof event.session_id === "string") {
-              capturedSessionId = event.session_id;
+            if (event.type === "step_start" && typeof event.sessionID === "string") {
+              capturedSessionId = event.sessionID;
             }
           } catch {
             // keep going
@@ -99,8 +100,29 @@ export class OpencodeHarness implements Harness {
     await logStream.close();
     await stderrStream.close();
 
-    // Session tracking: always pass --session so opencode creates-or-continues.
-    // opencode v0.1.x has no `session list` subcommand; our stored ID is canonical.
+    // If no session existed before, capture the session ID from opencode
+    if (!hasSession) {
+      try {
+        const listResult = spawnSync(this.cfg.OPENCODE_BIN, ["session", "list", "--format", "json", "--max-count", "1"], {
+          cwd: this.cfg.paths.root,
+          env: {
+            ...process.env,
+            WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+            PATH: buildSpawnPath(this.cfg),
+          },
+          encoding: "utf8",
+          timeout: 10_000,
+        });
+        if (listResult.status === 0 && listResult.stdout) {
+          const entries = JSON.parse(listResult.stdout) as Array<{ id: string }>;
+          if (Array.isArray(entries) && entries.length > 0 && entries[0].id) {
+            capturedSessionId = entries[0].id;
+          }
+        }
+      } catch {
+        // keep captured or generated session ID
+      }
+    }
 
     if (capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
@@ -124,6 +146,8 @@ export class OpencodeHarness implements Harness {
 
     const args = [
       "run",
+      "--format", "json",
+      "--dir", this.cfg.paths.root,
       "--model",
       this.cfg.OPENCODE_MODEL,
       prompt,
