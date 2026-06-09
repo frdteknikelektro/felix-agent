@@ -8,7 +8,7 @@ import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.j
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import { skillMatchesPermission } from "../../slices/skills/index.js";
-import type { Harness, TurnInput, TurnResult, ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
+import type { Harness, TurnInput, TurnResult, ParsedAgentOutput, PermissionRequiredOutput, DecisionNotificationInput } from "../../core/ports.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 export class CodexHarness implements Harness {
@@ -100,6 +100,56 @@ export class CodexHarness implements Harness {
     const success = exitCode === 0 && hasRenderableOutput(parsed);
 
     return { sessionId: capturedSessionId, exitCode, success, parsed, logPath };
+  }
+
+  async generateDecisionNotification(input: DecisionNotificationInput): Promise<string> {
+    await ensureDir(input.thread.turnsDir);
+    const baseName = `${fsTimestamp(new Date())}_decision_notification`;
+    const promptPath = path.join(input.thread.turnsDir, `${baseName}.md`);
+    const lastMessagePath = path.join(input.thread.turnsDir, `${baseName}.last-message.txt`);
+
+    const prompt = buildDecisionNotificationPrompt(input);
+    await writeTextAtomic(promptPath, prompt);
+
+    const args = [
+      "exec",
+      "-c",
+      `reasoning_effort="low"`,
+      "--json",
+      "--output-last-message",
+      lastMessagePath,
+      "--model",
+      this.cfg.CODEX_MODEL,
+      ...(this.cfg.CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+      prompt,
+    ];
+
+    try {
+      spawnSync(this.cfg.CODEX_BIN, args, {
+        cwd: this.cfg.paths.root,
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+          OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
+          OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
+          OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
+          PATH: buildSpawnPath(),
+        },
+        timeout: 60_000,
+        encoding: "utf8",
+      });
+
+      const lastMessage = await readText(lastMessagePath, "");
+      const reply = between(lastMessage, "FELIX_REPLY", "END_FELIX_REPLY");
+      return reply?.trim() || fallbackNotification(input.mode);
+    } catch (error) {
+      log.warn("codex.decision_notification_failed", {
+        thread_key: input.thread.state.thread_key,
+        mode: input.mode,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallbackNotification(input.mode);
+    }
   }
 }
 
@@ -330,4 +380,25 @@ function buildSpawnPath(): string {
   const localBin = path.resolve(process.cwd(), "node_modules", ".bin");
   const current = process.env.PATH ?? "";
   return current.includes(localBin) ? current : `${localBin}:${current}`;
+}
+
+function buildDecisionNotificationPrompt(input: DecisionNotificationInput): string {
+  const lines = [
+    "You are Felix, replying in a conversation thread.",
+    `The owner just ${input.mode === "reject" ? "rejected" : "approved"} a permission request for skill "${input.skillId}".`,
+    input.reason ? `Reason: ${input.reason}` : "",
+    input.mode === "reject"
+      ? "Tell the user their request was denied. Reply concisely in the conversation's language. One sentence only."
+      : `Tell the user permission was granted ${input.mode === "always" ? "permanently" : "for this request"}, and you're proceeding. Reply concisely in the conversation's language. One sentence only.`,
+    "",
+    "FELIX_REPLY",
+    "<reply>",
+    "END_FELIX_REPLY",
+  ];
+  return lines.join("\n");
+}
+
+function fallbackNotification(mode: "once" | "always" | "reject"): string {
+  if (mode === "reject") return "Permission denied.";
+  return "Permission granted. Proceeding.";
 }

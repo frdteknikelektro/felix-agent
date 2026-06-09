@@ -298,12 +298,57 @@ export class FelixEngine {
     if (!outcome) {
       return;
     }
+    const notification = await this.harness.generateDecisionNotification?.({
+      thread: outcome.thread,
+      mode: decision.mode,
+      skillId: outcome.record?.skillId ?? "(unknown)",
+      reason: outcome.record?.reason ?? "",
+    });
+    if (notification) {
+      await this.postDecisionNotification(outcome.thread, notification);
+    }
     await queueThreadEvent(outcome.thread, {
       received_at: outcome.at,
       event_file: outcome.decisionFile,
       source_event_id: `owner-${decision.mode === "reject" ? "reject" : "approve"}-${outcome.at}`,
     });
     await this.processThread(outcome.thread);
+  }
+
+  private async postDecisionNotification(thread: ThreadHandle, text: string): Promise<void> {
+    const source = thread.state.source;
+    const ref = thread.state.source_thread_ref;
+    try {
+      const adapter = this.requireAdapter(source);
+      if (!ref) {
+        log.warn("thread.no_source_thread_ref", {
+          thread_key: thread.state.thread_key,
+          source,
+        });
+      } else {
+        const event: UniversalEvent = {
+          source,
+          thread_key: thread.state.thread_key,
+          event_id: `decision-notify-${Date.now()}`,
+          received_at: new Date().toISOString(),
+          visibility: "channel",
+          mentions_bot: false,
+          sender: { source, id: "system" },
+          text,
+          attachments: [],
+          raw_path: "",
+          source_thread_ref: ref,
+        };
+        await adapter.sendThreadReply({ event, text });
+      }
+    } catch (error) {
+      log.warn("thread.decision_notify_post_failed", {
+        thread_key: thread.state.thread_key,
+        source,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    await appendFelixReply(thread, new Date().toISOString(), text);
   }
 
   /** Wait for all in-flight thread processing to settle, up to timeoutMs. */

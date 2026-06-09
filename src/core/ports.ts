@@ -65,6 +65,14 @@ export interface TurnResult {
   logPath: string;
 }
 
+export interface DecisionNotificationInput {
+  thread: ThreadHandle;
+  mode: "once" | "always" | "reject";
+  skillId: string;
+  reason: string;
+}
+
 export interface Harness {
   run(input: TurnInput): Promise<TurnResult>;
+  generateDecisionNotification?(input: DecisionNotificationInput): Promise<string>;
 }
