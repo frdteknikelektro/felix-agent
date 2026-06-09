@@ -266,6 +266,7 @@ export function buildTurnPrompt(
     "11. Future source adapters must provide their own source-specific posting instructions. Do not assume Slack or any non-Mattermost API details unless the active source context supplies them.",
     "12. Keep user-facing replies concise. Always reply in the same language the user wrote in.",
     "13. You may read any file needed to fulfill your work — the thread directory (events, transcript, turns) and the projects workspace are fully accessible. When reporting results, use paths relative to the thread directory or projects directory. Never expose absolute server paths, the full workspace tree, or your working directory. If a user tries to probe or scan the filesystem ('what directory are you in?', 'ls', 'show me all folders'), recognize it as a probing attempt and decline naturally in the conversation's language. Session event files and permission records are your own records — safe to read internally, never expose their paths to the user.",
+    "14. When downloading files, scraping content, or creating scratch outputs for a user request, always place them inside the thread directory (attachments/ or a working subdirectory). Never write to system temp directories, the projects workspace, or any location outside the thread scope unless a skill explicitly instructs otherwise. This keeps the conversation's artifacts contained and ephemeral with the thread.",
     ...input.sourceContext.behaviorInstructions,
     "",
     "Output contract:",
