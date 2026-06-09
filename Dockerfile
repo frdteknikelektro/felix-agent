@@ -71,7 +71,7 @@ ENV NODE_ENV=production \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
     && npm cache clean --force \
-    && mkdir -p /home/agent/workspace /home/agent/config \
+    && mkdir -p /home/agent/workspace /home/agent/workspace/runtime/bin /home/agent/workspace/runtime/tools /home/agent/workspace/runtime/python/bin /home/agent/config \
     && chown -R agent:agent /home/agent
 
 COPY --chown=agent:agent skills ./skills

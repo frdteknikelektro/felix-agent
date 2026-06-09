@@ -49,11 +49,12 @@ export class CodexHarness implements Harness {
       cwd: this.cfg.paths.root,
       env: {
         ...process.env,
+        WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
         OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
         OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
         OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
         OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-        PATH: buildSpawnPath(),
+        PATH: buildSpawnPath(this.cfg),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -129,11 +130,12 @@ export class CodexHarness implements Harness {
         cwd: this.cfg.paths.root,
         env: {
           ...process.env,
+          WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
           OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
           OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
           OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
           OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-          PATH: buildSpawnPath(),
+          PATH: buildSpawnPath(this.cfg),
         },
         timeout: 60_000,
         encoding: "utf8",
@@ -163,11 +165,12 @@ export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
     input: `${cfg.OPENAI_API_KEY}\n`,
     env: {
       ...process.env,
+      WORKSPACE_DIR: cfg.WORKSPACE_DIR,
       OPENAI_API_KEY: cfg.OPENAI_API_KEY,
       OPENAI_BASE_URL: cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
       OPENAI_ORGANIZATION: cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
       OPENAI_PROJECT: cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-      PATH: buildSpawnPath(),
+      PATH: buildSpawnPath(cfg),
     },
     encoding: "utf8",
     timeout: 60_000,
@@ -377,10 +380,13 @@ function contactFilePath(cfg: AppConfig, source: string, userId: string): string
   return path.join(cfg.paths.contacts, source, `${userId.replace(/[^a-zA-Z0-9._-]/g, "_")}.md`);
 }
 
-function buildSpawnPath(): string {
+function buildSpawnPath(cfg: AppConfig): string {
   const localBin = path.resolve(process.cwd(), "node_modules", ".bin");
   const current = process.env.PATH ?? "";
-  return current.includes(localBin) ? current : `${localBin}:${current}`;
+  const pythonBin = path.join(cfg.paths.python, "bin");
+  const existing = new Set(current.split(":").filter(Boolean));
+  const prepend = [localBin, cfg.paths.bin, pythonBin].filter((p) => !existing.has(p));
+  return prepend.length > 0 ? `${prepend.join(":")}:${current}` : current;
 }
 
 function buildDecisionNotificationPrompt(input: DecisionNotificationInput): string {
