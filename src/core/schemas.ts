@@ -98,6 +98,35 @@ export const ApprovalRecordSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Tasks domain — tasks/<status>/<task-id>.json
+// ---------------------------------------------------------------------------
+
+export const TaskStatusSchema = z.enum([
+  "backlog",
+  "active",
+  "done",
+  "cancelled",
+  "blocked",
+  "paused",
+]);
+
+export const TaskRecordSchema = z.object({
+  schema_version: z.number().optional(),
+  id: z.string(),
+  status: TaskStatusSchema,
+  title: z.string(),
+  description: z.string(),
+  created_at: z.string(),
+  created_by: z.object({ source: z.string(), user_id: z.string() }),
+  parent_source: z.string(),
+  parent_thread_key: z.string(),
+  parent_post_id: z.string().optional(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  updated_at: z.string(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types — single source of truth for persisted shapes
 // ---------------------------------------------------------------------------
 
@@ -109,3 +138,5 @@ export type SessionQueueItem = z.infer<typeof SessionQueueItemSchema>;
 export type SessionPermissionRequest = z.infer<typeof SessionPermissionRequestSchema>;
 export type SessionState = z.infer<typeof SessionStateSchema>;
 export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export type TaskRecord = z.infer<typeof TaskRecordSchema>;

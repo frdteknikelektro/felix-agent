@@ -9,6 +9,8 @@ export type {
   SessionPermissionRequest,
   SessionState,
   ApprovalRecord,
+  TaskRecord,
+  TaskStatus,
 } from "./core/schemas.js";
 
 // ---------------------------------------------------------------------------

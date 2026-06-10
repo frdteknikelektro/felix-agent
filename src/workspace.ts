@@ -20,6 +20,7 @@ export interface WorkspacePaths {
   index: string;
   threadKeyIndex: string;
   projects: string;
+  tasks: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
@@ -47,6 +48,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     index,
     threadKeyIndex: path.join(index, "thread-key"),
     projects,
+    tasks: path.join(root, "tasks"),
   };
 }
 
@@ -68,6 +70,13 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(paths.index),
     ensureDir(paths.threadKeyIndex),
     ensureDir(paths.projects),
+    ensureDir(paths.tasks),
+    ensureDir(path.join(paths.tasks, "backlog")),
+    ensureDir(path.join(paths.tasks, "active")),
+    ensureDir(path.join(paths.tasks, "done")),
+    ensureDir(path.join(paths.tasks, "cancelled")),
+    ensureDir(path.join(paths.tasks, "blocked")),
+    ensureDir(path.join(paths.tasks, "paused")),
   ]);
 }
 
