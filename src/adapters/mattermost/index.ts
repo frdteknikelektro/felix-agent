@@ -98,6 +98,7 @@ class MattermostAdapter implements SourceAdapter {
       return { stop: () => undefined, done: Promise.resolve() };
     }
     await this.prefetchBotTeams();
+    await this.ensureBotTimezone();
     let resolveDone!: () => void;
     const done = new Promise<void>((resolve) => {
       resolveDone = resolve;
@@ -373,6 +374,42 @@ class MattermostAdapter implements SourceAdapter {
       displayName,
       mentionTokens,
     };
+  }
+
+  private async ensureBotTimezone(): Promise<void> {
+    const timezone = this.cfg.MATTERMOST_BOT_TIMEZONE;
+    if (!timezone) return;
+    const userId = this.cfg.MATTERMOST_BOT_USER_ID;
+    if (!userId) return;
+    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/${encodeURIComponent(userId)}/preferences`;
+    try {
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify([
+          {
+            user_id: userId,
+            category: "display_settings",
+            name: "timezone",
+            value: JSON.stringify({
+              useAutomaticTimezone: "false",
+              automaticTimezone: "",
+              manualTimezone: timezone,
+            }),
+          },
+        ]),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`failed to update timezone preference: ${res.status} ${body}`);
+      }
+      log.info("mattermost.timezone_updated", { timezone });
+    } catch {
+      log.warn("mattermost.timezone_update_failed", { timezone });
+    }
   }
 
   private connect(engine: FelixEngine): void {
