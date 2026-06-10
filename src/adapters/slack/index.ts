@@ -204,6 +204,10 @@ class SlackAdapter implements SourceAdapter {
     }
   }
 
+  async sendTyping(_input: { event: UniversalEvent }): Promise<void> {
+    // Slack Web API does not expose a typing indicator endpoint
+  }
+
   async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
     const channelId = input.event.source_thread_ref.conversation_id;
     if (!channelId) {

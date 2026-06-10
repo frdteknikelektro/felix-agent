@@ -26,6 +26,7 @@ describe("FelixEngine Mattermost routing", () => {
       updateEventStatus: async (input) => {
         calls.updateEventStatus(input);
       },
+      sendTyping: async () => {},
       sendThreadReply: async (input) => {
         calls.sendThreadReply(input);
       },

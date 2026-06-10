@@ -12,6 +12,7 @@ export interface SourceAdapter {
   getThreadLink(threadKey: string): Promise<string | undefined>;
   getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext>;
   updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void>;
+  sendTyping(input: { event: UniversalEvent }): Promise<void>;
   sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void>;
   sendUserMessage(input: {
     userId: string;

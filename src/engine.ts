@@ -149,6 +149,9 @@ export class FelixEngine {
         let retriedFreshStart = false;
         while (true) {
           let result;
+          const typingInterval = setInterval(() => {
+            adapter.sendTyping({ event }).catch(() => {});
+          }, 4000);
           try {
             result = await this.harness.run({
               thread,
@@ -160,9 +163,11 @@ export class FelixEngine {
               resumed,
             });
           } catch (error) {
+            clearInterval(typingInterval);
             await requeueEvent(thread, item);
             throw error;
           }
+          clearInterval(typingInterval);
           const decision = decideTurnResult(result, resumed, retriedFreshStart);
           if (decision.kind === "retry_fresh") {
             log.warn("codex.resume_fallback", {

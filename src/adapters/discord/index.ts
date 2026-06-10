@@ -164,6 +164,19 @@ class DiscordAdapter implements SourceAdapter {
     await this.removeReaction(input.event, "⏳");
   }
 
+  async sendTyping(input: { event: UniversalEvent }): Promise<void> {
+    const channelId = input.event.source_thread_ref.conversation_id;
+    if (!channelId || !this.client) return;
+    try {
+      const channel = await this.client.channels.fetch(channelId);
+      if (channel?.isTextBased()) {
+        await (channel as any).sendTyping();
+      }
+    } catch {
+      // typing indicator is best-effort
+    }
+  }
+
   async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
     const channelId = input.event.source_thread_ref.conversation_id;
     if (!channelId) {

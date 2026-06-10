@@ -214,6 +214,27 @@ class MattermostAdapter implements SourceAdapter {
     await this.removeReaction({ event: input.event, emoji: "⏳" });
   }
 
+  async sendTyping(input: { event: UniversalEvent }): Promise<void> {
+    const channelId = input.event.source_thread_ref.conversation_id;
+    if (!channelId) return;
+    try {
+      const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/me/typing`;
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          channel_id: channelId,
+          parent_id: input.event.source_thread_ref.root_message_id ?? "",
+        }),
+      });
+    } catch {
+      // typing indicator is best-effort
+    }
+  }
+
   async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
     const ref = input.event.source_thread_ref;
     await this.postMessage({
