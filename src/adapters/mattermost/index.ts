@@ -143,6 +143,12 @@ class MattermostAdapter implements SourceAdapter {
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
     return {
+      ...(this.cfg.MATTERMOST_OWNER_USER_ID ? {
+        owner: {
+          userId: this.cfg.MATTERMOST_OWNER_USER_ID,
+          display: this.cfg.MATTERMOST_OWNER_DISPLAY,
+        },
+      } : {}),
       behaviorInstructions: [
         `9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         `10. For Mattermost public threads, when a post mentions ${botMentionText}, fetch the current thread history before answering. Use a read-only shell script or command sequence like this:`,

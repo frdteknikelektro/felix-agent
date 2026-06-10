@@ -22,7 +22,7 @@ describe("FelixEngine Mattermost routing", () => {
       botUserId: undefined,
       ownerUserId: undefined,
       getThreadLink: async () => undefined,
-      getTurnContext: async () => ({ behaviorInstructions: [] }),
+      getTurnContext: async () => ({ behaviorInstructions: [], owner: { display: "Owner" } }),
       updateEventStatus: async (input) => {
         calls.updateEventStatus(input);
       },

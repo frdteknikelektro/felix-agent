@@ -83,6 +83,8 @@ describe("Mattermost source turn context", () => {
       },
     });
 
+    expect(context.owner).toBeUndefined();
+
     const text = context.behaviorInstructions.join("\n");
     expect(text).toContain("@felix-agent or @Felix Agent");
     expect(text).toContain('THREAD_POST_ID="root-post"');

@@ -29,6 +29,10 @@ export type SourceEventStatus = "processing" | "replied" | "permission_required"
 
 export interface SourceTurnContext {
   behaviorInstructions: string[];
+  owner?: {
+    userId?: string;
+    display: string;
+  };
 }
 
 // ─── Harness port ─────────────────────────────────────────────────────────────
@@ -75,6 +79,7 @@ export interface DecisionNotificationInput {
   mode: "once" | "always" | "reject";
   skillId: string;
   reason: string;
+  ownerDisplay?: string;
 }
 
 export interface Harness {

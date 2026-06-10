@@ -139,6 +139,8 @@ describe("codex output parser", () => {
       [],
     );
 
+    expect(prompt).toContain("You have an owner who grants permission");
+    expect(prompt).toContain("The owner is not reachable on this source");
     expect(prompt).toContain("reply-only");
     expect(prompt).toContain("ask one clarifying question");
     expect(prompt).toContain("defer to a more specialized skill");

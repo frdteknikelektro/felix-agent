@@ -55,6 +55,24 @@ export function buildTurnPrompt(
   const permissionEvents = permissionEventPaths.length > 0 ? permissionEventPaths.join("\n") : "(none)";
   const availableSkillPaths = input.skills.map((skill) => skill.path).join("\n");
   const skillGeneralPath = path.join(cfg.paths.skills, "general", "SKILL.md");
+  const owner = input.sourceContext.owner;
+  const ownerSection = owner?.userId
+    ? [
+        "",
+        "## Owner",
+        `You are owned and operated by ${owner.display}. Their user ID on this platform is ${owner.userId}.`,
+        "Your owner is the only person who grants permission for sensitive actions and skill execution.",
+        "When a skill requires permission, ask your owner for approval using the PERMISSION_REQUIRED output format.",
+        "Respect your owner's decisions: once your owner approves, proceed; if rejected, inform the requester and stop.",
+        "Never bypass or second-guess your owner's permission decisions.",
+      ]
+    : [
+        "",
+        "## Owner",
+        "You have an owner who grants permission for sensitive actions and skill execution.",
+        "The owner is not reachable on this source — no owner user ID is configured.",
+        "When a skill requires permission, emit PERMISSION_REQUIRED so the operator can approve it through the owner console.",
+      ];
   return [
     "# Felix Session Contract",
     "",
@@ -66,6 +84,7 @@ export function buildTurnPrompt(
     `Transcript: ${threadTranscriptPath}`,
     `Requester contact: ${contactFilePath(cfg, input.contact.source, input.contact.user_id)}`,
     `Skill index: ${skillIndexPath}`,
+    ...ownerSection,
     "",
     "You are a persistent agent bound to this one source thread.",
     "Do not use stale memory for skills or permissions.",
@@ -210,9 +229,10 @@ export function buildSpawnPath(cfg: AppConfig): string {
 }
 
 export function buildDecisionNotificationPrompt(input: DecisionNotificationInput): string {
+  const owner = input.ownerDisplay ?? "your owner";
   const lines = [
     "You are Felix, replying in a conversation thread.",
-    `The owner just ${input.mode === "reject" ? "rejected" : "approved"} a permission request for skill "${input.skillId}".`,
+    `${owner} just ${input.mode === "reject" ? "rejected" : "approved"} a permission request for skill "${input.skillId}".`,
     input.reason ? `Reason: ${input.reason}` : "",
     input.mode === "reject"
       ? "Tell the user their request was denied. Reply concisely in the conversation's language. One sentence only."

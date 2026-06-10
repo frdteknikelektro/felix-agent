@@ -82,6 +82,8 @@ describe("DiscordAdapter getTurnContext", () => {
     expect(ctx.behaviorInstructions).toBeDefined();
     expect(ctx.behaviorInstructions.length).toBeGreaterThan(0);
 
+    expect(ctx.owner).toBeUndefined();
+
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("Discord");
     expect(joined).toContain("CHANNEL_ID");

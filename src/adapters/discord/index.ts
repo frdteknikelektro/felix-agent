@@ -113,6 +113,12 @@ class DiscordAdapter implements SourceAdapter {
     const channelId = input.event.source_thread_ref.conversation_id;
 
     return {
+      ...(this.cfg.DISCORD_OWNER_USER_ID ? {
+        owner: {
+          userId: this.cfg.DISCORD_OWNER_USER_ID,
+          display: this.cfg.DISCORD_OWNER_DISPLAY,
+        },
+      } : {}),
       behaviorInstructions: [
         `9. For Discord channel threads (visibility: channel), only answer when the post explicitly mentions ${botMention}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         `10. For Discord threads, fetch the current message history before answering. Use a read-only shell script:`,

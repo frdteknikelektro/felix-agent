@@ -308,6 +308,7 @@ export class FelixEngine {
       mode: decision.mode,
       skillId: outcome.record?.skillId ?? "(unknown)",
       reason: outcome.record?.reason ?? "",
+      ownerDisplay: this.ownerDisplayForSource(outcome.thread.state.source),
     });
     if (notification) {
       await this.postDecisionNotification(outcome.thread, notification);
@@ -432,6 +433,15 @@ export class FelixEngine {
   private isOwnMessage(event: UniversalEvent): boolean {
     const adapter = this.requireAdapter(event.source);
     return isOwnMessage(event, adapter.source, adapter.botUserId);
+  }
+
+  private ownerDisplayForSource(source: string): string | undefined {
+    const map: Record<string, string> = {
+      mattermost: this.cfg.MATTERMOST_OWNER_DISPLAY,
+      discord: this.cfg.DISCORD_OWNER_DISPLAY,
+      slack: this.cfg.SLACK_OWNER_DISPLAY,
+    };
+    return map[source];
   }
 
 }
