@@ -250,14 +250,13 @@ done
 
 ## Notification (cross-thread)
 
-After a status transition, optionally post a concise update to the parent thread. Source `/run/secrets/.env` first.
+After a status transition, optionally post a concise update to the parent thread. All source tokens are already in the environment.
 
 ### Mattermost
 
 Parse `mattermost:<channel_id>:<root_post_id>` from `parent_thread_key`:
 
 ```bash
-set -a; source /run/secrets/.env; set +a
 PARENT_CHANNEL=$(echo "$PARENT_THREAD_KEY" | cut -d: -f2)
 PARENT_POST=$(echo "$PARENT_THREAD_KEY" | cut -d: -f3)
 [ -z "$PARENT_POST" ] && PARENT_POST="$PARENT_CHANNEL"
@@ -274,7 +273,6 @@ curl -sS -X POST \
 ### Discord
 
 ```bash
-set -a; source /run/secrets/.env; set +a
 PARENT_CHANNEL=$(echo "$PARENT_THREAD_KEY" | cut -d: -f2)
 MSG="📋 \`<task-id>\` \"<title>\" — status: <new-status>"
 curl -sS -X POST \
@@ -287,7 +285,6 @@ curl -sS -X POST \
 ### Slack
 
 ```bash
-set -a; source /run/secrets/.env; set +a
 PARENT_CHANNEL=$(echo "$PARENT_THREAD_KEY" | cut -d: -f2)
 PARENT_TS=$(echo "$PARENT_THREAD_KEY" | cut -d: -f3)
 MSG="📋 \`<task-id>\` \"<title>\" — status: <new-status>"
@@ -321,6 +318,6 @@ curl -sS -X POST \
 - `reopen` always moves to `backlog`, never to `active`.
 - Keep board output concise — one row per task, no prose.
 - Use `jq -n` for JSON construction (not heredocs) to avoid special-character breakage.
-- Source `/run/secrets/.env` before any notification curl.
+- All source tokens are already in the environment — no need to source any file.
 - If notification fails (curl non-zero), log the error but proceed — the task status has already changed.
 - Never print credential values, tokens, or API keys in output or logs.

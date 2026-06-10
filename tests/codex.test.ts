@@ -126,9 +126,6 @@ describe("codex output parser", () => {
             "9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions @felix-agent or @Felix Agent. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.",
             "10. For Mattermost public threads, when a post mentions @felix-agent or @Felix Agent, fetch the current thread history before answering. Use a read-only shell script or command sequence like this:",
             "```bash",
-            "set -a",
-            "source /run/secrets/.env",
-            "set +a",
             'THREAD_POST_ID="root"',
             'curl -sS -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
             '  "$MATTERMOST_URL/api/v4/posts/$THREAD_POST_ID/thread"',
@@ -158,7 +155,7 @@ describe("codex output parser", () => {
     expect(prompt).toContain("when a post mentions @felix-agent");
     expect(prompt).toContain("@Felix Agent");
     expect(prompt).not.toContain("only answer requests from @frdinawan");
-    expect(prompt).toContain("source /run/secrets/.env");
+    expect(prompt).not.toContain("source /run/secrets/.env");
     expect(prompt).toContain("curl -sS -H \"Authorization: Bearer $MATTERMOST_TOKEN\"");
     expect(prompt).toContain('THREAD_POST_ID="root"');
     expect(prompt).toContain('"conversation_id":"channel"');

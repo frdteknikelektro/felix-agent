@@ -89,7 +89,7 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
     expect(text).toContain("Source API posting for Mattermost");
     expect(text).toContain("post them directly to the current Mattermost thread");
-    expect(text).toContain("source /run/secrets/.env");
+    expect(text).not.toContain("source /run/secrets/.env");
     expect(text).toContain("MATTERMOST_URL");
     expect(text).toContain("MATTERMOST_TOKEN");
     expect(text).toContain('MATTERMOST_CHANNEL_ID="channel"');

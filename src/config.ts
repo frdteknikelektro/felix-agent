@@ -56,6 +56,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...readDotEnv(secretEnvFile),
     ...readDotEnv(path.join(configDir, ".env")),
   };
+  // Inject loaded secrets into process.env so spawned child processes inherit them
+  for (const [key, value] of Object.entries(merged)) {
+    process.env[key] = String(value);
+  }
   const parsed = Env.parse(merged);
   return {
     ...parsed,
