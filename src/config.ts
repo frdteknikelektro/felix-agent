@@ -30,7 +30,6 @@ const Env = z.object({
   MATTERMOST_BOT_USERNAME: z.string().optional(),
   MATTERMOST_BOT_DISPLAY: z.string().default("Felix"),
   MATTERMOST_OWNER_USER_ID: z.string().optional(),
-  MATTERMOST_BOT_TIMEZONE: z.string().optional(),
   MATTERMOST_OWNER_DISPLAY: z.string().default("Owner"),
   DISCORD_TOKEN: z.string().optional(),
   DISCORD_BOT_USER_ID: z.string().optional(),
