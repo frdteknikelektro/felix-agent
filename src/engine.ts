@@ -11,6 +11,7 @@ import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SkillRecor
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
+import { fallbackNotification } from "./core/harness-common.js";
 import { decideTurnResult } from "./core/decide-turn.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
@@ -193,8 +194,20 @@ export class FelixEngine {
           }
           await recordTurn(thread, result.sessionId);
           if (decision.kind === "permission_required") {
-            await this.postThreadReply(thread, event, result.sessionId, (result.parsed as PermissionRequiredOutput).text);
-            await this.handlePermissionRequired(thread, event, result.parsed as PermissionRequiredOutput);
+            const permOutput = result.parsed as PermissionRequiredOutput;
+            const skillId = permOutput.skillId ?? "(unknown)";
+            const bareMissing = (permOutput.permissions ?? []).filter(
+              (bare) => !contact.allowed_permissions.includes(`${skillId}:${bare}`),
+            );
+            if (bareMissing.length === 0) {
+              await this.autoGrantPermission(thread, event, result.sessionId, permOutput, skillId);
+            } else {
+              await this.postThreadReply(thread, event, result.sessionId, permOutput.text);
+              await this.handlePermissionRequired(thread, event, {
+                ...permOutput,
+                permissions: bareMissing,
+              });
+            }
           } else {
             await this.postThreadReply(thread, event, result.sessionId, result.parsed.text);
           }
@@ -251,6 +264,21 @@ export class FelixEngine {
     await requestApproval(this.cfg, thread, request);
     const adapter = this.requireAdapter(event.source);
     await adapter.updateEventStatus({ event, status: "permission_required" });
+  }
+
+  private async autoGrantPermission(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    sessionId: string,
+    _permOutput: PermissionRequiredOutput,
+    _skillId: string,
+  ): Promise<void> {
+    const adapter = this.requireAdapter(event.source);
+    const text = fallbackNotification("once");
+    await adapter.sendThreadReply({ event, text });
+    await adapter.updateEventStatus({ event, status: "replied" });
+    await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
+    await this.queueProceedEvent(thread);
   }
 
   private async notifyOwner(
@@ -313,6 +341,9 @@ export class FelixEngine {
     if (notification) {
       await this.postDecisionNotification(outcome.thread, notification);
     }
+    if (decision.mode !== "reject") {
+      await this.queueProceedEvent(outcome.thread);
+    }
     await this.processThread(outcome.thread);
   }
 
@@ -350,6 +381,36 @@ export class FelixEngine {
       });
     }
     await appendFelixReply(thread, new Date().toISOString(), text);
+  }
+
+  /**
+   * Queue a synthetic system event that tells the LLM to proceed with the
+   * pending work. Called after auto-grant and after owner approval, so the
+   * LLM gets a turn to actually execute.
+   */
+  private async queueProceedEvent(thread: ThreadHandle): Promise<void> {
+    const ref = thread.state.source_thread_ref;
+    if (!ref) return;
+    const source = thread.state.source;
+    const proceedEvent: UniversalEvent = {
+      source,
+      thread_key: thread.state.thread_key,
+      event_id: `proceed-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+      received_at: new Date().toISOString(),
+      visibility: "channel",
+      mentions_bot: false,
+      sender: { source, id: "system" },
+      text: "Permission granted. Proceed with the pending request.",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: ref,
+    };
+    const eventFile = await appendEventToThread(thread, proceedEvent);
+    await queueThreadEvent(thread, {
+      received_at: proceedEvent.received_at,
+      event_file: eventFile,
+      source_event_id: proceedEvent.event_id,
+    });
   }
 
   /** Wait for all in-flight thread processing to settle, up to timeoutMs. */
