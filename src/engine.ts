@@ -313,11 +313,6 @@ export class FelixEngine {
     if (notification) {
       await this.postDecisionNotification(outcome.thread, notification);
     }
-    await queueThreadEvent(outcome.thread, {
-      received_at: outcome.at,
-      event_file: outcome.decisionFile,
-      source_event_id: `owner-${decision.mode === "reject" ? "reject" : "approve"}-${outcome.at}`,
-    });
     await this.processThread(outcome.thread);
   }
 
