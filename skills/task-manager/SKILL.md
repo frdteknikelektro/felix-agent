@@ -42,7 +42,7 @@ Kanban board with create → start → done lifecycle. Tasks persist as JSON fil
 
 ## Environment
 
-Base directories (always resolve from `$WORKSPACE_DIR`):
+Base directories (use the `$WORKSPACE_DIR` environment variable — already set by the harness, do NOT redefine it):
 
 ```bash
 TASKS_DIR="${WORKSPACE_DIR}/tasks"
