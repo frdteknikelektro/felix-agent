@@ -7,7 +7,7 @@ import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/approvals/index.js";
-import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
+import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
@@ -90,15 +90,16 @@ export class FelixEngine {
       updated_at: new Date().toISOString(),
     });
 
-    await adapter.updateEventStatus({ event, status: "processing" });
+    if (event.mentions_bot || event.visibility === "dm") {
+      await adapter.updateEventStatus({ event, status: "processing" });
+    }
 
-    const session = await loadSessionState(thread);
     const queued = await queueThreadEvent(thread, {
       received_at: event.received_at,
       event_file: eventFile,
       source_event_id: event.event_id,
     });
-    if (!queued.busy) {
+    if (!queued.busy && (event.mentions_bot || event.visibility === "dm")) {
       void this.processThread(thread).catch((error) => {
         log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
       });
@@ -134,15 +135,10 @@ export class FelixEngine {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
       while (true) {
-        const next = await shiftNextEvent(thread);
-        if (!next) {
-          break;
-        }
-        const { item, session } = next;
-        const event = await this.readEventFromPath(item.event_file);
-        if (this.isOwnMessage(event)) {
-          continue;
-        }
+        const preceding: { event: UniversalEvent; eventFile: string }[] = [];
+        const trigger = await this.dequeueTriggerEvent(thread, preceding);
+        if (!trigger) break;
+        const { item, session, event } = trigger;
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
         const adapter = this.requireAdapter(event.source);
         const sourceContext = await adapter.getTurnContext({ event });
@@ -162,6 +158,7 @@ export class FelixEngine {
               skills: this.skills,
               sourceContext,
               resumed,
+              precedingEvents: preceding.length > 0 ? preceding : undefined,
             });
           } catch (error) {
             clearInterval(typingInterval);
@@ -489,6 +486,22 @@ export class FelixEngine {
   private isOwnMessage(event: UniversalEvent): boolean {
     const adapter = this.requireAdapter(event.source);
     return isOwnMessage(event, adapter.source, adapter.botUserId);
+  }
+
+  private async dequeueTriggerEvent(
+    thread: ThreadHandle,
+    preceding: { event: UniversalEvent; eventFile: string }[],
+  ): Promise<{ item: SessionQueueItem; session: SessionState; event: UniversalEvent } | null> {
+    while (true) {
+      const next = await shiftNextEvent(thread);
+      if (!next) return null;
+      const event = await this.readEventFromPath(next.item.event_file);
+      if (this.isOwnMessage(event)) continue;
+      if (event.mentions_bot || event.visibility === "dm" || event.sender.id === "system") {
+        return { item: next.item, session: next.session, event };
+      }
+      preceding.push({ event, eventFile: next.item.event_file });
+    }
   }
 
   private ownerDisplayForSource(source: string): string | undefined {

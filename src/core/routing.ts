@@ -6,10 +6,11 @@ import type { UniversalEvent } from "../types.js";
  */
 export function shouldAcceptEvent(
   event: UniversalEvent,
-  _thread?: { managed_by_felix: boolean },
+  thread?: { managed_by_felix: boolean },
 ): boolean {
   if (event.visibility === "dm") return true;
   if (event.mentions_bot) return true;
+  if (thread?.managed_by_felix) return true;
   return false;
 }
 

@@ -33,13 +33,13 @@ describe("shouldAcceptEvent", () => {
     expect(shouldAcceptEvent(makeEvent({ visibility: "channel", mentions_bot: false }))).toBe(false);
   });
 
-  it("rejects channel thread replies without a mention even when thread is managed by Felix", () => {
+  it("accepts channel thread replies without a mention when thread is managed by Felix", () => {
     expect(
       shouldAcceptEvent(
         makeEvent({ visibility: "channel", mentions_bot: false }),
         { managed_by_felix: true },
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("rejects channel thread replies without a mention when thread is NOT managed by Felix", () => {

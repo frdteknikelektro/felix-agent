@@ -63,6 +63,7 @@ export interface TurnInput {
   skills: SkillRecord[];
   sourceContext: SourceTurnContext;
   resumed: boolean;
+  precedingEvents?: { event: UniversalEvent; eventFile: string }[];
 }
 
 export interface TurnResult {

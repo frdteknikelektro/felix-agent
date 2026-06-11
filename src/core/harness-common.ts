@@ -142,6 +142,16 @@ export function buildTurnPrompt(
     "Latest thread events and permission events are available on disk. Re-read them before acting.",
     `Permission events in this thread:`,
     permissionEvents,
+    ...(input.precedingEvents?.length
+      ? [
+          "",
+          "Preceding queued messages (already in transcript):",
+          ...input.precedingEvents.flatMap((e) => [
+            `- sender: ${e.event.sender.source}:${e.event.sender.id}`,
+            `  text: ${e.event.text}`,
+          ]),
+        ]
+      : []),
     "",
     "Latest event:",
     `- event_file: ${input.eventFile}`,
