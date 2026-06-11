@@ -208,11 +208,11 @@ export function extractPermissionBlock(text: string): {
 }
 
 export function between(text: string, startMarker: string, endMarker: string): string | null {
-  const start = text.indexOf(startMarker);
+  const end = text.lastIndexOf(endMarker);
+  if (end < 0) return null;
+  const start = text.lastIndexOf(startMarker, end);
   if (start < 0) return null;
   const after = start + startMarker.length;
-  const end = text.indexOf(endMarker, after);
-  if (end < 0) return null;
   return text.slice(after, end);
 }
 
