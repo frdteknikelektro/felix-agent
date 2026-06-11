@@ -150,8 +150,8 @@ class MattermostAdapter implements SourceAdapter {
         },
       } : {}),
       behaviorInstructions: [
-        `9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
-        `10. For Mattermost public threads, when a post mentions ${botMentionText}, fetch the current thread history before answering. Use a read-only shell script or command sequence like this:`,
+        `9. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
+        `10. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         "```bash",
         `THREAD_POST_ID="${rootPostId}"`,
         'curl -sS -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',

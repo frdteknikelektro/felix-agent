@@ -90,7 +90,7 @@ export function buildTurnPrompt(
     "You are a persistent agent bound to this one source thread.",
     "Do not use stale memory for skills or permissions.",
     "Before doing anything, reread the current skill index, the relevant SKILL.md files, the requester contact document, and the latest permission events in the thread directory.",
-    "The thread transcript and event files are the source of truth for what has already happened.",
+    "The thread transcript and event files are the source of truth for what has already happened. The local transcript only contains events this agent has recorded — earlier messages from the source platform may not be present. Check the source-specific behavior instructions below for how to fetch thread history from the platform if needed.",
     hasGeneralSkill
       ? `The general skill is the default for ordinary conversation, simple informational help, and short explanations. It is reply-only: keep responses short, ask one clarifying question if the request is ambiguous, and defer to a more specialized skill if one fits better. Read ${skillGeneralPath} before answering those requests.`
       : "No general skill is installed. If no specialized skill matches a simple informational request, use the unsupported fallback.",
