@@ -46,12 +46,17 @@ export async function opencodeRun(
   const stderrStream = await fs.open(`${logPath}.stderr`, "a");
 
   const stdoutLines: string[] = [];
+  let buf = "";
 
   const exitCode = await new Promise<number>((resolve) => {
     child.stdout.on("data", async (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stdoutLines.push(...text.split(/\r?\n/).filter(Boolean));
-      await appendText(logPath, text);
+      buf += chunk.toString("utf8");
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line) stdoutLines.push(line);
+      }
+      await appendText(logPath, chunk.toString("utf8"));
     });
     child.stderr.on("data", async (chunk: Buffer) => {
       await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
@@ -101,8 +106,8 @@ export class OpencodeHarness implements Harness {
       OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
       OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
       DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-      XDG_DATA_HOME: this.cfg.paths.runtime,
-      XDG_CONFIG_HOME: this.cfg.paths.runtime,
+      XDG_DATA_HOME: `${this.cfg.paths.runtime}/.local`,
+      XDG_CONFIG_HOME: `${this.cfg.paths.runtime}/.config`,
       PATH: buildSpawnPath(this.cfg),
     };
   }
@@ -195,8 +200,8 @@ export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
     env: {
       ...process.env,
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-      XDG_DATA_HOME: cfg.paths.runtime,
-      XDG_CONFIG_HOME: cfg.paths.runtime,
+      XDG_DATA_HOME: `${cfg.paths.runtime}/.local`,
+      XDG_CONFIG_HOME: `${cfg.paths.runtime}/.config`,
       PATH: buildSpawnPath(cfg),
     },
     encoding: "utf8",

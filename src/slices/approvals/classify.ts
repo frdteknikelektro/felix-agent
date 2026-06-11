@@ -139,8 +139,8 @@ async function classifyViaOpencode(
       {
         OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
         DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-        XDG_DATA_HOME: cfg.paths.runtime,
-        XDG_CONFIG_HOME: cfg.paths.runtime,
+        XDG_DATA_HOME: `${cfg.paths.runtime}/.local`,
+        XDG_CONFIG_HOME: `${cfg.paths.runtime}/.config`,
         PATH: buildSpawnPath(cfg),
       },
       logPath,
