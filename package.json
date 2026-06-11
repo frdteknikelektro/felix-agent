@@ -17,7 +17,7 @@
     "@openai/codex": "^0.133.0",
     "@slack/bolt": "^4.7.3",
     "discord.js": "^14.18.0",
-    "opencode-ai": "^1.16.0",
+    "opencode-ai": "^1.17.3",
     "ws": "^8.18.3",
     "yaml": "^2.6.1",
     "zod": "^3.24.1"

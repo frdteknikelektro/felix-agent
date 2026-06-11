@@ -6,7 +6,7 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { AppConfig } from "../../config.js";
 import { between, buildSpawnPath } from "../../core/harness-common.js";
-import { opencodeRunAndExport } from "../../adapters/opencode/index.js";
+import { opencodeRun } from "../../adapters/opencode/index.js";
 
 const CLASSIFY_PROMPT = [
   "Classify this message from an owner responding to a permission request.",
@@ -132,7 +132,7 @@ async function classifyViaOpencode(
   ];
 
   try {
-    const { exitCode, assistantText } = await opencodeRunAndExport(
+    const { exitCode, assistantText } = await opencodeRun(
       cfg.OPENCODE_BIN,
       args,
       workDir,
@@ -140,6 +140,7 @@ async function classifyViaOpencode(
         OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
         DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
         XDG_DATA_HOME: cfg.paths.runtime,
+        XDG_CONFIG_HOME: cfg.paths.runtime,
         PATH: buildSpawnPath(cfg),
       },
       logPath,

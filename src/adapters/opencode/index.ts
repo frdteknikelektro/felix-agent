@@ -19,21 +19,21 @@ import {
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
-// ─── Shared spawn-and-export ──────────────────────────────────────────────
+// ─── Shared spawn ─────────────────────────────────────────────────────────
 
-export interface RunAndExportResult {
+export interface RunResult {
   exitCode: number;
   sessionId: string;
   assistantText: string;
 }
 
-export async function opencodeRunAndExport(
+export async function opencodeRun(
   bin: string,
   args: string[],
   cwd: string,
   env: Record<string, string | undefined>,
   logPath: string,
-): Promise<RunAndExportResult> {
+): Promise<RunResult> {
   await ensureDir(path.dirname(logPath));
 
   const child = spawn(bin, args, {
@@ -67,53 +67,25 @@ export async function opencodeRunAndExport(
   await stderrStream.close();
 
   let capturedSessionId = "";
+  const textParts: string[] = [];
+
   for (const line of stdoutLines) {
     try {
       const event = JSON.parse(line) as Record<string, unknown>;
-      if (event.type === "step_start" && typeof event.sessionID === "string") {
+      if (event.type === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
         capturedSessionId = event.sessionID;
-        break;
+      }
+      if (event.type === "text" && typeof event.part === "object" && event.part !== null) {
+        const part = event.part as Record<string, unknown>;
+        if (part.type === "text" && typeof part.text === "string") {
+          textParts.push(part.text);
+        }
       }
     } catch {
     }
   }
 
-  let assistantText = "";
-  if (capturedSessionId) {
-    try {
-      const exportResult = spawnSync(bin, ["export", capturedSessionId], {
-        cwd,
-        env: { ...process.env, ...env } as NodeJS.ProcessEnv,
-        encoding: "utf8",
-        timeout: 10_000,
-      });
-      if (exportResult.status === 0 && exportResult.stdout) {
-        const sessionData = JSON.parse(exportResult.stdout) as {
-          messages?: Array<{
-            info?: { role?: string };
-            parts?: Array<{ type?: string; text?: string }>;
-          }>;
-        };
-        const messages = sessionData.messages ?? [];
-        for (let i = messages.length - 1; i >= 0; i--) {
-          if (messages[i].info?.role === "assistant") {
-            const parts = messages[i].parts ?? [];
-            const textParts = parts
-              .filter((p) => p.type === "text" && typeof p.text === "string")
-              .map((p) => p.text as string)
-              .join("");
-            assistantText = textParts;
-            break;
-          }
-        }
-      }
-    } catch (err) {
-      log.warn("opencode.export_failed", {
-        sessionId: capturedSessionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  const assistantText = textParts.join("");
 
   return { exitCode, sessionId: capturedSessionId, assistantText };
 }
@@ -130,6 +102,7 @@ export class OpencodeHarness implements Harness {
       OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
       DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
       XDG_DATA_HOME: this.cfg.paths.runtime,
+      XDG_CONFIG_HOME: this.cfg.paths.runtime,
       PATH: buildSpawnPath(this.cfg),
     };
   }
@@ -165,7 +138,7 @@ export class OpencodeHarness implements Harness {
       : [...baseArgs, prompt];
 
     const { exitCode, sessionId: capturedSessionId, assistantText } =
-      await opencodeRunAndExport(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath);
+      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath);
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
@@ -196,7 +169,7 @@ export class OpencodeHarness implements Harness {
     ];
 
     try {
-      const { assistantText } = await opencodeRunAndExport(
+      const { assistantText } = await opencodeRun(
         this.cfg.OPENCODE_BIN,
         args,
         this.cfg.paths.root,
@@ -223,6 +196,7 @@ export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
       ...process.env,
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
       XDG_DATA_HOME: cfg.paths.runtime,
+      XDG_CONFIG_HOME: cfg.paths.runtime,
       PATH: buildSpawnPath(cfg),
     },
     encoding: "utf8",
