@@ -216,4 +216,43 @@ describe("FelixEngine Mattermost routing", () => {
     expect(harnessInputs).toHaveLength(1);
     expect(harnessInputs[0].event.event_id).toBe(proceedEvent.event_id);
   });
+
+  it("marks oversized attachments as rejected without downloading and keeps the session event", async () => {
+    const cfg = await makeTestConfig("felix-attachment-limit-");
+    cfg.ATTACHMENT_MAX_BYTES = 10;
+    const harnessInputs: TurnInput[] = [];
+    const harness = makeRecordHarness(harnessInputs);
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    await engine.ingest({
+      source: "mattermost",
+      event_id: "big-attachment",
+      thread_key: "mattermost:channel:big",
+      received_at: "2026-05-25T00:01:00.000Z",
+      visibility: "channel",
+      mentions_bot: true,
+      sender: { source: "mattermost", id: "user-a" },
+      text: "@felix read this",
+      attachments: [{ file_id: "file-1", filename: "large.pdf", size_bytes: 11 }],
+      raw_path: path.join(cfg.paths.intake, "mattermost", "raw", "big-attachment.json"),
+      source_thread_ref: mattermostThreadRef("channel", "big", "big-attachment"),
+    });
+    await engine.drain();
+
+    expect(calls.downloadAttachment).not.toHaveBeenCalled();
+    expect(harnessInputs).toHaveLength(1);
+    expect(harnessInputs[0].event.attachments[0]).toMatchObject({
+      filename: "large.pdf",
+      status: "rejected",
+    });
+    expect(harnessInputs[0].event.attachments[0].rejected_reason).toContain("limit");
+  });
+
 });

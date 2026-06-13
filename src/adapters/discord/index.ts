@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { Client, GatewayIntentBits, Events, type Message } from "discord.js";
 import type { AppConfig } from "../../config.js";
@@ -11,6 +10,12 @@ import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
 export { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
+import {
+  AttachmentRejectedError,
+  downloadResponseToFile,
+  formatBytes,
+  storedAttachmentPath,
+} from "../../core/attachments.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -233,26 +238,37 @@ class DiscordAdapter implements SourceAdapter {
     event: UniversalEvent;
     attachment: UniversalAttachment;
     destinationDir: string;
+    maxBytes: number;
   }): Promise<UniversalAttachment> {
     const channelId = input.event.source_thread_ref.conversation_id;
     if (!channelId) {
       throw new Error("Discord downloadAttachment: missing conversation_id");
+    }
+    if (typeof input.attachment.size_bytes === "number" && input.attachment.size_bytes > input.maxBytes) {
+      throw new AttachmentRejectedError(
+        `attachment exceeds ${formatBytes(input.maxBytes)}`,
+        `File is ${formatBytes(input.attachment.size_bytes)}, above the ${formatBytes(input.maxBytes)} limit.`,
+      );
     }
     const url = `https://cdn.discordapp.com/attachments/${encodeURIComponent(channelId)}/${encodeURIComponent(input.attachment.file_id)}/${encodeURIComponent(input.attachment.filename ?? input.attachment.file_id)}`;
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`download failed for ${input.attachment.file_id}: ${res.status}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    const dest = path.join(
+    const filename = input.attachment.filename ?? input.attachment.file_id;
+    const dest = storedAttachmentPath(
       input.destinationDir,
-      `${fsTimestamp(new Date(input.event.received_at))}_${safeFileName(input.attachment.filename ?? input.attachment.file_id)}`,
+      input.event.received_at,
+      filename,
+      input.attachment.file_id,
     );
-    await ensureDir(input.destinationDir);
-    await fs.writeFile(dest, buf);
+    const written = await downloadResponseToFile(res, dest, input.maxBytes);
     return {
       ...input.attachment,
+      filename,
+      size_bytes: input.attachment.size_bytes ?? written,
       local_path: dest,
+      status: "available",
     };
   }
 

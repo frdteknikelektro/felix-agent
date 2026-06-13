@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import WebSocket from "ws";
 import type { AppConfig } from "../../config.js";
@@ -12,6 +11,12 @@ import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js"
 export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
+import {
+  AttachmentRejectedError,
+  downloadResponseToFile,
+  formatBytes,
+  storedAttachmentPath,
+} from "../../core/attachments.js";
 
 interface WsPayload {
   event?: string;
@@ -287,12 +292,21 @@ class MattermostAdapter implements SourceAdapter {
     event: UniversalEvent;
     attachment: UniversalAttachment;
     destinationDir: string;
+    maxBytes: number;
   }): Promise<UniversalAttachment> {
     const fileInfo = await this.fetchFileInfo(input.attachment.file_id).catch(() => null);
+    if (typeof fileInfo?.size === "number" && fileInfo.size > input.maxBytes) {
+      throw new AttachmentRejectedError(
+        `attachment exceeds ${formatBytes(input.maxBytes)}`,
+        `File is ${formatBytes(fileInfo.size)}, above the ${formatBytes(input.maxBytes)} limit.`,
+      );
+    }
     const filename = safeFileName(fileInfo?.name ?? input.attachment.filename ?? input.attachment.file_id);
-    const dest = path.join(
+    const dest = storedAttachmentPath(
       input.destinationDir,
-      `${fsTimestamp(new Date(input.event.received_at))}_${filename}`,
+      input.event.received_at,
+      filename,
+      input.attachment.file_id,
     );
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(input.attachment.file_id)}/download`;
     const res = await fetch(url, {
@@ -303,15 +317,14 @@ class MattermostAdapter implements SourceAdapter {
     if (!res.ok) {
       throw new Error(`download failed for ${input.attachment.file_id}: ${res.status}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    await ensureDir(input.destinationDir);
-    await fs.writeFile(dest, buf);
+    const written = await downloadResponseToFile(res, dest, input.maxBytes);
     return {
       file_id: input.attachment.file_id,
       filename,
       content_type: fileInfo?.mime_type ?? input.attachment.content_type,
-      size_bytes: fileInfo?.size ?? input.attachment.size_bytes,
+      size_bytes: fileInfo?.size ?? input.attachment.size_bytes ?? written,
       local_path: dest,
+      status: "available",
       is_image: Boolean(
         fileInfo?.mime_type?.startsWith("image/") ?? input.attachment.content_type?.startsWith("image/"),
       ),

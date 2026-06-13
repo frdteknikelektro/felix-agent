@@ -67,7 +67,7 @@ export function buildEventFile(input: EventFileInput): EventFileSpec {
 
 function buildSourceEvent(event: UniversalEvent): EventFileSpec {
   const attachmentLines = event.attachments.length
-    ? ["", "Attachments:", ...event.attachments.map((a) => `- ${a.local_path ?? a.filename}`)]
+    ? ["", "Attachments:", ...event.attachments.map(renderAttachmentLine)]
     : [];
   return {
     at: event.received_at,
@@ -91,6 +91,16 @@ function buildSourceEvent(event: UniversalEvent): EventFileSpec {
       ...attachmentLines,
     ],
   };
+}
+
+function renderAttachmentLine(attachment: UniversalAttachment): string {
+  const label = attachment.local_path ?? attachment.filename;
+  if (attachment.status === "rejected") {
+    return `- ${label} (rejected: ${attachment.rejected_reason ?? "not available"})`;
+  }
+  const size = typeof attachment.size_bytes === "number" ? `, ${attachment.size_bytes} bytes` : "";
+  const type = attachment.content_type ? `, ${attachment.content_type}` : "";
+  return `- ${label}${type}${size}`;
 }
 
 function buildFelixReply(at: string, text: string, harnessSessionId?: string): EventFileSpec {

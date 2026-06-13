@@ -7,7 +7,7 @@ import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/approvals/index.js";
-import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalEvent } from "./types.js";
+import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
@@ -16,6 +16,12 @@ import { decideTurnResult } from "./core/decide-turn.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { fsTimestamp } from "./lib/time.js";
+import {
+  AttachmentRejectedError,
+  ensureSessionScopedPath,
+  rejectOversizedAttachment,
+  rejectedAttachment,
+} from "./core/attachments.js";
 
 export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
@@ -72,17 +78,7 @@ export class FelixEngine {
       return;
     }
 
-    if (event.attachments.length > 0) {
-      event.attachments = await Promise.all(
-        event.attachments.map(async (attachment) =>
-          adapter.downloadAttachment({
-            event,
-            attachment,
-            destinationDir: thread.attachmentsDir,
-          }),
-        ),
-      );
-    }
+    event.attachments = await this.prepareAttachments(thread, event, adapter);
 
     const eventFile = await appendEventToThread(thread, event);
     await updateThreadState(thread, {
@@ -219,13 +215,52 @@ export class FelixEngine {
   private async postThreadReply(
     thread: ThreadHandle,
     event: UniversalEvent,
-    sessionId: string,
+    sessionId: string | undefined,
     text: string,
   ): Promise<void> {
     const adapter = this.requireAdapter(event.source);
     await adapter.sendThreadReply({ event, text });
     await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
     await adapter.updateEventStatus({ event, status: "replied" });
+  }
+
+  private async prepareAttachments(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): Promise<UniversalAttachment[]> {
+    if (event.attachments.length === 0) return event.attachments;
+
+    return Promise.all(
+      event.attachments.map(async (attachment) => {
+        const oversized = rejectOversizedAttachment(attachment, this.cfg.ATTACHMENT_MAX_BYTES);
+        if (oversized) return oversized;
+        try {
+          const downloaded = await adapter.downloadAttachment({
+            event,
+            attachment,
+            destinationDir: thread.attachmentsDir,
+            maxBytes: this.cfg.ATTACHMENT_MAX_BYTES,
+          });
+          ensureSessionScopedPath(downloaded.local_path, thread.attachmentsDir);
+          return {
+            ...downloaded,
+            status: downloaded.status ?? "available",
+          };
+        } catch (error) {
+          if (error instanceof AttachmentRejectedError) {
+            return rejectedAttachment(attachment, error.reason);
+          }
+          log.warn("attachment.download_failed", {
+            thread_key: thread.state.thread_key,
+            event_id: event.event_id,
+            file_id: attachment.file_id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return rejectedAttachment(attachment, "File could not be downloaded.");
+        }
+      }),
+    );
   }
 
   private async handlePermissionRequired(

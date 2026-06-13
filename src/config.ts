@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { buildWorkspacePaths, type WorkspacePaths } from "./workspace.js";
+import { DEFAULT_ATTACHMENT_MAX_BYTES } from "./core/attachments.js";
 
 const Env = z.object({
   WORKSPACE_DIR: z.string().default("./workspace"),
@@ -42,6 +43,7 @@ const Env = z.object({
   SLACK_OWNER_DISPLAY: z.string().default("Owner"),
   SOURCE: z.string().default("mattermost"),
   THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
+  ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
 });
 
 export type AppConfig = z.infer<typeof Env> & {

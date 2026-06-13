@@ -90,6 +90,7 @@ describe("codex output parser", () => {
       {
         thread: {
           dir: "/workspace/records/sessions/mattermost/thread",
+          attachmentsDir: "/workspace/records/sessions/mattermost/thread/attachments",
           transcriptFile: "/workspace/records/sessions/mattermost/thread/transcript.md",
         } as never,
         event: {
@@ -134,6 +135,55 @@ describe("codex output parser", () => {
           ],
         },
         resumed: false,
+        precedingEvents: [
+          {
+            eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-1.md",
+            event: {
+              source: "mattermost",
+              thread_key: "mattermost:channel:root",
+              sender: { source: "mattermost", id: "user-a" },
+              text: "file first",
+              attachments: [
+                {
+                  file_id: "file-a",
+                  filename: "report.pdf",
+                  content_type: "application/pdf",
+                  local_path: "/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf",
+                  status: "available",
+                },
+              ],
+              event_id: "pre-1",
+              received_at: "2026-05-25T00:00:01.000Z",
+              visibility: "channel",
+              mentions_bot: false,
+              raw_path: "/workspace/intake/mattermost/raw/pre-1.json",
+              source_thread_ref: mattermostThreadRef("channel", "root", "pre-1"),
+            },
+          },
+          {
+            eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-2.md",
+            event: {
+              source: "mattermost",
+              thread_key: "mattermost:channel:root",
+              sender: { source: "mattermost", id: "user-b" },
+              text: "too large",
+              attachments: [
+                {
+                  file_id: "file-b",
+                  filename: "huge.zip",
+                  status: "rejected",
+                  rejected_reason: "File is 30.0 MiB, above the 25.0 MiB limit.",
+                },
+              ],
+              event_id: "pre-2",
+              received_at: "2026-05-25T00:00:02.000Z",
+              visibility: "channel",
+              mentions_bot: false,
+              raw_path: "/workspace/intake/mattermost/raw/pre-2.json",
+              source_thread_ref: mattermostThreadRef("channel", "root", "pre-2"),
+            },
+          },
+        ],
       },
       "session-1",
       [],
@@ -145,6 +195,7 @@ describe("codex output parser", () => {
     expect(prompt).toContain("ask one clarifying question");
     expect(prompt).toContain("defer to a more specialized skill");
     expect(prompt).toContain("simple informational help");
+    expect(prompt).toContain("Session attachments dir: /workspace/records/sessions/mattermost/thread/attachments");
     expect(prompt).toContain("Source API posting is allowed only when the active source context");
     expect(prompt).toContain("normal reply channel, not as a separate Felix permission");
     expect(prompt).toContain("upload only files generated for this current session/request");
@@ -152,6 +203,11 @@ describe("codex output parser", () => {
     expect(prompt).toContain("final FELIX_REPLY must be concise and mention what was posted");
     expect(prompt).toContain("Future source adapters must provide their own source-specific posting instructions");
     expect(prompt).toContain("Do not assume Slack or any non-Mattermost API details");
+    expect(prompt).toContain("Reject prank-like or system-abuse requests");
+    expect(prompt).toContain("reveal secrets, credentials, tokens, env files");
+    expect(prompt).toContain("framed as jokes, pranks, tests, debugging, or maintenance");
+    expect(prompt).toContain("break the server");
+    expect(prompt).toContain("bypass permissions");
     expect(prompt).toContain("only answer when the post explicitly mentions @felix-agent");
     expect(prompt).toContain("fetch the current thread history before answering");
     expect(prompt).toContain("when a post mentions @felix-agent");
@@ -164,5 +220,9 @@ describe("codex output parser", () => {
     expect(prompt).toContain('"root_message_id":"root"');
     expect(prompt).toContain("If the fetch fails, do not claim you read live Mattermost history");
     expect(prompt).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
+    expect(prompt).toContain("- event_file: /workspace/records/sessions/mattermost/thread/events/pre-1.md");
+    expect(prompt).toContain("- event_file: /workspace/records/sessions/mattermost/thread/events/pre-2.md");
+    expect(prompt).toContain("/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf (application/pdf)");
+    expect(prompt).toContain("huge.zip [rejected: File is 30.0 MiB, above the 25.0 MiB limit.]");
   });
 });

@@ -26,6 +26,8 @@ export interface UniversalAttachment {
   size_bytes?: number;
   local_path?: string;
   is_image?: boolean;
+  status?: "available" | "rejected";
+  rejected_reason?: string;
 }
 
 export interface UniversalEvent {

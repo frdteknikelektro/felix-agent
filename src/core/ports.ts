@@ -22,6 +22,7 @@ export interface SourceAdapter {
     event: UniversalEvent;
     attachment: UniversalAttachment;
     destinationDir: string;
+    maxBytes: number;
   }): Promise<UniversalAttachment>;
 }
 

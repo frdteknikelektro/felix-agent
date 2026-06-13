@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { App } from "@slack/bolt";
 import type { AppConfig } from "../../config.js";
@@ -11,6 +10,12 @@ import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
 export { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
+import {
+  AttachmentRejectedError,
+  downloadResponseToFile,
+  formatBytes,
+  storedAttachmentPath,
+} from "../../core/attachments.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -250,6 +255,7 @@ class SlackAdapter implements SourceAdapter {
     event: UniversalEvent;
     attachment: UniversalAttachment;
     destinationDir: string;
+    maxBytes: number;
   }): Promise<UniversalAttachment> {
     if (!this.app) {
       throw new Error("Slack downloadAttachment: app not connected");
@@ -260,6 +266,13 @@ class SlackAdapter implements SourceAdapter {
     if (!fileInfo.ok || !fileInfo.file?.url_private) {
       throw new Error(`Cannot access Slack file ${input.attachment.file_id}`);
     }
+    const slackSize = typeof fileInfo.file.size === "number" ? fileInfo.file.size : input.attachment.size_bytes;
+    if (typeof slackSize === "number" && slackSize > input.maxBytes) {
+      throw new AttachmentRejectedError(
+        `attachment exceeds ${formatBytes(input.maxBytes)}`,
+        `File is ${formatBytes(slackSize)}, above the ${formatBytes(input.maxBytes)} limit.`,
+      );
+    }
     const url = fileInfo.file.url_private;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.cfg.SLACK_TOKEN}` },
@@ -267,16 +280,20 @@ class SlackAdapter implements SourceAdapter {
     if (!res.ok) {
       throw new Error(`download failed for ${input.attachment.file_id}: ${res.status}`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    const dest = path.join(
+    const filename = input.attachment.filename ?? input.attachment.file_id;
+    const dest = storedAttachmentPath(
       input.destinationDir,
-      `${fsTimestamp(new Date(input.event.received_at))}_${safeFileName(input.attachment.filename ?? input.attachment.file_id)}`,
+      input.event.received_at,
+      filename,
+      input.attachment.file_id,
     );
-    await ensureDir(input.destinationDir);
-    await fs.writeFile(dest, buf);
+    const written = await downloadResponseToFile(res, dest, input.maxBytes);
     return {
       ...input.attachment,
+      filename,
+      size_bytes: slackSize ?? written,
       local_path: dest,
+      status: "available",
     };
   }
 
