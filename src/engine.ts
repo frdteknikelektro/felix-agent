@@ -144,7 +144,7 @@ export class FelixEngine {
           let result;
           const typingInterval = setInterval(() => {
             adapter.sendTyping({ event }).catch(() => {});
-          }, 1000);
+          }, 250);
           try {
             result = await this.harness.run({
               thread,
