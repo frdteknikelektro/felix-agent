@@ -156,7 +156,7 @@ class DiscordAdapter implements SourceAdapter {
         '  -F \'payload_json={"content":"<optional caption>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',
         "```",
-        "After direct Discord posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate large report or artifact content in the final reply.",
+        "After direct Discord posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate any text or content already sent via intermediate posts in the final reply.",
       ],
     };
   }

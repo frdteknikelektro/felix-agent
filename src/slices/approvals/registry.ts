@@ -99,6 +99,7 @@ export async function decideApproval(
     const decisionFile = await appendPermissionEvent(thread, at, "rejected", {
       owner_user_id: ownerUserId,
       request_id: pending.request_id,
+      requester: pending.requester,
       skill_id: pending.skill_id,
       permissions: pending.permissions,
       scope: "once",
@@ -119,6 +120,7 @@ export async function decideApproval(
   const decisionFile = await appendPermissionEvent(thread, at, "approved", {
     owner_user_id: ownerUserId,
     request_id: pending.request_id,
+    requester: pending.requester,
     skill_id: pending.skill_id,
     permissions: pending.permissions,
     scope,

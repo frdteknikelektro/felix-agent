@@ -23,6 +23,7 @@ export type EventKind = "source_event" | "felix_reply" | "owner_permission" | "p
 export interface OwnerPermissionDetails {
   owner_user_id?: string;
   request_id?: string;
+  requester?: SourceSender;
   skill_id: string;
   permissions: string[];
   scope: "once" | "always";

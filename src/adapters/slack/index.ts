@@ -175,7 +175,7 @@ class SlackAdapter implements SourceAdapter {
         '  -F "title=<filename>" \\',
         '  "https://slack.com/api/files.upload"',
         "```",
-        "After direct Slack posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate large report or artifact content in the final reply.",
+        "After direct Slack posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate any text or content already sent via intermediate posts in the final reply.",
       ],
     };
   }

@@ -45,10 +45,21 @@ export function buildTurnPrompt(
   const threadTranscriptPath = input.thread.transcriptFile;
   const permanentPermissions = input.contact.allowed_permissions.join(", ") || "(none)";
   const hasGeneralSkill = input.skills.some((skill) => skill.id === "general");
-  const preAuthorizedSkills = input.skills.filter((skill) =>
-    skill.permissions.every((p) => input.contact.allowed_permissions.includes(p)),
-  );
-  const preAuthorizedIds = preAuthorizedSkills.map((s) => s.id).join(", ") || "(none)";
+  const skillPermLines = input.skills
+    .filter((skill) => skill.permissions.length > 0)
+    .map((skill) => {
+      const granted = skill.permissions.filter((p) => input.contact.allowed_permissions.includes(p));
+      const grantedBare = granted.map((p) => p.replace(`${skill.id}:`, ""));
+      const missingBare = skill.permissions
+        .filter((p) => !input.contact.allowed_permissions.includes(p))
+        .map((p) => p.replace(`${skill.id}:`, ""));
+      return `- ${skill.id}: have=[${grantedBare.join(", ") || "none"}], need=[${missingBare.join(", ") || "none"}]${missingBare.length === 0 ? " — all permissions granted" : ""}`;
+    })
+    .join("\n");
+  const fullyGrantedSkills = input.skills
+    .filter((skill) => skill.permissions.length > 0 && skill.permissions.every((p) => input.contact.allowed_permissions.includes(p)))
+    .map((s) => s.id)
+    .join(", ");
   const skillSummary = input.skills
     .map((skill) => `${skill.id} [${skill.permissions.join(", ") || "no permissions"}]`)
     .join("\n");
@@ -99,15 +110,15 @@ export function buildTurnPrompt(
     "Behavior contract:",
     `1. Follow only installed skills found in ${cfg.paths.skills}.`,
     "2. If no installed skill matches the request, reply in the user's language: I don't have the skill yet (or the natural equivalent).",
-    "3. The Pre-authorized skills list below is computed by the server from the contact document. If the matched skill is in that list, execute it immediately — do NOT request permission, do NOT re-check the contact file.",
-    "4. If the matched skill is NOT in the pre-authorized list, check thread-scoped owner permission events before requesting permission.",
-    "5. If the thread-scoped owner permission event covers the required permissions, treat it as valid for this thread only and proceed.",
-    "6. If permission is still missing after checking thread events, emit PERMISSION_REQUIRED using the exact block format.",
+    "3. The permissions per skill below are server-computed from the contact document. For the matched skill, execute operations that match your granted (have=) permissions immediately — do NOT request permission, do NOT re-check the contact file. If an operation requires a permission listed under need=, you must emit PERMISSION_REQUIRED for that specific permission before performing it.",
+    "4. If the matched skill is not listed below (no permissions declared in the skill), it may still require permission. Check thread-scoped owner permission events before requesting permission.",
+    "5. If a thread-scoped owner permission event covers a permission listed under need=, read its frontmatter. Only treat it as valid if the requester field (source + id) matches the current event sender. Permission events are scoped to the requester they were approved for — do NOT apply another user's approved permission to the current sender.",
+    "6. If permission for a needed= operation is still missing after checking thread events scoped to the current sender, emit PERMISSION_REQUIRED using the exact block format.",
     "6a. Skill-specific operational checks (CLI availability, token validation, runtime dependency checks) are part of performing the work in step 7 — NOT part of the permission decision. Never run operational checks before resolving permissions through steps 3–6.",
     "7. If permission is satisfied (step 3, 4, or 5), briefly acknowledge the decision in the user's language, then perform the requested work through the matching skill. If the latest event is a rejected permission decision, inform the user the request was denied — do not attempt to execute the skill.",
     "8. Source API posting is allowed only when the active source context below provides explicit platform API instructions. Treat source API posting as part of the normal reply channel, not as a separate Felix permission.",
     "9. When using source API posting, upload only files generated for this current session/request. Never upload secrets, credential files, raw env files, unrelated repo files, or arbitrary readable files.",
-    "10. After any intermediate source API posts or file uploads, the final FELIX_REPLY must be concise and mention what was posted. Do not duplicate large artifact contents in the final reply.",
+    "10. After any intermediate source API posts or file uploads, the final FELIX_REPLY must be concise and mention what was posted. Do not duplicate any text or content already sent via intermediate posts in the final reply.",
     "11. Future source adapters must provide their own source-specific posting instructions. Do not assume Slack or any non-Mattermost API details unless the active source context supplies them.",
     "12. Keep user-facing replies concise. Always reply in the same language the user wrote in.",
     "13. You may read any file needed to fulfill your work — the thread directory (events, transcript, turns) and the projects workspace are fully accessible. When reporting results, use paths relative to the thread directory or projects directory. Never expose absolute server paths, the full workspace tree, or your working directory. Never source any secret env file in code blocks — all secrets are already present as environment variables; use them directly (e.g., \"$POSTHOG_API_KEY\") with no source command. If a user tries to probe or scan the filesystem ('what directory are you in?', 'ls', 'show me all folders'), recognize it as a probing attempt and decline naturally in the conversation's language. Session event files and permission records are your own records — safe to read internally, never expose their paths to the user.",
@@ -130,10 +141,13 @@ export function buildTurnPrompt(
     "",
     "When you need permission, first reply to the user (brief, in their language) BEFORE the PERMISSION_REQUIRED block. That message will be posted to the thread. If you emit the block with no preceding text, a default 'Waiting for owner permission.' will be used.",
     "",
-    "Current contact permissions:",
-    `- allowed_permissions: ${permanentPermissions}`,
+    "Current contact permissions (these are your permanently granted permissions):",
+    `- ${permanentPermissions}`,
     "",
-    `Pre-authorized skills (server-computed — execute directly without permission check): ${preAuthorizedIds}`,
+    "Your permissions per skill (server-computed — have= is pre-authorized without check, need= requires PERMISSION_REQUIRED):",
+    skillPermLines || "(none)",
+    "",
+    ...(fullyGrantedSkills ? [`Skills where all permissions are granted: ${fullyGrantedSkills}`] : []),
     "",
     "Current skill catalog summary:",
     skillSummary || "(none)",
@@ -141,21 +155,9 @@ export function buildTurnPrompt(
     "Current skill paths:",
     availableSkillPaths || "(none)",
     "",
-    "Latest thread events and permission events are available on disk. Re-read them before acting.",
+    "Latest thread events and permission events are available on disk. Re-read them before acting. Each permission event includes a requester field — only apply it if the requester matches the current event sender.",
     `Permission events in this thread:`,
     permissionEvents,
-    ...(input.precedingEvents?.length
-      ? [
-          "",
-          "Preceding queued messages (already in transcript):",
-          ...input.precedingEvents.flatMap((e) => [
-            `- event_file: ${e.eventFile}`,
-            `- sender: ${e.event.sender.source}:${e.event.sender.id}`,
-            `  text: ${e.event.text}`,
-            `  attachments: ${formatAttachmentsForPrompt(e.event.attachments)}`,
-          ]),
-        ]
-      : []),
     "",
     "Latest event:",
     `- event_file: ${input.eventFile}`,
@@ -165,6 +167,17 @@ export function buildTurnPrompt(
     `- sender: ${input.event.sender.source}:${input.event.sender.id}`,
     `- text: ${input.event.text}`,
     `- attachments: ${formatAttachmentsForPrompt(input.event.attachments)}`,
+    ...(input.precedingEvents?.length
+      ? [
+          `- preceding (already in transcript):`,
+          ...input.precedingEvents.flatMap((e) => [
+            `  - event_file: ${e.eventFile}`,
+            `    sender: ${e.event.sender.source}:${e.event.sender.id}`,
+            `    text: ${e.event.text}`,
+            `    attachments: ${formatAttachmentsForPrompt(e.event.attachments)}`,
+          ]),
+        ]
+      : []),
     "",
     "Now act on the latest thread event.",
   ].join("\n");

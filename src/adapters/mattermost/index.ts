@@ -209,7 +209,7 @@ class MattermostAdapter implements SourceAdapter {
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
         "```",
-        "After direct Mattermost posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate large report or artifact content in the final reply.",
+        "After direct Mattermost posts or uploads, the final FELIX_REPLY should be concise and mention what was posted. Do not duplicate any text or content already sent via intermediate posts in the final reply.",
       ],
     };
   }
