@@ -134,7 +134,7 @@ class DiscordAdapter implements SourceAdapter {
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages?limit=100"',
         "```",
         "If the fetch fails, do not claim you read live Discord history. Reply that the history could not be fetched and ask for the Discord link or a retry. Do not use the local thread transcript as a substitute for live Discord history.",
-        "11. Discord Source API posting: when a skill produces useful intermediate results, you may post them directly to the current Discord channel before the final FELIX_REPLY.",
+        "Discord Source API posting: FELIX_REPLY is the primary reply channel. Use the source API for supplementary content — file uploads, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source API for every reply.",
         "Use the bot token for authorization (already in environment):",
         "```bash",
         `export CHANNEL_ID="${channelId}"`,

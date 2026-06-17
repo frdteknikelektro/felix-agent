@@ -196,8 +196,8 @@ describe("codex output parser", () => {
     expect(prompt).toContain("defer to a more specialized skill");
     expect(prompt).toContain("simple informational help");
     expect(prompt).toContain("Session attachments dir: /workspace/records/sessions/mattermost/thread/attachments");
-    expect(prompt).toContain("Source API posting is allowed only when the active source context");
-    expect(prompt).toContain("normal reply channel, not as a separate Felix permission");
+    expect(prompt).toContain("FELIX_REPLY is the primary reply channel");
+    expect(prompt).toContain("Source API posting is for supplementary content");
     expect(prompt).toContain("upload only files generated for this current session/request");
     expect(prompt).toContain("Never upload secrets, credential files, raw env files");
     expect(prompt).toContain("final FELIX_REPLY must be concise and mention what was posted");

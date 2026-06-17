@@ -90,7 +90,7 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain('THREAD_POST_ID="root-post"');
     expect(text).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
     expect(text).toContain("Source API posting for Mattermost");
-    expect(text).toContain("post them directly to the current Mattermost thread");
+    expect(text).toContain("FELIX_REPLY is the primary reply channel");
     expect(text).not.toContain("source /run/secrets/.env");
     expect(text).toContain("MATTERMOST_URL");
     expect(text).toContain("MATTERMOST_TOKEN");

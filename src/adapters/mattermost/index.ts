@@ -164,7 +164,7 @@ class MattermostAdapter implements SourceAdapter {
         "```",
         "If the fetch fails, do not claim you read live Mattermost history. Reply that the thread could not be fetched and ask for the Mattermost link or a retry. Do not use the local thread transcript as a substitute for live Mattermost history in that case.",
         "Use the fetched thread history only as context for the current turn. Limit the fetch to the current thread only and do not persist the fetched history unless it is required for the current turn.",
-         "11. Source API posting for Mattermost: only use when a skill produces files, images, PDFs, or other artifacts that FELIX_REPLY cannot deliver. FELIX_REPLY is the primary reply channel. Do not post plain conversational text via the source API.",
+        "Source API posting for Mattermost: FELIX_REPLY is the primary reply channel. Use the source API for supplementary content — files, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source API for every reply.",
         "Use source API posting only for the active Mattermost thread and only for files generated for this current session/request. Never upload secrets, credential files, raw env files, unrelated repo files, or arbitrary readable files.",
         "MATTERMOST_URL and MATTERMOST_TOKEN are already in environment. For every posting shell block, start by setting the thread identifiers first:",
         "```bash",
