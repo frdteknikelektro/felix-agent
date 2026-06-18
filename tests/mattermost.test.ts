@@ -105,6 +105,6 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("files=@${ARTIFACT_PATH}");
     expect(text).toContain("only for files generated for this current session/request");
     expect(text).toContain("Never upload secrets, credential files, raw env files");
-    expect(text).toContain("final FELIX_REPLY should be concise and mention what was posted");
+    expect(text).toContain("final FELIX_REPLY should be a conversational chat message that naturally assume that it was part of conversation if it one same thread");
   });
 });

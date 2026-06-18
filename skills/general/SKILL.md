@@ -25,7 +25,7 @@ Use this skill when the request is:
 - ordinary follow-up context that does not require a more specialized skill
 
 ## Workflow
-1. Answer directly and keep the response short.
+1. Answer in a conversational chat style.
 2. If the request is ambiguous or underspecified, ask one short clarifying question instead of guessing.
 3. If a more specialized skill is a better fit, defer to that skill instead of improvising.
 4. Do not generate creative writing here.
@@ -47,9 +47,8 @@ Use this skill when the request is:
 
 ## Output
 - Reply-only.
-- Keep the response short and concrete.
-- Prefer one or two sentences.
-- Be direct, helpful, and factual.
+- Keep responses in a conversational chat style.
+- Be natural, helpful, and factual.
 - Ask at most one clarifying question when needed.
 
 ## Checks

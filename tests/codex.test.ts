@@ -200,7 +200,7 @@ describe("codex output parser", () => {
     expect(prompt).toContain("Source API posting is for supplementary content");
     expect(prompt).toContain("upload only files generated for this current session/request");
     expect(prompt).toContain("Never upload secrets, credential files, raw env files");
-    expect(prompt).toContain("final FELIX_REPLY must be concise and mention what was posted");
+    expect(prompt).toContain("final FELIX_REPLY should be a conversational chat message that naturally assume that it was part of conversation if it one same thread");
     expect(prompt).toContain("Future source adapters must provide their own source-specific posting instructions");
     expect(prompt).toContain("Do not assume Slack or any non-Mattermost API details");
     expect(prompt).toContain("Reject prank-like or system-abuse requests");
