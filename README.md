@@ -181,3 +181,36 @@ workspace/
 `thread_key` is an opaque stable key produced by each source adapter. Mattermost uses `mattermost:<channel_id>:<root_post_id>`, Discord uses `discord:<channel_id>:<root_message_id>`, Slack uses `slack:<channel_id>:<timestamp>`.
 
 `projects/` is reserved for checked-out target repositories Felix can edit, commit, branch, review, and open PRs/MRs for through future GitHub or GitLab adapters.
+
+## Deployment
+
+Deploy to a remote server via git + Docker:
+
+```bash
+# 1. On the server, clone the repo
+git clone <repo-url> felix-agent-docker
+cd felix-agent-docker
+
+# 2. Pull latest changes and rebuild
+git pull
+docker build \
+  --build-arg AGENT_UID=$(id -u) \
+  --build-arg AGENT_GID=$(id -g) \
+  -t felix-agent-docker .
+
+# 3. Restart container
+docker stop felix-agent-docker 2>/dev/null; docker rm felix-agent-docker 2>/dev/null
+docker run -d \
+  --name felix-agent-docker \
+  --restart unless-stopped \
+  -p 53318:3000 \
+  -v $(pwd)/config/.env:/run/secrets/.env:ro \
+  -v $(pwd)/workspace:/home/agent/workspace \
+  felix-agent-docker:latest
+
+# 4. Verify
+curl http://localhost:53318/healthz
+docker logs felix-agent-docker --since 30s
+```
+
+The server needs Docker installed and the `config/.env` file populated with secrets. The `workspace/` directory must exist and be writable by the container agent user.
