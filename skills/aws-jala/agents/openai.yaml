@@ -1,0 +1,6 @@
+interface:
+  display_name: "AWS Jala"
+  short_description: "Inspect and administer Jala AWS resources with separate read and write permissions"
+  default_prompt: "Inspect Jala AWS state or perform an explicitly requested AWS admin operation."
+policy:
+  allow_implicit_invocation: true
