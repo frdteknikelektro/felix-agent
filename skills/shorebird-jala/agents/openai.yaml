@@ -1,6 +1,0 @@
-interface:
-  display_name: "Shorebird Jala"
-  short_description: "Inspect and manage existing Jala Shorebird releases, patches, and tracks"
-  default_prompt: "Inspect Jala Shorebird release and patch status, or move an existing patch between tracks."
-policy:
-  allow_implicit_invocation: true
