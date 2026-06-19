@@ -61,6 +61,83 @@ describe("codex output parser", () => {
     expect(parsed.text).toBe("Waiting for owner permission.");
   });
 
+  it("when both FELIX_REPLY and PERMISSION_REQUIRED are present, favors permission_required and uses FELIX_REPLY text as userMessage", () => {
+    const parsed = parseAgentOutput([
+      "FELIX_REPLY",
+      "Dika, perlu izin dulu ya. Sebentar.",
+      "END_FELIX_REPLY",
+      "PERMISSION_REQUIRED",
+      "skill: gitlab-jala",
+      "permissions:",
+      "- gitlab.review",
+      "reason: need approval access",
+      "owner_message: Dika minta approve MR",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("permission_required");
+    expect(parsed.text).toBe("Dika, perlu izin dulu ya. Sebentar.");
+    if (parsed.kind === "permission_required") {
+      expect(parsed.skillId).toBe("gitlab-jala");
+      expect(parsed.permissions).toEqual(["gitlab.review"]);
+    }
+  });
+
+  it("falls back to raw before-PERMISSION_REQUIRED text when FELIX_REPLY block is empty", () => {
+    const parsed = parseAgentOutput([
+      "FELIX_REPLY",
+      "END_FELIX_REPLY",
+      "Maaf, perlu izin dulu.",
+      "PERMISSION_REQUIRED",
+      "skill: foo",
+      "permissions:",
+      "- bar",
+      "reason: test",
+      "owner_message: test",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("permission_required");
+    // empty FELIX_REPLY (only whitespace between markers) → falls back to raw userMessage from extractPermissionBlock
+    expect(parsed.text).toContain("Maaf, perlu izin dulu.");
+  });
+
+  it("returns format_error when PERMISSION_REQUIRED block is missing END_PERMISSION_REQUIRED", () => {
+    const parsed = parseAgentOutput([
+      "PERMISSION_REQUIRED",
+      "skill: foo",
+      "permissions:",
+      "- bar",
+      "reason: test",
+    ].join("\n"));
+    expect(parsed.kind).toBe("format_error");
+    expect(parsed.text).toContain("END_PERMISSION_REQUIRED");
+  });
+
+  it("returns format_error when PERMISSION_REQUIRED block is missing skill:", () => {
+    const parsed = parseAgentOutput([
+      "PERMISSION_REQUIRED",
+      "permissions:",
+      "- bar",
+      "reason: test",
+      "owner_message: test",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("format_error");
+    expect(parsed.text).toContain("skill:");
+  });
+
+  it("returns format_error when PERMISSION_REQUIRED block has empty permissions list", () => {
+    const parsed = parseAgentOutput([
+      "PERMISSION_REQUIRED",
+      "skill: foo",
+      "permissions:",
+      "reason: test",
+      "owner_message: test",
+      "END_PERMISSION_REQUIRED",
+    ].join("\n"));
+    expect(parsed.kind).toBe("format_error");
+    expect(parsed.text).toContain("permissions list");
+  });
+
   it("describes the general skill as a conservative fallback in the prompt", () => {
     const prompt = buildTurnPrompt(
       {

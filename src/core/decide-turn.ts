@@ -10,6 +10,7 @@ import type { TurnResult } from "./ports.js";
  * reply        — send the text and record the turn.
  * no_skill     — no matching skill; send the canned "I don't have the skill" reply.
  * permission_required — surface the permission request to the owner.
+ * format_retry — permission block is malformed; ask the LLM to fix formatting.
  * fallback     — unrecognised output shape; echo the text as a best-effort reply.
  */
 export type TurnDecision =
@@ -18,6 +19,7 @@ export type TurnDecision =
   | { kind: "reply" }
   | { kind: "no_skill" }
   | { kind: "permission_required" }
+  | { kind: "format_retry" }
   | { kind: "fallback" };
 
 /**
@@ -42,6 +44,8 @@ export function decideTurnResult(
       return { kind: "no_skill" };
     case "permission_required":
       return { kind: "permission_required" };
+    case "format_error":
+      return { kind: "format_retry" };
     default:
       return { kind: "fallback" };
   }

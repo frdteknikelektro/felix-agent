@@ -6,6 +6,31 @@ import { skillMatchesPermission } from "../slices/skills/index.js";
 
 export function parseAgentOutput(raw: string): ParsedAgentOutput {
   const text = raw.trim();
+
+  const perm = extractPermissionBlock(text);
+  if (perm) {
+    const missing: string[] = [];
+    const blockMissingEnd = !text.includes("END_PERMISSION_REQUIRED");
+    if (blockMissingEnd) missing.push("END_PERMISSION_REQUIRED");
+    if (!perm.skillId) missing.push("skill:");
+    if (perm.permissions.length === 0) missing.push("permissions list (at least one `- <permission>` line)");
+    if (missing.length > 0) {
+      return {
+        kind: "format_error",
+        text: `PERMISSION_REQUIRED block is malformed — missing: ${missing.join(", ")}. Expected format:\nPERMISSION_REQUIRED\nskill: <skill id>\npermissions:\n- <permission>\nreason: <short reason>\nowner_message: <short owner request>\nEND_PERMISSION_REQUIRED`,
+      };
+    }
+    const reply = between(text, "FELIX_REPLY", "END_FELIX_REPLY");
+    return {
+      kind: "permission_required",
+      text: reply?.trim() || perm.userMessage || "Waiting for owner permission.",
+      skillId: perm.skillId,
+      permissions: perm.permissions,
+      reason: perm.reason,
+      ownerMessage: perm.ownerMessage,
+    };
+  }
+
   const reply = between(text, "FELIX_REPLY", "END_FELIX_REPLY");
   if (reply) {
     return { kind: "reply", text: reply.trim() };
@@ -14,18 +39,6 @@ export function parseAgentOutput(raw: string): ParsedAgentOutput {
   const noSkill = text.match(/I don't have the skill yet\./i);
   if (noSkill) {
     return { kind: "no_skill", text: "I don't have the skill yet." };
-  }
-
-  const perm = extractPermissionBlock(text);
-  if (perm) {
-    return {
-      kind: "permission_required",
-      text: perm.userMessage || "Waiting for owner permission.",
-      skillId: perm.skillId,
-      permissions: perm.permissions,
-      reason: perm.reason,
-      ownerMessage: perm.ownerMessage,
-    };
   }
 
   return { kind: "unknown", text };

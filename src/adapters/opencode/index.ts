@@ -61,7 +61,10 @@ export async function opencodeRun(
     child.stderr.on("data", async (chunk: Buffer) => {
       await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
     });
-    child.on("close", (code) => resolve(code ?? -1));
+    child.on("close", (code) => {
+      if (buf.trim()) stdoutLines.push(buf);
+      resolve(code ?? -1);
+    });
     child.on("error", (error) => {
       log.error("opencode.spawn_error", { error: error.message });
       resolve(-1);

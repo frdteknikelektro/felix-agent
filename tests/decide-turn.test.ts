@@ -51,6 +51,11 @@ describe("decideTurnResult", () => {
     expect(decideTurnResult(result, false, false).kind).toBe("fallback");
   });
 
+  it("format_retry on format_error output", () => {
+    const result = makeResult({ parsed: { kind: "format_error", text: "malformed" } });
+    expect(decideTurnResult(result, false, false).kind).toBe("format_retry");
+  });
+
   it("retry_fresh takes precedence over output kind when resumed+first-fail", () => {
     // Even if the harness somehow returned a parsed reply with success=false, the
     // resume-retry path fires first.

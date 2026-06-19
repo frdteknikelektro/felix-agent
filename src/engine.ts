@@ -187,6 +187,69 @@ export class FelixEngine {
             });
             break;
           }
+          if (decision.kind === "format_retry") {
+            log.warn("harness.format_error", {
+              thread_key: thread.state.thread_key,
+              session_id: result.sessionId,
+              error: result.parsed.text,
+            });
+            const correctionPrompt = [
+              "Your last output had a format error:",
+              "",
+              result.parsed.text,
+              "",
+              "Please re-read the latest event and produce a correctly formatted PERMISSION_REQUIRED block.",
+              "Make sure every field is filled: skill, permissions (with at least one `- <name>` bullet), reason, owner_message, and end with END_PERMISSION_REQUIRED.",
+            ].join("\n");
+            try {
+              result = await this.harness.run({
+                thread,
+                event,
+                eventFile: item.event_file,
+                contact,
+                skills: this.skills,
+                sourceContext,
+                resumed: true,
+                precedingEvents: preceding.length > 0 ? preceding : undefined,
+                promptOverride: correctionPrompt,
+              });
+            } catch (error) {
+              clearInterval(typingInterval);
+              await requeueEvent(thread, item);
+              throw error;
+            }
+            const retriedDecision = decideTurnResult(result, true, retriedFreshStart);
+            if (retriedDecision.kind === "retry_fresh") {
+              await clearHarnessSession(thread);
+              resumed = false;
+              retriedFreshStart = true;
+              continue;
+            }
+            if (retriedDecision.kind === "fail" || retriedDecision.kind === "format_retry") {
+              await requeueEvent(thread, item, { clearHarnessSession: resumed });
+              break;
+            }
+            await recordTurn(thread, result.sessionId);
+            if (retriedDecision.kind === "permission_required") {
+              const permOutput = result.parsed as PermissionRequiredOutput;
+              const skillId = permOutput.skillId ?? "(unknown)";
+              const bareMissing = (permOutput.permissions ?? []).filter(
+                (bare) => !contact.allowed_permissions.includes(`${skillId}:${bare}`),
+              );
+              if (bareMissing.length === 0) {
+                await this.autoGrantPermission(thread, event, result.sessionId, permOutput, skillId);
+              } else {
+                await this.postThreadReply(thread, event, result.sessionId, permOutput.text);
+                await this.handlePermissionRequired(thread, event, {
+                  ...permOutput,
+                  permissions: bareMissing,
+                });
+              }
+            } else {
+              await this.postThreadReply(thread, event, result.sessionId, result.parsed.text);
+            }
+            break;
+          }
           await recordTurn(thread, result.sessionId);
           if (decision.kind === "permission_required") {
             const permOutput = result.parsed as PermissionRequiredOutput;

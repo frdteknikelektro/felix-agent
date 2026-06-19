@@ -39,7 +39,7 @@ export interface SourceTurnContext {
 // ─── Harness port ─────────────────────────────────────────────────────────────
 
 export interface ParsedAgentOutput {
-  kind: "reply" | "permission_required" | "no_skill" | "unknown";
+  kind: "reply" | "permission_required" | "no_skill" | "unknown" | "format_error";
   text: string;
   skillId?: string;
   permissions?: string[];
