@@ -494,6 +494,60 @@ agent-browser --session "$SESSION" close
 
 > Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `$WORKSPACE_DIR/xvfb.state`. Do not mix headed and headless commands on the same session.
 
+### Headed mode workaround (daemon bug)
+
+When `--headed` is passed but Chrome still starts in headless mode (daemon bug), use this workaround:
+
+1. Close the daemon
+2. Start Chrome manually with headed flags
+3. Connect via `--cdp`
+
+```bash
+# Step 1: Close existing daemon
+agent-browser --session "$SESSION" close 2>/dev/null
+sleep 2
+
+# Step 2: Get DISPLAY from Xvfb
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+if [ -f "$XVFB_STATE" ]; then
+    read _ DISPLAY < "$XVFB_STATE"
+    export DISPLAY
+fi
+
+# Step 3: Find Chrome executable
+CHROME_PATH=$(which chromium-browser || which chromium || which google-chrome || which chrome)
+
+# Step 4: Start Chrome manually in headed mode
+nohup "$CHROME_PATH" \
+    --remote-debugging-port=9222 \
+    --no-first-run \
+    --no-default-browser-check \
+    --disable-background-networking \
+    --disable-component-update \
+    --disable-default-apps \
+    --disable-hang-monitor \
+    --disable-popup-blocking \
+    --disable-prompt-on-repost \
+    --disable-sync \
+    --disable-features=Translate \
+    --enable-features=NetworkService,NetworkServiceInProcess \
+    --metrics-recording-only \
+    --password-store=basic \
+    --use-mock-keychain \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --disable-gpu \
+    --ozone-platform=x11 \
+    --window-size=1280,720 \
+    > /tmp/chrome_headed.log 2>&1 &
+
+CHROME_PID=$!
+sleep 3
+
+# Step 5: Connect agent-browser to manual Chrome instance
+agent-browser --session "$SESSION" --cdp http://127.0.0.1:9222 open "$URL"
+```
+
 ## Session modes
 
 ### Single active browser (default)
@@ -553,6 +607,7 @@ echo 'document.querySelectorAll("a").map(a => a.href)' | agent-browser --session
 | `bore: connection refused` | bore.pub may be down. Retry once. |
 | VNC port already in use | Another share may be active. Run `stop-share` first. |
 | Share fails in headless mode | Browser must be in headed mode to share. Start with `agent-browser --headed open <url>`. |
+| `--headed` ignored (daemon bug) | Use the headed mode workaround section above — kill daemon, start Chrome manually with `--ozone-platform=x11`, connect via `--cdp`. |
 
 ## Output format
 
