@@ -241,8 +241,68 @@ agent-browser --session "$SESSION" find first ".post" text
 Use headed mode when:
 - The user explicitly requests it (e.g. "use headed mode", "show the browser", "share the screen")
 - A site detects and blocks headless Chrome (captcha, blank page, unexpected errors) — **close the current session first**, then reopen in headed mode
+- You need to share the browser session (required for VNC/noVNC)
 
 Headed mode renders Chromium through a persistent Xvfb virtual display. Track it per session via `$THREAD_DIR/xvfb.state`.
+
+### Xvfb helper function
+
+Use this helper to ensure Xvfb is running reliably:
+
+```bash
+ensure_xvfb() {
+    local THREAD_DIR="$1"
+    
+    # Check if Xvfb is already running
+    if [ -f "$THREAD_DIR/xvfb.state" ]; then
+        read XVFB_PID _ < "$THREAD_DIR/xvfb.state"
+        if kill -0 "$XVFB_PID" 2>/dev/null; then
+            read _ DISPLAY < "$THREAD_DIR/xvfb.state"
+            export DISPLAY
+            return 0
+        fi
+        # Stale state file, clean up
+        rm -f "$THREAD_DIR/xvfb.state"
+    fi
+    
+    # Ensure /tmp/.X11-unix exists with proper permissions
+    mkdir -p /tmp/.X11-unix 2>/dev/null || true
+    chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+    
+    # Pick a free display number
+    local DISPLAY_NUM
+    for DISPLAY_NUM in $(shuf -i 10-99 -n 20); do
+        if [ ! -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+            break
+        fi
+    done
+    
+    export DISPLAY=":${DISPLAY_NUM}"
+    
+    # Start Xvfb with proper cleanup on exit
+    nohup Xvfb "$DISPLAY" -screen 0 1920x1080x24 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
+    local XVFB_PID=$!
+    
+    # Wait for Xvfb to be ready
+    local RETRIES=10
+    while [ $RETRIES -gt 0 ]; do
+        if [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+            break
+        fi
+        sleep 0.5
+        RETRIES=$((RETRIES - 1))
+    done
+    
+    # Verify Xvfb is running
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+        echo "Failed to start Xvfb" >&2
+        return 1
+    fi
+    
+    echo "$XVFB_PID $DISPLAY" > "$THREAD_DIR/xvfb.state"
+    return 0
+}
+```
 
 **Start** (first headed open, or after switching from headless):
 
@@ -254,13 +314,8 @@ if [ -f "$THREAD_DIR/xvfb.state" ]; then
     rm -f "$THREAD_DIR/xvfb.state"
 fi
 
-# Pick a free display number and start Xvfb
-export DISPLAY=":$(shuf -i 10-99 -n 1)"
-while [ -e "/tmp/.X11-unix/X${DISPLAY#:}" ]; do
-    export DISPLAY=":$(shuf -i 10-99 -n 1)"
-done
-Xvfb "$DISPLAY" -screen 0 1920x1080x24 -ac &
-echo "$! $DISPLAY" > "$THREAD_DIR/xvfb.state"
+# Start Xvfb using the helper
+ensure_xvfb "$THREAD_DIR"
 
 agent-browser --session "$SESSION" --headed open "$URL"
 agent-browser --session "$SESSION" wait --load networkidle
@@ -282,6 +337,22 @@ agent-browser --session "$SESSION" close
 ```
 
 > Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `xvfb.state`. Do not mix headed and headless commands on the same session.
+
+## Session modes
+
+### Thread session (default)
+Each Felix thread gets its own isolated browser session. This is the default and recommended mode:
+- Cookies, storage, and history are isolated per thread
+- Multiple threads can browse independently
+- Sessions persist between turns on the same thread
+
+### Owner session (optional)
+For cases where the owner wants to share a single browser across multiple threads or have a persistent browsing session:
+- Use a fixed session name like `owner-browser` instead of the thread-derived session
+- The owner can access the same browser from different threads
+- Useful for tasks like "browse with me" or shared research
+
+To use owner session, set `SESSION="owner-browser"` instead of deriving from `THREAD_KEY`.
 
 ## Use Cases
 Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
