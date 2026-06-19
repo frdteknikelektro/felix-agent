@@ -53,6 +53,7 @@ class SlackAdapter implements SourceAdapter {
   private workspaceUrl?: string;
   private discoveredBotUserId?: string;
   private seenMessages = new Map<string, number>();
+  private userDisplayCache = new Map<string, { display: string; username: string }>();
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -302,7 +303,7 @@ class SlackAdapter implements SourceAdapter {
   private async handleMessage(
     engine: FelixEngine,
     event: Record<string, unknown>,
-    _client: unknown,
+    client: unknown,
   ): Promise<void> {
     const ts = event.ts as string;
     if (this.isDuplicate(ts)) return;
@@ -310,6 +311,10 @@ class SlackAdapter implements SourceAdapter {
 
     const normalized = await this.normalizeSlackEvent(event);
     if (!normalized) return;
+
+    if (!normalized.sender.display && normalized.sender.id !== "unknown") {
+      await this.enrichSenderDisplay(client, normalized);
+    }
 
     await this.writeRawEvent(normalized);
 
@@ -335,6 +340,28 @@ class SlackAdapter implements SourceAdapter {
     }
 
     await engine.ingest(normalized);
+  }
+
+  private async enrichSenderDisplay(client: unknown, normalized: UniversalEvent): Promise<void> {
+    const userId = normalized.sender.id;
+    const cached = this.userDisplayCache.get(userId);
+    if (cached) {
+      normalized.sender.display = cached.display;
+      normalized.sender.username = cached.username;
+      return;
+    }
+    try {
+      const slackClient = client as { users: { info: (args: { user: string }) => Promise<{ user?: { real_name?: string; name?: string; profile?: { display_name?: string } } }> } };
+      const res = await slackClient.users.info({ user: userId });
+      const user = res?.user;
+      const display = user?.profile?.display_name || user?.real_name || user?.name || undefined;
+      const username = user?.name || undefined;
+      this.userDisplayCache.set(userId, { display: display || username || userId, username: username || display || userId });
+      normalized.sender.display = display;
+      normalized.sender.username = username;
+    } catch {
+      this.userDisplayCache.set(userId, { display: userId, username: userId });
+    }
   }
 
   private normalizeSlackEvent(event: Record<string, unknown>): UniversalEvent | null {

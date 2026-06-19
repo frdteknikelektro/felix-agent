@@ -191,7 +191,7 @@ export function buildTurnPrompt(
     `- visibility: ${input.event.visibility}`,
     `- mentions_bot: ${input.event.mentions_bot}`,
     `- source_thread_ref: ${JSON.stringify(input.event.source_thread_ref)}`,
-    `- sender: ${input.event.sender.source}:${input.event.sender.id}`,
+    `- sender: ${input.event.sender.source}:${input.event.sender.id}${input.event.sender.display ? ` (${input.event.sender.display})` : ""}`,
     `- text: ${input.event.text}`,
     `- attachments: ${formatAttachmentsForPrompt(input.event.attachments)}`,
     ...(input.precedingEvents?.length
@@ -199,12 +199,14 @@ export function buildTurnPrompt(
           `- preceding (already in transcript):`,
           ...input.precedingEvents.flatMap((e) => [
             `  - event_file: ${e.eventFile}`,
-            `    sender: ${e.event.sender.source}:${e.event.sender.id}`,
+            `    sender: ${e.event.sender.source}:${e.event.sender.id}${e.event.sender.display ? ` (${e.event.sender.display})` : ""}`,
             `    text: ${e.event.text}`,
             `    attachments: ${formatAttachmentsForPrompt(e.event.attachments)}`,
           ]),
         ]
       : []),
+    "",
+    "Pre-flight: ensure requester contact exists on disk at the path shown above. Read it. If missing or empty, create a frontmatter Markdown file with at least `source` and `user_id` from the sender info. Use `display` and `username` if available. Do not overwrite an existing valid contact.",
     "",
     "Now act on the latest thread event.",
   ].join("\n");
