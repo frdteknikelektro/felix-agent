@@ -272,6 +272,8 @@ class SlackAdapter implements SourceAdapter {
     return [
       "**Permission Request**",
       "",
+      "| Field | Value |",
+      "|---|---|",
       ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
       "",
       "Reply with one of:",

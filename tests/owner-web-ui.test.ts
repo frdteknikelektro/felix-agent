@@ -23,7 +23,7 @@ describe("owner web ui", () => {
     await engine.boot();
     server = await startAppServer(cfg, engine, 0);
 
-    const base = `http://127.0.0.1:${server.port}`;
+    const base = `http://localhost:${server.port}`;
     const loginPage = await fetch(`${base}/`);
     expect(loginPage.status).toBe(200);
     expect(await loginPage.text()).toContain("Sign in");
