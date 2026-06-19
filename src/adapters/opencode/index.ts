@@ -122,8 +122,8 @@ export class OpencodeHarness implements Harness {
       `${fsTimestamp(new Date())}_${input.resumed ? "resume" : "start"}.md`,
     );
     const logPath = `${turnPath}.log`;
-    const permissionEvents = await collectPermissionEvents(input.thread);
-    const prompt = buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
+    const permissionEvents = input.promptOverride ? [] : await collectPermissionEvents(input.thread);
+    const prompt = input.promptOverride ?? buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
 
     await writeTextAtomic(turnPath, prompt);
 

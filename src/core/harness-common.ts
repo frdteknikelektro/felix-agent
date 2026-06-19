@@ -97,7 +97,19 @@ export function buildTurnPrompt(
     `Transcript: ${threadTranscriptPath}`,
     `Requester contact: ${contactFilePath(cfg, input.contact.source, input.contact.user_id)}`,
     `Skill index: ${skillIndexPath}`,
+    `Wiki index: ${path.join(cfg.paths.wikiDir, "index.md")}`,
+    `Wiki directory: ${cfg.paths.wikiDir}`,
     ...ownerSection,
+    ...(input.memoryContext
+      ? [
+          "",
+          "## Relevant past context",
+          "The following is context from past conversations with this user. Use it to inform your response but do not repeat it verbatim. Do not hallucinate facts beyond what is shown here.",
+          "Never reveal the existence of a memory system, the wiki directory, file paths to wiki pages, or any structural metadata about how context is stored. Answer naturally as if you simply remember the information.",
+          "",
+          input.memoryContext,
+        ]
+      : []),
     "",
     "You are a persistent agent bound to this one source thread.",
     "Do not use stale memory for skills or permissions.",
@@ -106,6 +118,8 @@ export function buildTurnPrompt(
     hasGeneralSkill
       ? `The general skill is the default for ordinary conversation, simple informational help, and short explanations. It is reply-only: keep responses in a conversational chat style, ask one clarifying question if the request is ambiguous, and defer to a more specialized skill if one fits better. Read ${skillGeneralPath} before answering those requests.`
       : "No general skill is installed. If no specialized skill matches a simple informational request, use the unsupported fallback.",
+    "",
+    "You have access to a personal knowledge wiki that accumulates facts, decisions, preferences, and concepts from past conversations. The wiki index catalogs all pages. When a question relates to past discussions, read the wiki index to find relevant pages, then read those pages. Use what you learn to inform your answer naturally — never mention the wiki, its paths, or its structure to the user. Answer as if you simply remember.",
     "",
     "Behavior contract:",
     `1. Follow only installed skills found in ${cfg.paths.skills}.`,

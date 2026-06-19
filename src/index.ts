@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { loadConfig } from "./config.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
 import { log } from "./lib/log.js";
@@ -84,6 +86,20 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Memory schema sync
+// ---------------------------------------------------------------------------
+
+async function syncMemorySchema(paths: import("./workspace.js").WorkspacePaths): Promise<void> {
+  const source = path.resolve(process.cwd(), "skills", "memory", "SKILL.md");
+  const dest = path.join(paths.wikiDir, ".schema.md");
+  try {
+    await fs.cp(source, dest, { force: true });
+  } catch {
+    // schema file not found — wiki bootstraps without conventions
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -91,6 +107,7 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   await ensureWorkspace(cfg.paths);
   await syncBundledSkills(cfg.paths);
+  await syncMemorySchema(cfg.paths);
   let harness: import("./core/ports.js").Harness;
   switch (cfg.HARNESS) {
     case "opencode":

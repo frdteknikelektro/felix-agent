@@ -21,6 +21,8 @@ export interface WorkspacePaths {
   threadKeyIndex: string;
   projects: string;
   tasks: string;
+  memoryDir: string;
+  wikiDir: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
@@ -30,6 +32,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
   const runtime = path.join(root, "runtime");
   const index = path.join(root, "index");
   const projects = path.join(root, "projects");
+  const memoryDir = path.join(root, "memory");
   return {
     root,
     intake,
@@ -49,6 +52,8 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     threadKeyIndex: path.join(index, "thread-key"),
     projects,
     tasks: path.join(root, "tasks"),
+    memoryDir,
+    wikiDir: path.join(memoryDir, "wiki"),
   };
 }
 
@@ -77,6 +82,23 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.tasks, "cancelled")),
     ensureDir(path.join(paths.tasks, "blocked")),
     ensureDir(path.join(paths.tasks, "paused")),
+    ensureDir(paths.memoryDir),
+    ensureDir(paths.wikiDir),
+    ensureDir(path.join(paths.wikiDir, "entities")),
+    ensureDir(path.join(paths.wikiDir, "concepts")),
+    ensureDir(path.join(paths.wikiDir, "sessions")),
+    ensureDir(path.join(paths.wikiDir, "comparisons")),
+  ]);
+}
+
+export async function ensureMemoryDirs(paths: WorkspacePaths): Promise<void> {
+  await Promise.all([
+    ensureDir(paths.memoryDir),
+    ensureDir(paths.wikiDir),
+    ensureDir(path.join(paths.wikiDir, "entities")),
+    ensureDir(path.join(paths.wikiDir, "concepts")),
+    ensureDir(path.join(paths.wikiDir, "sessions")),
+    ensureDir(path.join(paths.wikiDir, "comparisons")),
   ]);
 }
 
@@ -89,6 +111,7 @@ export async function syncBundledSkills(
   await ensureDir(paths.skills);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (entry.name === "memory") continue;
     const source = path.join(bundledSkillsDir, entry.name);
     const destination = path.join(paths.skills, entry.name);
     await fs.rm(destination, { recursive: true, force: true });

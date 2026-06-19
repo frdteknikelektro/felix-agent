@@ -16,6 +16,7 @@ import { decideTurnResult } from "./core/decide-turn.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { fsTimestamp } from "./lib/time.js";
+import { startMemoryCron } from "./slices/memory/index.js";
 import {
   AttachmentRejectedError,
   ensureSessionScopedPath,
@@ -41,6 +42,7 @@ export class FelixEngine {
   async boot(): Promise<void> {
     await this.refreshSkills();
     await this.recoverThreads();
+    startMemoryCron(this.cfg, this.harness);
   }
 
   async refreshSkills(): Promise<void> {

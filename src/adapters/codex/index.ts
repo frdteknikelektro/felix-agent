@@ -33,8 +33,8 @@ export class CodexHarness implements Harness {
     );
     const outputLastMessagePath = `${turnPath}.last-message.txt`;
     const logPath = `${turnPath}.log`;
-    const permissionEvents = await collectPermissionEvents(input.thread);
-    const prompt = buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
+    const permissionEvents = input.promptOverride ? [] : await collectPermissionEvents(input.thread);
+    const prompt = input.promptOverride ?? buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
     const baseArgs = [
       "--json",
       "--skip-git-repo-check",
