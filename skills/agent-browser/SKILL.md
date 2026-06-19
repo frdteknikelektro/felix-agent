@@ -51,7 +51,7 @@ Three permission levels, following the `<service>.<level>` convention:
 
 ## Browser lifecycle
 
-**Critical: the browser persists between turns on the same thread. Do not close it unless the user explicitly asks.**
+**Critical: Only one browser instance may be active at a time.** If the browser is already in use by another thread, inform the user and wait — do not force-close it.
 
 ```
 Turn 1 (user: "agent-browser open example.com"):
@@ -73,11 +73,51 @@ Turn 3 (user: "close the browser"):
 ```
 
 Lifecycle rules:
-1. **Open on first use** — `agent-browser open <url>` auto-starts the daemon + Chrome. No separate start command needed.
-2. **Keep alive** — after your work is done, leave the browser running. The next turn on this thread will reconnect instantly.
-3. **Close only when asked** — if the user says "close", "stop", "done browsing", "exit", run `agent-browser --session "$SESSION" close`.
-4. **Clean up on error** — if Chrome crashes mid-session, run `agent-browser --session "$SESSION" close` then restart.
-5. **Don't close for a new URL** — just `open` the new URL. The daemon navigates in-place.
+1. **One active browser only** — if the browser is in use by another thread, reply with an info message showing which thread is using it. Do NOT auto-close. Use the global state file `$WORKSPACE_DIR/browser.state` to track the active session and its owner thread.
+2. **Open on first use** — `agent-browser open <url>` auto-starts the daemon + Chrome. No separate start command needed.
+3. **Keep alive** — after your work is done, leave the browser running. The next turn on this thread will reconnect instantly.
+4. **Close only when asked** — if the user says "close", "stop", "done browsing", "exit", run `agent-browser --session "$SESSION" close`.
+5. **Clean up on error** — if Chrome crashes mid-session, run `agent-browser --session "$SESSION" close` then restart.
+6. **Don't close for a new URL** — just `open` the new URL. The daemon navigates in-place.
+
+### Global browser state
+
+All state files are stored in `$WORKSPACE_DIR/` — not per-thread directories. This ensures single-instance enforcement across all threads.
+
+```bash
+BROWSER_STATE="$WORKSPACE_DIR/browser.state"
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
+
+# Check if browser is available, return info if in use
+ensure_browser_available() {
+    if [ -f "$BROWSER_STATE" ]; then
+        read _ ACTIVE_THREAD _ < "$BROWSER_STATE"
+        if [ -n "$ACTIVE_THREAD" ] && [ "$ACTIVE_THREAD" != "$THREAD_KEY" ]; then
+            echo "in-use:$ACTIVE_THREAD"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# After opening, save the active session and thread info
+save_browser_state() {
+    echo "$SESSION $THREAD_KEY $(date +%s)" > "$BROWSER_STATE"
+}
+
+# On close, remove the state
+clear_browser_state() {
+    rm -f "$BROWSER_STATE"
+}
+```
+
+When `ensure_browser_available` returns `in-use`, reply to the user:
+
+```
+Browser sedang digunakan oleh thread lain (thread_id: <ACTIVE_THREAD>).
+Tutup browser di thread tersebut terlebih dahulu, atau tunggu sampai idle.
+```
 
 ## Environment
 
@@ -90,19 +130,128 @@ Resolve workspace and thread context from the turn contract:
 #   THREAD_KEY — e.g. mattermost:abc123:xyz789
 #   THREAD_DIR — path to the thread directory
 
-# Sanitize thread key for agent-browser session name
-SESSION=$(printf '%s' "$THREAD_KEY" | tr ':' '-')
+# Use a single global session for all threads
+SESSION="felix-browser"
 ```
 
-All `agent-browser` commands must use `--session "$SESSION"` for thread-isolated browser instances. This ensures each Felix thread has its own daemon + Chrome with independent cookies/storage/history.
+All `agent-browser` commands must use `--session "$SESSION"`. Only one browser instance is active at a time — if another thread is using it, inform the user and wait.
+
+## Memory optimization
+
+In memory-constrained environments (Docker containers with limited RAM), Chrome can crash when the system runs out of memory. Apply these optimizations:
+
+### Headless vs headed mode
+
+Choose the appropriate mode based on the use case:
+
+| Mode | When to use | Memory | VNC/Share |
+|---|---|---|---|
+| **Headless** (default) | Reading content, screenshots, scraping, automation | Lower (~150-200MB) | Not available |
+| **Headed** (Xvfb) | Sharing browser session, sites that block headless | Higher (~300-400MB) | Available |
+
+Auto-detect mode based on request:
+
+```bash
+# Determine mode: headed if sharing requested, headless otherwise
+BROWSER_MODE="headless"
+if echo "$USER_REQUEST" | grep -qiE "share|session|vnc|remote"; then
+    BROWSER_MODE="headed"
+fi
+```
+
+**Rule:** Use headless by default. Only start headed mode when:
+- User explicitly asks to share the browser
+- User says "share", "session", "vnc", "remote"
+- A site blocks headless Chrome (then close, restart in headed)
+
+### Chrome memory-saving flags
+
+Set `AGENT_BROWSER_CHROME_FLAGS` before opening a URL to reduce Chrome's memory footprint:
+
+```bash
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+```
+
+These flags reduce Chrome memory usage from ~500MB to ~150-200MB:
+- `--single-process` — merges browser and renderer processes
+- `--disable-dev-shm-usage` — avoids `/dev/shm` which may be small in containers
+- `--js-flags=--max-old-space-size=256` — limits V8 heap to 256MB
+
+### VNC and Xvfb relationship
+
+**x11vnc** captures an existing X11 display and serves it over VNC. It does NOT create a display — it connects to one.
+
+**Xvfb** (X Virtual Framebuffer) creates a virtual X11 display when no physical display exists (e.g., in Docker containers).
+
+So yes, **Xvfb is required** when using x11vnc in a container. The flow is:
+
+```
+Chrome (headed) → Xvfb (virtual display :55) → x11vnc (captures :55) → websockify → noVNC
+```
+
+Without Xvfb, x11vnc has no display to connect to and will fail.
+
+### Lower VNC resolution
+
+Use a smaller resolution when headed mode is needed to reduce memory:
+
+```bash
+# Use 1280x720x16 instead of 1920x1080x24
+Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac
+```
+
+1280x720 at 16-bit color uses ~40% less memory than 1920x1080 at 24-bit.
+
+### System cache drop
+
+System cache drop is handled outside the agent (by the host or orchestrator). The agent does not require root access.
 
 ## Core workflow
 
+### 0. Determine mode (headless vs headed)
+
+Before opening a browser, decide which mode to use:
+
+```bash
+# Step 0a: Determine mode based on user request
+BROWSER_MODE="headless"
+if echo "$USER_REQUEST" | grep -qiE "share|session|vnc|remote|show|screen"; then
+    BROWSER_MODE="headed"
+fi
+
+# Step 0b: Check if browser is available
+BROWSER_STATUS=$(ensure_browser_available)
+if [ $? -ne 0 ]; then
+    ACTIVE_THREAD="${BROWSER_STATUS#in-use:}"
+    echo "Browser sedang digunakan oleh thread: $ACTIVE_THREAD"
+    echo "Tutup browser di thread tersebut terlebih dahulu."
+    exit 0
+fi
+
+# Step 0c: Set Chrome flags for memory optimization
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+```
+
 ### 1. Open a page and take a snapshot
+
+**Headless mode** (default):
 
 ```bash
 agent-browser --session "$SESSION" open "$URL"
+save_browser_state
 agent-browser --session "$SESSION" snapshot -i -c -d 5
+```
+
+**Headed mode** (when sharing or site blocks headless):
+
+```bash
+# Start Xvfb first
+ensure_xvfb
+
+agent-browser --session "$SESSION" --headed open "$URL"
+save_browser_state
+agent-browser --session "$SESSION" wait --load networkidle
+agent-browser --session "$SESSION" --headed snapshot -i
 ```
 
 Flags:
@@ -173,16 +322,19 @@ agent-browser --session "$SESSION" screenshot --annotate "$THREAD_DIR/attachment
 
 ```bash
 # Kill share processes if present
-if [ -f "$THREAD_DIR/share.state" ]; then
-    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$THREAD_DIR/share.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
+if [ -f "$SHARE_STATE" ]; then
+    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$SHARE_STATE"
     kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
-    rm -f "$THREAD_DIR/share.state" "$THREAD_DIR/bore.log"
+    rm -f "$SHARE_STATE" "$WORKSPACE_DIR/bore.log"
 fi
 
-read XVFB_PID _ < "$THREAD_DIR/xvfb.state" 2>/dev/null
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+read XVFB_PID _ < "$XVFB_STATE" 2>/dev/null
 agent-browser --session "$SESSION" close
 [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null
-rm -f "$THREAD_DIR/xvfb.state"
+rm -f "$XVFB_STATE"
+clear_browser_state
 ```
 
 ## Wait strategies
@@ -243,7 +395,7 @@ Use headed mode when:
 - A site detects and blocks headless Chrome (captcha, blank page, unexpected errors) — **close the current session first**, then reopen in headed mode
 - You need to share the browser session (required for VNC/noVNC)
 
-Headed mode renders Chromium through a persistent Xvfb virtual display. Track it per session via `$THREAD_DIR/xvfb.state`.
+Headed mode renders Chromium through a persistent Xvfb virtual display. State tracked globally via `$WORKSPACE_DIR/xvfb.state`.
 
 ### Xvfb helper function
 
@@ -251,18 +403,18 @@ Use this helper to ensure Xvfb is running reliably:
 
 ```bash
 ensure_xvfb() {
-    local THREAD_DIR="$1"
+    XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
     
     # Check if Xvfb is already running
-    if [ -f "$THREAD_DIR/xvfb.state" ]; then
-        read XVFB_PID _ < "$THREAD_DIR/xvfb.state"
+    if [ -f "$XVFB_STATE" ]; then
+        read XVFB_PID _ < "$XVFB_STATE"
         if kill -0 "$XVFB_PID" 2>/dev/null; then
-            read _ DISPLAY < "$THREAD_DIR/xvfb.state"
+            read _ DISPLAY < "$XVFB_STATE"
             export DISPLAY
             return 0
         fi
         # Stale state file, clean up
-        rm -f "$THREAD_DIR/xvfb.state"
+        rm -f "$XVFB_STATE"
     fi
     
     # Ensure /tmp/.X11-unix exists with proper permissions
@@ -280,7 +432,8 @@ ensure_xvfb() {
     export DISPLAY=":${DISPLAY_NUM}"
     
     # Start Xvfb with proper cleanup on exit
-    nohup Xvfb "$DISPLAY" -screen 0 1920x1080x24 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
+    # Use 1280x720x16 for memory-constrained environments (change to 1920x1080x24 if needed)
+    nohup Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
     local XVFB_PID=$!
     
     # Wait for Xvfb to be ready
@@ -299,7 +452,7 @@ ensure_xvfb() {
         return 1
     fi
     
-    echo "$XVFB_PID $DISPLAY" > "$THREAD_DIR/xvfb.state"
+    echo "$XVFB_PID $DISPLAY" > "$XVFB_STATE"
     return 0
 }
 ```
@@ -307,15 +460,17 @@ ensure_xvfb() {
 **Start** (first headed open, or after switching from headless):
 
 ```bash
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+
 # Kill any stale Xvfb from a previous session
-if [ -f "$THREAD_DIR/xvfb.state" ]; then
-    read OLD_PID _ < "$THREAD_DIR/xvfb.state"
+if [ -f "$XVFB_STATE" ]; then
+    read OLD_PID _ < "$XVFB_STATE"
     kill "$OLD_PID" 2>/dev/null
-    rm -f "$THREAD_DIR/xvfb.state"
+    rm -f "$XVFB_STATE"
 fi
 
 # Start Xvfb using the helper
-ensure_xvfb "$THREAD_DIR"
+ensure_xvfb
 
 agent-browser --session "$SESSION" --headed open "$URL"
 agent-browser --session "$SESSION" wait --load networkidle
@@ -325,7 +480,8 @@ agent-browser --session "$SESSION" --headed snapshot -i
 **Resume** (subsequent turns — restore DISPLAY before any headed command):
 
 ```bash
-[ -f "$THREAD_DIR/xvfb.state" ] && { read _ DISPLAY < "$THREAD_DIR/xvfb.state"; export DISPLAY; }
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+[ -f "$XVFB_STATE" ] && { read _ DISPLAY < "$XVFB_STATE"; export DISPLAY; }
 agent-browser --session "$SESSION" --headed snapshot -i
 ```
 
@@ -336,23 +492,28 @@ agent-browser --session "$SESSION" close
 # Then follow "Start" above
 ```
 
-> Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `xvfb.state`. Do not mix headed and headless commands on the same session.
+> Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `$WORKSPACE_DIR/xvfb.state`. Do not mix headed and headless commands on the same session.
 
 ## Session modes
 
-### Thread session (default)
-Each Felix thread gets its own isolated browser session. This is the default and recommended mode:
-- Cookies, storage, and history are isolated per thread
-- Multiple threads can browse independently
-- Sessions persist between turns on the same thread
+### Single active browser (default)
+
+Only one browser instance may be active at a time. All threads share the same browser session. If another thread is using the browser, inform the user which thread has it and wait. Never force-close a browser session being used by another thread.
+
+- `SESSION="felix-browser"` — fixed session name for all threads
+- State tracked in `$WORKSPACE_DIR/browser.state`
+- Prevents memory exhaustion from multiple Chrome instances
+- Simple and predictable resource usage
 
 ### Owner session (optional)
-For cases where the owner wants to share a single browser across multiple threads or have a persistent browsing session:
-- Use a fixed session name like `owner-browser` instead of the thread-derived session
-- The owner can access the same browser from different threads
+
+For cases where the owner wants a persistent browser that doesn't get closed by other threads:
+
+- Use a fixed session name like `owner-browser`
+- The owner can access the browser from different threads
 - Useful for tasks like "browse with me" or shared research
 
-To use owner session, set `SESSION="owner-browser"` instead of deriving from `THREAD_KEY`.
+To use owner session, set `SESSION="owner-browser"` instead of `felix-browser`.
 
 ## Use Cases
 Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
@@ -435,20 +596,21 @@ Do not expose internal session names, daemon paths, or agent-browser configurati
 
 ## Checks
 - Always use `--session "$SESSION"` — never run agent-browser without a session flag
-- Sanitize `$THREAD_KEY` by replacing `:` with `-` — colons in thread keys break session names
+- **Single browser at a time** — call `ensure_browser_available` before opening; if in use, inform user which thread has the browser
+- **Never force-close another thread's browser** — let the user decide
 - Always wait after navigation before snapshotting or interacting
 - Re-snapshot after any action that changes the page (clicks, form fills, scrolls)
 - Check your granted permissions before attempting a form submit — if `agent-browser.submit` is `need=`, emit PERMISSION_REQUIRED
 - Check your granted permissions before attempting to share — if `agent-browser.share` is `need=`, emit PERMISSION_REQUIRED
-- Do not close the browser unless the user explicitly asks
+- Do not close the browser unless the user explicitly asks (or another session needs it)
 - Ensure `$THREAD_DIR/attachments/` exists (`mkdir -p`) before saving screenshots
 - Save screenshots to `$THREAD_DIR/attachments/` — never to system temp directories
-- For headed sessions: restore `DISPLAY` from `$THREAD_DIR/xvfb.state` before every headed command
+- For headed sessions: restore `DISPLAY` from `$WORKSPACE_DIR/xvfb.state` before every headed command
 - For headed sessions: always use `--headed` on all commands — mixing headed and headless on the same session breaks it
-- Clean up Xvfb when closing: `kill` the PID from `$THREAD_DIR/xvfb.state`, then `rm` the file
-- Clean up share processes when closing: kill VNC, websockify, bore PIDs from `$THREAD_DIR/share.state`, then `rm` the file
+- Clean up Xvfb when closing: `kill` the PID from `$WORKSPACE_DIR/xvfb.state`, then `rm` the file
+- Clean up share processes when closing: kill VNC, websockify, bore PIDs from `$WORKSPACE_DIR/share.state`, then `rm` the file
 - Always check if headed mode is running before attempting to share
-- Ensure `$THREAD_DIR/share.state` is cleaned up on `close`
+- Ensure `$WORKSPACE_DIR/share.state` is cleaned up on `close`
 - Do not start duplicate share sessions — return existing URL if already sharing
 - Verify bore is installed before attempting to share (`command -v bore`)
 - Report clear, conversational results — not raw agent-browser command output
