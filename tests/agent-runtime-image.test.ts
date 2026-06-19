@@ -51,17 +51,16 @@ describe("agent runtime image contract", () => {
   it("routes shared runtime tooling through workspace runtime paths", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toContain("PYTHONUSERBASE=/home/agent/workspace/runtime/python");
-    expect(dockerfile).toContain("/home/agent/workspace/runtime/bin:/home/agent/workspace/runtime/python/bin:$PATH");
+    expect(dockerfile).toContain("PYTHONUSERBASE=/home/node/workspace/runtime/python");
+    expect(dockerfile).toContain("/home/node/workspace/runtime/bin:/home/node/workspace/runtime/python/bin:$PATH");
   });
 
-  it("creates the runtime user from configurable uid and gid", async () => {
+  it("runs as the default node user, no custom uid/gid build args", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toContain("ARG AGENT_UID=1000");
-    expect(dockerfile).toContain("ARG AGENT_GID=1000");
-    expect(dockerfile).toContain('groupadd --gid "${AGENT_GID}" agent');
-    expect(dockerfile).toContain('useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent');
+    expect(dockerfile).toContain("USER node");
+    expect(dockerfile).not.toContain("ARG AGENT_UID");
+    expect(dockerfile).not.toContain("ARG AGENT_GID");
   });
 
   it("documents exclusions for provider CLIs, LibreOffice, and browser runtimes", async () => {

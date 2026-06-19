@@ -10,8 +10,6 @@ COPY skills ./skills
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
-ARG AGENT_UID=1000
-ARG AGENT_GID=1000
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -29,14 +27,6 @@ RUN apt-get update \
         python3-venv \
         unzip \
         zip \
-    && if [ "$(id -u node 2>/dev/null)" = "${AGENT_UID}" ]; then \
-         usermod -l agent -d /home/agent -m node \
-         && groupmod -n agent node; \
-       else \
-         groupadd --gid "${AGENT_GID}" agent 2>/dev/null || true \
-         && id -u agent >/dev/null 2>&1 \
-         || useradd --create-home --uid "${AGENT_UID}" --gid "${AGENT_GID}" --shell /bin/bash agent; \
-       fi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
@@ -68,11 +58,10 @@ PY
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    HOME=/home/agent \
-    WORKSPACE_DIR=/home/agent/workspace \
-    PYTHONUSERBASE=/home/agent/workspace/runtime/python \
-    PATH="/home/agent/workspace/runtime/bin:/home/agent/workspace/runtime/python/bin:$PATH" \
-    HEALTH_PORT=3000 \
+    HOME=/home/node \
+    WORKSPACE_DIR=/home/node/workspace \
+    PYTHONUSERBASE=/home/node/workspace/runtime/python \
+    PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/python/bin:$PATH" \
     CODEX_MODEL=gpt-5.4-mini \
     CODEX_BYPASS_SANDBOX=true \
     CODEX_TIMEOUT_SECONDS=1800 \
@@ -83,14 +72,12 @@ ENV NODE_ENV=production \
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
-    && npm cache clean --force \
-    && mkdir -p /home/agent/workspace /home/agent/workspace/runtime/opencode /home/agent/workspace/runtime/bin /home/agent/workspace/runtime/tools /home/agent/workspace/runtime/python/bin /home/agent/config \
-    && chown -R agent:agent /home/agent
+    && npm cache clean --force
 
-COPY --chown=agent:agent skills ./skills
-COPY --from=build --chown=agent:agent /app/dist ./dist
+COPY --chown=node:node skills ./skills
+COPY --from=build --chown=node:node /app/dist ./dist
 
-USER agent
+USER node
 
 EXPOSE 3000
 

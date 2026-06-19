@@ -1,7 +1,7 @@
 node_modules
 dist
 workspace
-config/.env
+.env
 .DS_Store
 *.log
 .idea

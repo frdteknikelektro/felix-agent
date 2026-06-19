@@ -16,7 +16,8 @@ src/
 tests/           vitest unit tests (no network, no disk)
 workspace/       runtime data — threads, contacts, skills, approvals (git-ignored)
 skills/          bundled skills shipped in the image
-config/          local secrets — .env file (git-ignored)
+.env             local secrets (git-ignored)
+.env.example     env template (tracked)
 ```
 
 ## Dev workflow
@@ -30,54 +31,40 @@ npm run build        # tsc → dist/
 npm start            # node dist/index.js
 ```
 
-## Docker — build and run
+## Docker — compose (recommended)
 
-Image name convention: `felix-agent-docker`
-
-**Build:**
 ```bash
-docker build \
-  --build-arg AGENT_UID=$(id -u) \
-  --build-arg AGENT_GID=$(id -g) \
-  -t felix-agent-docker .
-```
+# First-time setup
+./setup.sh
+# edit .env with your secrets
 
-**Run:**
-```bash
-docker run -d \
-  --name felix-agent-docker \
-  -p 53318:3000 \
-  -v /path/to/project/config/.env:/run/secrets/.env:ro \
-  -v /path/to/project/workspace:/home/agent/workspace \
-  felix-agent-docker:latest
-```
+# Build & start
+UID=$(id -u) GID=$(id -g) docker compose up -d
 
-- Port `53318` on host → `3000` in container (owner console + healthz)
-- `/run/secrets/.env` — secret env file (see Config below)
-- `/home/agent/workspace` — persistent runtime data (threads, contacts, approvals, skills)
-- Build the image with `AGENT_UID` / `AGENT_GID` matching the host user that owns the bind-mounted workspace.
-
-**Rebuild and relaunch (full cycle):**
-```bash
-docker stop felix-agent-docker && docker rm felix-agent-docker
-docker build -t felix-agent-docker .
-docker run -d \
-  --name felix-agent-docker \
-  -p 53318:3000 \
-  -v $(pwd)/config/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/agent/workspace \
-  felix-agent-docker:latest
-```
-
-**Health check:**
-```bash
+# Manage
+docker compose ps
+docker compose logs -f
 curl http://localhost:53318/healthz   # → {"ok":true}
+
+# Rebuild on source changes
+docker compose up -d --build
 ```
 
-**Logs:**
+Set `UID` / `GID` to match the host user that owns the bind-mounted `workspace/` directory. On macOS Docker Desktop the defaults (1000:1000) usually work.
+
+### docker run (manual)
+
 ```bash
-docker logs felix-agent-docker
-docker logs felix-agent-docker --since 10m
+docker build -t felix-agent .
+
+docker run -d \
+  --name felix-agent \
+  --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
+  -p 53318:3000 \
+  -v $(pwd)/.env:/run/secrets/.env:ro \
+  -v $(pwd)/workspace:/home/node/workspace \
+  felix-agent:latest
 ```
 
 ## Agent runtime image
@@ -100,7 +87,7 @@ LibreOffice and browser automation runtimes are excluded from v1. See `docs/adr/
 
 ## Config
 
-Runtime config is loaded from environment variables. In production the container reads `/run/secrets/.env` (mounted read-only). Locally copy `.env.example` → `config/.env` and fill in values.
+Runtime config is loaded from environment variables. In production with docker-compose, `.env` is mounted read-only at `/run/secrets/.env`. Locally copy `.env.example` → `.env` and fill in values.
 
 Key variables:
 
@@ -109,8 +96,7 @@ Key variables:
 | `OWNER_UI_SECRET` | owner console | shared secret for login |
 | `OPENAI_API_KEY` | Codex harness | OpenAI API key |
 | `HARNESS` | — | `codex` (default) or `opencode` |
-| `WORKSPACE_DIR` | — | default `/home/agent/workspace` |
-| `HEALTH_PORT` | — | default `3000` |
+| `WORKSPACE_DIR` | — | default `/home/node/workspace` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |

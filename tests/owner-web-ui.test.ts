@@ -17,7 +17,6 @@ describe("owner web ui", () => {
   it("authenticates the owner and protects json endpoints", async () => {
     const cfg = await makeTestConfig("felix-owner-ui-", {
       OWNER_UI_SECRET: "owner-secret",
-      HEALTH_PORT: 0,
     });
 
     const engine = new FelixEngine(cfg, [], new FakeHarness());

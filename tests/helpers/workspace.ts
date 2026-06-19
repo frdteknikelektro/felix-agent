@@ -13,7 +13,6 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     WORKSPACE_DIR: workspace,
     CONFIG_DIR: "/config",
     SECRET_ENV_FILE: "/run/secrets/.env",
-    HEALTH_PORT: 3000,
     CODEX_BIN: "codex",
     CODEX_MODEL: "gpt-5.4-mini",
     CODEX_BYPASS_SANDBOX: true,

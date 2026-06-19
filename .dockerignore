@@ -1,7 +1,8 @@
 node_modules
 dist
 workspace
-config
+.env
 .git
 .idea
 *.log
+docker-compose*.yml

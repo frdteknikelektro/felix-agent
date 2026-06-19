@@ -8,7 +8,6 @@ const Env = z.object({
   WORKSPACE_DIR: z.string().default("./workspace"),
   CONFIG_DIR: z.string().default("./config"),
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
-  HEALTH_PORT: z.coerce.number().default(3000),
   CODEX_BIN: z.string().default("codex"),
   CODEX_MODEL: z.string().default("gpt-5.4-mini"),
   CODEX_BYPASS_SANDBOX: z.coerce.boolean().default(true),
@@ -51,7 +50,7 @@ export type AppConfig = z.infer<typeof Env> & {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const configDir = env.CONFIG_DIR ?? "/home/agent/config";
+  const configDir = env.CONFIG_DIR ?? "/home/node/config";
   const secretEnvFile = env.SECRET_ENV_FILE ?? "/run/secrets/.env";
   const merged = {
     ...env,

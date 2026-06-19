@@ -8,6 +8,33 @@ Mattermost, Discord, and Slack are the current source adapters. Each source thre
 source thread -> Felix session -> Codex turn -> skill-gated response or permission request
 ```
 
+## Quick Start
+
+```bash
+./setup.sh              # creates .env and workspace/ (one-time)
+# edit .env with your secrets
+docker compose up -d    # builds & starts the agent
+curl http://localhost:53318/healthz
+```
+
+## Install Without Cloning
+
+Download the essentials and start with the pre-built image:
+
+```bash
+mkdir felix-agent && cd felix-agent
+curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/docker-compose.image.yml
+curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/.env.example
+curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/setup.sh
+chmod +x setup.sh
+cp docker-compose.image.yml docker-compose.yml
+./setup.sh
+# edit .env with your secrets, then:
+UID=$(id -u) GID=$(id -g) docker compose up -d
+```
+
+The `docker-compose.image.yml` pulls the pre-built image from Docker Hub instead of building locally.
+
 ## Project Layout
 
 ```text
@@ -21,7 +48,7 @@ src/
   config.ts      env loading
 tests/           Vitest unit tests
 skills/          bundled skills shipped in the image
-config/          local secrets, including config/.env
+.env             local secrets (git-ignored)
 workspace/       runtime data, copied skills, sessions, approvals, contacts
 ```
 
@@ -40,49 +67,47 @@ npm start
 
 ## Docker
 
-Image name convention:
+### docker-compose (recommended)
 
 ```bash
-docker build \
-  --build-arg AGENT_UID=$(id -u) \
-  --build-arg AGENT_GID=$(id -g) \
-  -t felix-agent-docker .
+./setup.sh                                # one-time bootstrap
+UID=$(id -u) GID=$(id -g) \
+  docker compose up -d                    # build & start
+docker compose logs -f                    # follow logs
+docker compose ps                         # check status
+curl http://localhost:53318/healthz       # verify
 ```
 
-Run with persistent workspace and secret env:
+To use the pre-built Docker Hub image instead of building locally, swap the compose file:
 
 ```bash
-mkdir -p workspace
+cp docker-compose.image.yml docker-compose.yml
+# edit the image: field with your Docker Hub repo
+UID=$(id -u) GID=$(id -g) docker compose up -d
+```
+
+Set `UID` / `GID` to match your host user so the mounted `workspace/` has correct permissions. On macOS with Docker Desktop the defaults (1000:1000) usually work.
+
+To update to a new source version:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+### docker run (manual)
+
+```bash
+docker build -t felix-agent .
 
 docker run -d \
-  --name felix-agent-docker \
+  --name felix-agent \
+  --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
   -p 53318:3000 \
-  -v $(pwd)/config/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/agent/workspace \
-  felix-agent-docker:latest
-```
-
-Build the image with the same numeric UID/GID as the host user that owns the bind-mounted `workspace/` directory. That avoids permission mismatches inside the container.
-
-Rebuild and relaunch:
-
-```bash
-docker stop felix-agent-docker && docker rm felix-agent-docker
-docker build -t felix-agent-docker .
-docker run -d \
-  --name felix-agent-docker \
-  -p 53318:3000 \
-  -v $(pwd)/config/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/agent/workspace \
-  felix-agent-docker:latest
-```
-
-Health and logs:
-
-```bash
-curl http://localhost:53318/healthz
-docker logs felix-agent-docker
-docker logs felix-agent-docker --since 10m
+  -v $(pwd)/.env:/run/secrets/.env:ro \
+  -v $(pwd)/workspace:/home/node/workspace \
+  felix-agent:latest
 ```
 
 ## Agent Runtime Image
@@ -118,12 +143,12 @@ LibreOffice and browser automation runtimes are also excluded from v1.
 
 ## Config
 
-Runtime config is loaded from environment variables, `/run/secrets/.env`, and `config/.env`. In Docker, mount `config/.env` to `/run/secrets/.env` read-only.
+Runtime config is loaded from environment variables and `/run/secrets/.env` (mounted read-only).
 
 Start from:
 
 ```bash
-cp .env.example config/.env
+cp .env.example .env
 ```
 
 Key variables:
@@ -133,8 +158,7 @@ Key variables:
 | `OWNER_UI_SECRET` | owner console | shared secret for login |
 | `OPENAI_API_KEY` | Codex harness | OpenAI API key |
 | `HARNESS` | — | `codex` (default) or `opencode` |
-| `WORKSPACE_DIR` | — | default `/home/agent/workspace` |
-| `HEALTH_PORT` | — | default `3000` |
+| `WORKSPACE_DIR` | — | default `/home/node/workspace` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
@@ -144,21 +168,13 @@ See `.env.example` for the complete list with all defaults.
 
 ## Owner Console
 
-The owner console and health endpoint share the app port.
-
-Docker default:
+The owner console shares port 3000 (mapped to 53318 by docker-compose). Log in with `OWNER_UI_SECRET`.
 
 ```text
 http://localhost:53318/
 ```
 
-Local dev default:
-
-```text
-http://localhost:3000/
-```
-
-Log in with `OWNER_UI_SECRET`. The console exposes sessions, approvals, contacts, skills, and audit history.
+The console exposes sessions, approvals, contacts, skills, and audit history.
 
 ## Workspace Layout
 
@@ -181,36 +197,3 @@ workspace/
 `thread_key` is an opaque stable key produced by each source adapter. Mattermost uses `mattermost:<channel_id>:<root_post_id>`, Discord uses `discord:<channel_id>:<root_message_id>`, Slack uses `slack:<channel_id>:<timestamp>`.
 
 `projects/` is reserved for checked-out target repositories Felix can edit, commit, branch, review, and open PRs/MRs for through future GitHub or GitLab adapters.
-
-## Deployment
-
-Deploy to a remote server via git + Docker:
-
-```bash
-# 1. On the server, clone the repo
-git clone <repo-url> felix-agent-docker
-cd felix-agent-docker
-
-# 2. Pull latest changes and rebuild
-git pull
-docker build \
-  --build-arg AGENT_UID=$(id -u) \
-  --build-arg AGENT_GID=$(id -g) \
-  -t felix-agent-docker .
-
-# 3. Restart container
-docker stop felix-agent-docker 2>/dev/null; docker rm felix-agent-docker 2>/dev/null
-docker run -d \
-  --name felix-agent-docker \
-  --restart unless-stopped \
-  -p 53318:3000 \
-  -v $(pwd)/config/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/agent/workspace \
-  felix-agent-docker:latest
-
-# 4. Verify
-curl http://localhost:53318/healthz
-docker logs felix-agent-docker --since 30s
-```
-
-The server needs Docker installed and the `config/.env` file populated with secrets. The `workspace/` directory must exist and be writable by the container agent user.

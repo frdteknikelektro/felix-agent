@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   const engine = new FelixEngine(cfg, [mmAdapter, discordAdapter, slackAdapter], harness);
   await engine.boot();
 
-  const { server: health, port: healthPort } = await startAppServer(cfg, engine, cfg.HEALTH_PORT);
+  const { server: health, port: healthPort } = await startAppServer(cfg, engine);
 
   await supervise("mattermost", () => startMattermostSource(cfg, engine));
   await supervise("discord", () => startDiscordSource(cfg, engine, discordAdapter));

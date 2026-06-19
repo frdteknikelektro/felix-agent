@@ -1,0 +1,17 @@
+# Copy this file over docker-compose.yml to use the pre-built Docker Hub image
+# instead of building locally.
+#
+#   cp docker-compose.image.yml docker-compose.yml
+#   UID=$(id -u) GID=$(id -g) docker compose up -d
+
+services:
+  felix:
+    image: frdinawan/felix-agent:latest
+    container_name: felix-agent
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "53318:3000"
+    volumes:
+      - ./.env:/run/secrets/.env:ro
+      - ./workspace:/home/node/workspace

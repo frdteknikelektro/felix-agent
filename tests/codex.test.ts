@@ -83,7 +83,6 @@ describe("codex output parser", () => {
         THREAD_SCAN_INTERVAL_MS: 1000,
         CONFIG_DIR: "/config",
         SECRET_ENV_FILE: "/run/secrets/.env",
-        HEALTH_PORT: 3000,
         CODEX_TIMEOUT_SECONDS: 1800,
         paths: buildWorkspacePaths("/workspace"),
       } as never,

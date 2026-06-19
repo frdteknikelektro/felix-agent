@@ -17,7 +17,7 @@ interface OwnerSession {
 export async function startAppServer(
   cfg: AppConfig,
   engine: FelixEngine,
-  preferredPort: number = cfg.HEALTH_PORT,
+  preferredPort: number = 3000,
 ): Promise<{ server: http.Server; port: number }> {
   const sessions = new Map<string, OwnerSession>();
   cleanupExpiredSessions(sessions);

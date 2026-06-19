@@ -52,6 +52,7 @@ describe("task-manager skill", () => {
     const raw = await fs.readFile(path.join(process.cwd(), "skills", "task-manager", "SKILL.md"), "utf8");
     expect(raw).toContain('TASKS_DIR="${WORKSPACE_DIR}/tasks"');
     expect(raw).not.toContain("/home/agent/workspace/tasks");
+    expect(raw).not.toContain("/home/node/workspace/tasks");
   });
 
   it("uses jq -n for JSON construction, not heredocs", async () => {
