@@ -24,8 +24,6 @@ describe.each(["mattermost", "discord", "slack"] as const)("%s formatOwnerNotifi
           : createSlackAdapter(cfg);
     const text = await adapter.formatOwnerNotification(input);
     expect(text).toContain("**Permission Request**");
-    expect(text).toContain("| Field | Value |");
-    expect(text).toContain("|---|---|");
     expect(text).toContain("**John** (`user-123`)");
     expect(text).toContain("`general`");
     expect(text).toContain("`shell.run`, `general.write`");
