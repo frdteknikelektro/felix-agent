@@ -19,7 +19,7 @@ curl http://localhost:53318/healthz
 
 ## Install Without Cloning
 
-Download the essentials and start with the pre-built image:
+### docker-compose (recommended)
 
 ```bash
 mkdir felix-agent && cd felix-agent
@@ -33,7 +33,22 @@ cp docker-compose.image.yml docker-compose.yml
 UID=$(id -u) GID=$(id -g) docker compose up -d
 ```
 
-The `docker-compose.image.yml` pulls the pre-built image from Docker Hub instead of building locally.
+### docker pull + run (manual)
+
+```bash
+docker pull frdinawan/felix-agent:latest
+
+docker run -d \
+  --name felix-agent \
+  --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
+  -p 53318:3000 \
+  -v $(pwd)/.env:/run/secrets/.env:ro \
+  -v $(pwd)/workspace:/home/node/workspace \
+  frdinawan/felix-agent:latest
+```
+
+The image supports `linux/amd64` and `linux/arm64` — covers macOS (Intel + Apple Silicon), Linux, and Windows via WSL2.
 
 ## Project Layout
 
