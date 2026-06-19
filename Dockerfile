@@ -15,7 +15,6 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         chromium \
-        chromium-sandbox \
         curl \
         dumb-init \
         ghostscript \
@@ -58,11 +57,12 @@ import xlsxwriter
 print("python core data stack ok")
 PY
 
-RUN npm install -g agent-browser
+RUN npm install -g agent-browser@0.28.0
 
 WORKDIR /app
 
 ENV NODE_ENV=production \
+    AGENT_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     AGENT_BROWSER_IDLE_TIMEOUT_MS=300000 \
     HOME=/home/node \
