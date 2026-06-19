@@ -51,7 +51,7 @@ Three permission levels, following the `<service>.<level>` convention:
 
 ## Browser lifecycle
 
-**Critical: Only one browser instance may be active at a time.** Before opening a new session, any existing browser must be closed first. This prevents memory exhaustion in constrained environments.
+**Critical: Only one browser instance may be active at a time.** If the browser is already in use by another thread, inform the user and wait — do not force-close it.
 
 ```
 Turn 1 (user: "agent-browser open example.com"):
@@ -73,7 +73,7 @@ Turn 3 (user: "close the browser"):
 ```
 
 Lifecycle rules:
-1. **One active browser only** — before opening a new session, close any existing browser first. Use the global state file `$WORKSPACE_DIR/browser.state` to track the active session.
+1. **One active browser only** — if the browser is in use by another thread, reply with an info message showing which thread is using it. Do NOT auto-close. Use the global state file `$WORKSPACE_DIR/browser.state` to track the active session and its owner thread.
 2. **Open on first use** — `agent-browser open <url>` auto-starts the daemon + Chrome. No separate start command needed.
 3. **Keep alive** — after your work is done, leave the browser running. The next turn on this thread will reconnect instantly.
 4. **Close only when asked** — if the user says "close", "stop", "done browsing", "exit", run `agent-browser --session "$SESSION" close`.
@@ -82,32 +82,39 @@ Lifecycle rules:
 
 ### Global browser state
 
-Track the active browser session globally to enforce single-instance:
+Track the active browser session globally to enforce single-instance and show which thread is using it:
 
 ```bash
 BROWSER_STATE="$WORKSPACE_DIR/browser.state"
 
-# Before opening a new session, close any existing browser
+# Check if browser is available, return info if in use
 ensure_browser_available() {
     if [ -f "$BROWSER_STATE" ]; then
-        read ACTIVE_SESSION _ < "$BROWSER_STATE"
+        read ACTIVE_SESSION ACTIVE_THREAD _ < "$BROWSER_STATE"
         if [ -n "$ACTIVE_SESSION" ] && [ "$ACTIVE_SESSION" != "$SESSION" ]; then
-            echo "Closing existing browser session: $ACTIVE_SESSION" >&2
-            agent-browser --session "$ACTIVE_SESSION" close 2>/dev/null || true
-            rm -f "$BROWSER_STATE"
+            echo "in-use:$ACTIVE_THREAD"
+            return 1
         fi
     fi
+    return 0
 }
 
-# After opening, save the active session
+# After opening, save the active session and thread info
 save_browser_state() {
-    echo "$SESSION $(date +%s)" > "$BROWSER_STATE"
+    echo "$SESSION $THREAD_KEY $(date +%s)" > "$BROWSER_STATE"
 }
 
 # On close, remove the state
 clear_browser_state() {
     rm -f "$BROWSER_STATE"
 }
+```
+
+When `ensure_browser_available` returns `in-use`, reply to the user:
+
+```
+Browser sedang digunakan oleh thread lain (thread_id: <ACTIVE_THREAD>).
+Tutup browser di thread tersebut terlebih dahulu, atau tunggu sampai idle.
 ```
 
 ## Environment
@@ -164,8 +171,15 @@ System cache drop is handled outside the agent (by the host or orchestrator). Th
 ### 1. Open a page and take a snapshot
 
 ```bash
-# Ensure any existing browser is closed first
-ensure_browser_available
+# Check if browser is available
+BROWSER_STATUS=$(ensure_browser_available)
+if [ $? -ne 0 ]; then
+    # Browser is in use — BROWSER_STATUS contains "in-use:<thread>"
+    ACTIVE_THREAD="${BROWSER_STATUS#in-use:}"
+    echo "Browser sedang digunakan oleh thread: $ACTIVE_THREAD"
+    echo "Tutup browser di thread tersebut terlebih dahulu."
+    exit 0
+fi
 
 agent-browser --session "$SESSION" open "$URL"
 save_browser_state
@@ -509,7 +523,8 @@ Do not expose internal session names, daemon paths, or agent-browser configurati
 
 ## Checks
 - Always use `--session "$SESSION"` — never run agent-browser without a session flag
-- **Only one browser at a time** — call `ensure_browser_available` before opening a new session
+- **Single browser at a time** — call `ensure_browser_available` before opening; if in use, inform user which thread has the browser
+- **Never force-close another thread's browser** — let the user decide
 - Always wait after navigation before snapshotting or interacting
 - Re-snapshot after any action that changes the page (clicks, form fills, scrolls)
 - Check your granted permissions before attempting a form submit — if `agent-browser.submit` is `need=`, emit PERMISSION_REQUIRED
