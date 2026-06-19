@@ -1,9 +1,10 @@
 import type { AppConfig } from "../../config.js";
-import type { Harness } from "../../core/ports.js";
+import type { Harness, TurnInput } from "../../core/ports.js";
+import type { ThreadHandle } from "../sessions/index.js";
 import { log } from "../../lib/log.js";
 import { loadSessionState, listThreadHandles } from "../sessions/index.js";
 import { loadCheckpoint, saveCheckpoint } from "./checkpoint.js";
-import { buildIngestTurnInput } from "./ingest.js";
+import { buildBatchedIngestPrompt } from "./ingest.js";
 
 interface CronState {
   locked: boolean;
@@ -59,7 +60,8 @@ async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
 async function runIngest(cfg: AppConfig, harness: Harness, checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): Promise<boolean> {
   const threads = await listThreadHandles(cfg);
   const now = Date.now();
-  let dirty = false;
+
+  const batches: { thread: ThreadHandle; checkpoint: string | undefined }[] = [];
 
   for (const thread of threads) {
     const sessionState = await loadSessionState(thread);
@@ -73,28 +75,60 @@ async function runIngest(cfg: AppConfig, harness: Harness, checkpoint: Awaited<R
     if (lastIngestAt >= lastEvent) continue;
     if (now - lastEvent < 60 * 60 * 1000) continue;
 
-    log.info("memory: ingesting thread", { threadKey });
-
-    try {
-      const input = buildIngestTurnInput(cfg, thread, entry?.lastIngestAt);
-      const result = await harness.run(input);
-
-      if (result.success) {
-        checkpoint.threads[threadKey] = { lastIngestAt: sessionState.last_event_at };
-        log.info("memory: ingest succeeded", { threadKey, sessionId: result.sessionId });
-        dirty = true;
-      } else {
-        log.warn("memory: ingest failed", { threadKey, exitCode: result.exitCode, logPath: result.logPath });
-      }
-    } catch (err) {
-      log.error(
-        "memory: ingest harness error",
-        { threadKey, err: err instanceof Error ? err.message : String(err) },
-      );
-    }
+    batches.push({ thread, checkpoint: entry?.lastIngestAt });
   }
 
-  return dirty;
+  if (batches.length === 0) return false;
+
+  log.info("memory: ingesting batch", { threadCount: batches.length });
+
+  try {
+    const prompt = buildBatchedIngestPrompt(cfg, batches);
+    const result = await harness.run({
+      thread: batches[0].thread,
+      event: {
+        source: "system",
+        thread_key: "memory-ingest-batch",
+        event_id: `memory-ingest-${Date.now()}`,
+        received_at: new Date().toISOString(),
+        visibility: "channel" as const,
+        mentions_bot: false,
+        sender: { source: "system", id: "memory-ingest" },
+        text: "",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: null as never,
+      },
+      eventFile: "",
+      contact: {
+        user_id: "memory-ingest",
+        source: "system",
+        display: "Memory Ingest",
+        allowed_permissions: ["memory:write"],
+      },
+      skills: [],
+      sourceContext: { behaviorInstructions: [] },
+      resumed: false,
+      promptOverride: prompt,
+    });
+
+    if (result.success) {
+      for (const batch of batches) {
+        const sessionState = await loadSessionState(batch.thread);
+        if (sessionState.last_event_at) {
+          checkpoint.threads[batch.thread.state.thread_key] = { lastIngestAt: sessionState.last_event_at };
+        }
+      }
+      log.info("memory: ingest batch succeeded", { threadCount: batches.length, sessionId: result.sessionId });
+      return true;
+    }
+
+    log.warn("memory: ingest batch failed", { threadCount: batches.length, exitCode: result.exitCode, logPath: result.logPath });
+    return false;
+  } catch (err) {
+    log.error("memory: ingest harness error", { err: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
 }
 
 async function runLint(cfg: AppConfig, harness: Harness): Promise<boolean> {
@@ -127,7 +161,7 @@ function shouldLint(checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): boo
   return newestIngest > lastLint;
 }
 
-function buildLintTurnInput(cfg: AppConfig): ReturnType<typeof buildIngestTurnInput> {
+function buildLintTurnInput(cfg: AppConfig): TurnInput {
   const prompt = [
     "You maintain the knowledge wiki. Run a health check on the entire wiki.",
     "",
