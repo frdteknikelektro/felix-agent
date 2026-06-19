@@ -161,6 +161,8 @@ export class FelixEngine {
           } catch (error) {
             clearInterval(typingInterval);
             await requeueEvent(thread, item);
+            const detail = error instanceof Error ? `${error.message}. ` : "";
+            await this.postThreadError(thread, event, detail);
             throw error;
           }
           clearInterval(typingInterval);
@@ -179,6 +181,10 @@ export class FelixEngine {
           }
           if (decision.kind === "fail") {
             await requeueEvent(thread, item, { clearHarnessSession: resumed });
+            const detail = result.exitCode !== 0
+              ? exitCodeMessage(result.exitCode)
+              : "The agent produced no usable output. ";
+            await this.postThreadError(thread, event, detail);
             log.error("codex.empty_output", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,
@@ -216,6 +222,8 @@ export class FelixEngine {
             } catch (error) {
               clearInterval(typingInterval);
               await requeueEvent(thread, item);
+              const detail = error instanceof Error ? `${error.message}. ` : "";
+              await this.postThreadError(thread, event, detail);
               throw error;
             }
             const retriedDecision = decideTurnResult(result, true, retriedFreshStart);
@@ -227,6 +235,7 @@ export class FelixEngine {
             }
             if (retriedDecision.kind === "fail" || retriedDecision.kind === "format_retry") {
               await requeueEvent(thread, item, { clearHarnessSession: resumed });
+              await this.postThreadError(thread, event, "The agent produced no usable output. ");
               break;
             }
             await recordTurn(thread, result.sessionId);
@@ -287,6 +296,22 @@ export class FelixEngine {
     await adapter.sendThreadReply({ event, text });
     await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
     await adapter.updateEventStatus({ event, status: "replied" });
+  }
+
+  private async postThreadError(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    errorDetail: string,
+  ): Promise<void> {
+    const text = `Something went wrong while processing your request. ${errorDetail}Please try again later.`;
+    try {
+      await this.postThreadReply(thread, event, undefined, text);
+    } catch {
+      log.warn("thread.error_reply_failed", {
+        thread_key: thread.state.thread_key,
+        error: errorDetail,
+      });
+    }
   }
 
   private async prepareAttachments(
@@ -617,4 +642,25 @@ export class FelixEngine {
 
 export function namespacePermissions(skillId: string, permissions: string[]): string[] {
   return permissions.map((p) => (p.includes(":") ? p : `${skillId}:${p}`));
+}
+
+function exitCodeMessage(exitCode: number): string {
+  switch (exitCode) {
+    case -1:
+      return "The agent process could not start. ";
+    case 1:
+      return "The agent process encountered an error. ";
+    case 2:
+      return "The agent process received invalid input. ";
+    case 126:
+      return "The agent binary is not executable. ";
+    case 127:
+      return "The agent binary was not found. ";
+    case 137:
+      return "The agent process was killed (out of memory or timeout). ";
+    case 143:
+      return "The agent process was terminated. ";
+    default:
+      return `The agent process exited with code ${exitCode}. `;
+  }
 }
