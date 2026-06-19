@@ -138,6 +138,30 @@ All `agent-browser` commands must use `--session "$SESSION"`. Only one browser i
 
 In memory-constrained environments (Docker containers with limited RAM), Chrome can crash when the system runs out of memory. Apply these optimizations:
 
+### Headless vs headed mode
+
+Choose the appropriate mode based on the use case:
+
+| Mode | When to use | Memory | VNC/Share |
+|---|---|---|---|
+| **Headless** (default) | Reading content, screenshots, scraping, automation | Lower (~150-200MB) | Not available |
+| **Headed** (Xvfb) | Sharing browser session, sites that block headless | Higher (~300-400MB) | Available |
+
+Auto-detect mode based on request:
+
+```bash
+# Determine mode: headed if sharing requested, headless otherwise
+BROWSER_MODE="headless"
+if echo "$USER_REQUEST" | grep -qiE "share|session|vnc|remote"; then
+    BROWSER_MODE="headed"
+fi
+```
+
+**Rule:** Use headless by default. Only start headed mode when:
+- User explicitly asks to share the browser
+- User says "share", "session", "vnc", "remote"
+- A site blocks headless Chrome (then close, restart in headed)
+
 ### Chrome memory-saving flags
 
 Set `AGENT_BROWSER_CHROME_FLAGS` before opening a URL to reduce Chrome's memory footprint:
@@ -151,16 +175,30 @@ These flags reduce Chrome memory usage from ~500MB to ~150-200MB:
 - `--disable-dev-shm-usage` — avoids `/dev/shm` which may be small in containers
 - `--js-flags=--max-old-space-size=256` — limits V8 heap to 256MB
 
-### Lower VNC resolution for sharing
+### VNC and Xvfb relationship
 
-When sharing a browser session, use a smaller VNC resolution to reduce memory:
+**x11vnc** captures an existing X11 display and serves it over VNC. It does NOT create a display — it connects to one.
+
+**Xvfb** (X Virtual Framebuffer) creates a virtual X11 display when no physical display exists (e.g., in Docker containers).
+
+So yes, **Xvfb is required** when using x11vnc in a container. The flow is:
+
+```
+Chrome (headed) → Xvfb (virtual display :55) → x11vnc (captures :55) → websockify → noVNC
+```
+
+Without Xvfb, x11vnc has no display to connect to and will fail.
+
+### Lower VNC resolution
+
+Use a smaller resolution when headed mode is needed to reduce memory:
 
 ```bash
-# In ensure_xvfb(), change 1920x1080x24 to 1280x720x16
+# Use 1280x720x16 instead of 1920x1080x24
 Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac
 ```
 
-1280x720 at 16-bit color is sufficient for most web browsing and uses ~40% less memory than 1920x1080 at 24-bit.
+1280x720 at 16-bit color uses ~40% less memory than 1920x1080 at 24-bit.
 
 ### System cache drop
 
