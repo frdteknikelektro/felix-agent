@@ -135,28 +135,31 @@ BORE_PID=$!
 # 9. Wait for bore to output URL with timeout
 TIMEOUT=10
 ELAPSED=0
-BORE_URL=""
+BORE_RAW_URL=""
 while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep 1
     ELAPSED=$((ELAPSED + 1))
-    BORE_URL=$(grep -oP 'https?://[^ ]+' "$THREAD_DIR/bore.log" | head -1)
-    if [ -n "$BORE_URL" ]; then
+    BORE_RAW_URL=$(grep -oP 'https?://[^ ]+' "$THREAD_DIR/bore.log" | head -1)
+    if [ -n "$BORE_RAW_URL" ]; then
         break
     fi
 done
 
-if [ -z "$BORE_URL" ]; then
+if [ -z "$BORE_RAW_URL" ]; then
     echo "Failed to start bore tunnel. Check logs: $THREAD_DIR/bore.log"
     kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
     exit 1
 fi
 
-# 10. Save share state
+# 10. Add /vnc.html path for noVNC web interface
+BORE_URL="${BORE_RAW_URL}/vnc.html"
+
+# 11. Save share state
 cat > "$THREAD_DIR/share.state" << EOF
 $VNC_PID $WEBSOCKIFY_PID $BORE_PID $BORE_URL
 EOF
 
-# 11. Return URL to user
+# 12. Return URL to user
 echo "$BORE_URL"
 ```
 
@@ -194,7 +197,7 @@ VNC_PID WEBSOCKIFY_PID BORE_PID BORE_URL
 ```
 ## Browser shared!
 
-**URL:** http://bore.pub:9090
+**URL:** http://bore.pub:9090/vnc.html
 
 Open this URL in your browser to take control of the session. Click "Connect" in the noVNC interface.
 
