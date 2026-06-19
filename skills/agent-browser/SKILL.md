@@ -82,10 +82,12 @@ Lifecycle rules:
 
 ### Global browser state
 
-Track the active browser session globally to enforce single-instance and show which thread is using it:
+All state files are stored in `$WORKSPACE_DIR/` — not per-thread directories. This ensures single-instance enforcement across all threads.
 
 ```bash
 BROWSER_STATE="$WORKSPACE_DIR/browser.state"
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
 
 # Check if browser is available, return info if in use
 ensure_browser_available() {
@@ -244,7 +246,7 @@ agent-browser --session "$SESSION" snapshot -i -c -d 5
 
 ```bash
 # Start Xvfb first
-ensure_xvfb "$THREAD_DIR"
+ensure_xvfb
 
 agent-browser --session "$SESSION" --headed open "$URL"
 save_browser_state
@@ -320,16 +322,18 @@ agent-browser --session "$SESSION" screenshot --annotate "$THREAD_DIR/attachment
 
 ```bash
 # Kill share processes if present
-if [ -f "$THREAD_DIR/share.state" ]; then
-    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$THREAD_DIR/share.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
+if [ -f "$SHARE_STATE" ]; then
+    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$SHARE_STATE"
     kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
-    rm -f "$THREAD_DIR/share.state" "$THREAD_DIR/bore.log"
+    rm -f "$SHARE_STATE" "$WORKSPACE_DIR/bore.log"
 fi
 
-read XVFB_PID _ < "$THREAD_DIR/xvfb.state" 2>/dev/null
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+read XVFB_PID _ < "$XVFB_STATE" 2>/dev/null
 agent-browser --session "$SESSION" close
 [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null
-rm -f "$THREAD_DIR/xvfb.state"
+rm -f "$XVFB_STATE"
 clear_browser_state
 ```
 
@@ -391,7 +395,7 @@ Use headed mode when:
 - A site detects and blocks headless Chrome (captcha, blank page, unexpected errors) — **close the current session first**, then reopen in headed mode
 - You need to share the browser session (required for VNC/noVNC)
 
-Headed mode renders Chromium through a persistent Xvfb virtual display. Track it per session via `$THREAD_DIR/xvfb.state`.
+Headed mode renders Chromium through a persistent Xvfb virtual display. State tracked globally via `$WORKSPACE_DIR/xvfb.state`.
 
 ### Xvfb helper function
 
@@ -399,18 +403,18 @@ Use this helper to ensure Xvfb is running reliably:
 
 ```bash
 ensure_xvfb() {
-    local THREAD_DIR="$1"
+    XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
     
     # Check if Xvfb is already running
-    if [ -f "$THREAD_DIR/xvfb.state" ]; then
-        read XVFB_PID _ < "$THREAD_DIR/xvfb.state"
+    if [ -f "$XVFB_STATE" ]; then
+        read XVFB_PID _ < "$XVFB_STATE"
         if kill -0 "$XVFB_PID" 2>/dev/null; then
-            read _ DISPLAY < "$THREAD_DIR/xvfb.state"
+            read _ DISPLAY < "$XVFB_STATE"
             export DISPLAY
             return 0
         fi
         # Stale state file, clean up
-        rm -f "$THREAD_DIR/xvfb.state"
+        rm -f "$XVFB_STATE"
     fi
     
     # Ensure /tmp/.X11-unix exists with proper permissions
@@ -448,7 +452,7 @@ ensure_xvfb() {
         return 1
     fi
     
-    echo "$XVFB_PID $DISPLAY" > "$THREAD_DIR/xvfb.state"
+    echo "$XVFB_PID $DISPLAY" > "$XVFB_STATE"
     return 0
 }
 ```
@@ -456,15 +460,17 @@ ensure_xvfb() {
 **Start** (first headed open, or after switching from headless):
 
 ```bash
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+
 # Kill any stale Xvfb from a previous session
-if [ -f "$THREAD_DIR/xvfb.state" ]; then
-    read OLD_PID _ < "$THREAD_DIR/xvfb.state"
+if [ -f "$XVFB_STATE" ]; then
+    read OLD_PID _ < "$XVFB_STATE"
     kill "$OLD_PID" 2>/dev/null
-    rm -f "$THREAD_DIR/xvfb.state"
+    rm -f "$XVFB_STATE"
 fi
 
 # Start Xvfb using the helper
-ensure_xvfb "$THREAD_DIR"
+ensure_xvfb
 
 agent-browser --session "$SESSION" --headed open "$URL"
 agent-browser --session "$SESSION" wait --load networkidle
@@ -474,7 +480,8 @@ agent-browser --session "$SESSION" --headed snapshot -i
 **Resume** (subsequent turns — restore DISPLAY before any headed command):
 
 ```bash
-[ -f "$THREAD_DIR/xvfb.state" ] && { read _ DISPLAY < "$THREAD_DIR/xvfb.state"; export DISPLAY; }
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+[ -f "$XVFB_STATE" ] && { read _ DISPLAY < "$XVFB_STATE"; export DISPLAY; }
 agent-browser --session "$SESSION" --headed snapshot -i
 ```
 
@@ -485,7 +492,7 @@ agent-browser --session "$SESSION" close
 # Then follow "Start" above
 ```
 
-> Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `xvfb.state`. Do not mix headed and headless commands on the same session.
+> Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `$WORKSPACE_DIR/xvfb.state`. Do not mix headed and headless commands on the same session.
 
 ## Session modes
 
@@ -598,12 +605,12 @@ Do not expose internal session names, daemon paths, or agent-browser configurati
 - Do not close the browser unless the user explicitly asks (or another session needs it)
 - Ensure `$THREAD_DIR/attachments/` exists (`mkdir -p`) before saving screenshots
 - Save screenshots to `$THREAD_DIR/attachments/` — never to system temp directories
-- For headed sessions: restore `DISPLAY` from `$THREAD_DIR/xvfb.state` before every headed command
+- For headed sessions: restore `DISPLAY` from `$WORKSPACE_DIR/xvfb.state` before every headed command
 - For headed sessions: always use `--headed` on all commands — mixing headed and headless on the same session breaks it
-- Clean up Xvfb when closing: `kill` the PID from `$THREAD_DIR/xvfb.state`, then `rm` the file
-- Clean up share processes when closing: kill VNC, websockify, bore PIDs from `$THREAD_DIR/share.state`, then `rm` the file
+- Clean up Xvfb when closing: `kill` the PID from `$WORKSPACE_DIR/xvfb.state`, then `rm` the file
+- Clean up share processes when closing: kill VNC, websockify, bore PIDs from `$WORKSPACE_DIR/share.state`, then `rm` the file
 - Always check if headed mode is running before attempting to share
-- Ensure `$THREAD_DIR/share.state` is cleaned up on `close`
+- Ensure `$WORKSPACE_DIR/share.state` is cleaned up on `close`
 - Do not start duplicate share sessions — return existing URL if already sharing
 - Verify bore is installed before attempting to share (`command -v bore`)
 - Report clear, conversational results — not raw agent-browser command output

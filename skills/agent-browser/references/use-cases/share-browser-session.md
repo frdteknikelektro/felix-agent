@@ -53,20 +53,20 @@ export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox -
 
 ### Start share
 1. Run pre-flight checks (browser available, tools, memory flags)
-2. Verify headed mode is running (check `$THREAD_DIR/xvfb.state`)
+2. Verify headed mode is running (check `$WORKSPACE_DIR/xvfb.state`)
 3. If not headed, start Xvfb with lower resolution (1280x720x16)
-4. Check if already sharing (check `$THREAD_DIR/share.state`)
+4. Check if already sharing (check `$WORKSPACE_DIR/share.state`)
 5. If already sharing, return existing URL from state file
 6. Kill any stale share processes from previous sessions
 7. Start x11vnc (VNC server on existing DISPLAY)
 8. Start websockify + noVNC (WebSocket proxy on port 6080)
 9. Start bore tunnel (expose port 6080 externally)
 10. Wait for bore to be ready and capture URL
-11. Save state to `$THREAD_DIR/share.state`
+11. Save state to `$WORKSPACE_DIR/share.state`
 12. Return URL to user
 
 ### Stop share
-1. Read state from `$THREAD_DIR/share.state`
+1. Read state from `$WORKSPACE_DIR/share.state`
 2. Kill VNC, websockify, bore processes
 3. Remove state file
 4. Confirm to user
@@ -96,7 +96,8 @@ done
 export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
 
 # 4. Verify headed mode is running, start Xvfb if not
-if [ ! -f "$THREAD_DIR/xvfb.state" ]; then
+XVFB_STATE="$WORKSPACE_DIR/xvfb.state"
+if [ ! -f "$XVFB_STATE" ]; then
     mkdir -p /tmp/.X11-unix 2>/dev/null || true
     chmod 1777 /tmp/.X11-unix 2>/dev/null || true
     
@@ -123,29 +124,30 @@ if [ ! -f "$THREAD_DIR/xvfb.state" ]; then
         exit 1
     fi
     
-    echo "$XVFB_PID :${DISPLAY_NUM}" > "$THREAD_DIR/xvfb.state"
+    echo "$XVFB_PID :${DISPLAY_NUM}" > "$XVFB_STATE"
 fi
 
 # 5. Check if already sharing
-if [ -f "$THREAD_DIR/share.state" ]; then
-    read _ _ _ SHARE_URL < "$THREAD_DIR/share.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
+if [ -f "$SHARE_STATE" ]; then
+    read _ _ _ SHARE_URL < "$SHARE_STATE"
     if curl -s -o /dev/null -w "%{http_code}" "$SHARE_URL" | grep -q "200\|101"; then
         echo "$SHARE_URL"
         exit 0
     fi
-    rm -f "$THREAD_DIR/share.state"
+    rm -f "$SHARE_STATE"
 fi
 
 # 6. Clean up stale share processes
-pkill -f "x11vnc.*$(grep -oP ':\d+' "$THREAD_DIR/xvfb.state")" 2>/dev/null || true
+pkill -f "x11vnc.*$(grep -oP ':\d+' "$XVFB_STATE")" 2>/dev/null || true
 pkill -f "websockify.*6080" 2>/dev/null || true
 
 # 7. Read DISPLAY from xvfb.state
-read _ DISPLAY < "$THREAD_DIR/xvfb.state"
+read _ DISPLAY < "$XVFB_STATE"
 export DISPLAY
 
 # 8. Start x11vnc
-x11vnc -display "$DISPLAY" -forever -nopw -shared -bg -o "$THREAD_DIR/vnc.log"
+x11vnc -display "$DISPLAY" -forever -nopw -shared -bg -o "$WORKSPACE_DIR/vnc.log"
 VNC_PID=$!
 
 # 9. Start websockify + noVNC
@@ -153,7 +155,7 @@ websockify --web=/usr/share/novnc 6080 localhost:5900 &
 WEBSOCKIFY_PID=$!
 
 # 10. Start bore tunnel
-bore local 6080 --to bore.pub > "$THREAD_DIR/bore.log" 2>&1 &
+bore local 6080 --to bore.pub > "$WORKSPACE_DIR/bore.log" 2>&1 &
 BORE_PID=$!
 
 # 11. Wait for bore URL
@@ -163,14 +165,14 @@ BORE_RAW_URL=""
 while [ $ELAPSED -lt $TIMEOUT ]; do
     sleep 1
     ELAPSED=$((ELAPSED + 1))
-    BORE_RAW_URL=$(grep -oP 'https?://[^ ]+' "$THREAD_DIR/bore.log" | head -1)
+    BORE_RAW_URL=$(grep -oP 'https?://[^ ]+' "$WORKSPACE_DIR/bore.log" | head -1)
     if [ -n "$BORE_RAW_URL" ]; then
         break
     fi
 done
 
 if [ -z "$BORE_RAW_URL" ]; then
-    echo "Failed to start bore tunnel. Check logs: $THREAD_DIR/bore.log"
+    echo "Failed to start bore tunnel. Check logs: $WORKSPACE_DIR/bore.log"
     kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
     exit 1
 fi
@@ -179,7 +181,7 @@ fi
 BORE_URL="${BORE_RAW_URL}/vnc.html"
 
 # 13. Save share state
-cat > "$THREAD_DIR/share.state" << EOF
+cat > "$SHARE_STATE" << EOF
 $VNC_PID $WEBSOCKIFY_PID $BORE_PID $BORE_URL
 EOF
 
@@ -191,10 +193,11 @@ echo "$BORE_URL"
 
 ```bash
 # Stop sharing but keep browser alive
-if [ -f "$THREAD_DIR/share.state" ]; then
-    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$THREAD_DIR/share.state"
+SHARE_STATE="$WORKSPACE_DIR/share.state"
+if [ -f "$SHARE_STATE" ]; then
+    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$SHARE_STATE"
     kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
-    rm -f "$THREAD_DIR/share.state" "$THREAD_DIR/bore.log"
+    rm -f "$SHARE_STATE" "$WORKSPACE_DIR/bore.log"
     echo "Browser sharing stopped. The browser session is still active."
 else
     echo "No active share session."
@@ -203,7 +206,7 @@ fi
 
 ## State tracking
 
-**File:** `$THREAD_DIR/share.state`
+**File:** `$WORKSPACE_DIR/share.state`
 
 **Format:**
 ```
@@ -241,7 +244,7 @@ If the noVNC interface shows a blank/black screen:
 2. Close the browser and reopen in headed mode:
    ```bash
    agent-browser --session "$SESSION" close
-   ensure_xvfb "$THREAD_DIR"
+   ensure_xvfb
    agent-browser --session "$SESSION" --headed open <url>
    ```
 3. Restart the share
@@ -255,7 +258,7 @@ If you see "Browser sedang digunakan oleh thread...":
 If bore fails to connect:
 1. Check if bore.pub is accessible: `curl -s https://bore.pub | head -1`
 2. Try a different port: `bore local 6080 --to bore.pub --port <custom-port>`
-3. Check bore logs: `cat $THREAD_DIR/bore.log`
+3. Check bore logs: `cat $WORKSPACE_DIR/bore.log`
 
 ### VNC port conflicts
 If you get "port already in use" errors:
