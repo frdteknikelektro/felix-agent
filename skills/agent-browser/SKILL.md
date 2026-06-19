@@ -96,6 +96,55 @@ SESSION=$(printf '%s' "$THREAD_KEY" | tr ':' '-')
 
 All `agent-browser` commands must use `--session "$SESSION"` for thread-isolated browser instances. This ensures each Felix thread has its own daemon + Chrome with independent cookies/storage/history.
 
+## Memory optimization
+
+In memory-constrained environments (Docker containers with limited RAM), Chrome can crash when the system runs out of memory. Apply these optimizations before starting the browser:
+
+### 1. Drop system caches (requires root or privileged container)
+
+```bash
+# Free page cache, dentries, and inodes
+sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+```
+
+If `/proc/sys/vm/drop_caches` is not writable, skip this step — the Chrome flags below will compensate.
+
+### 2. Chrome memory-saving flags
+
+Set `AGENT_BROWSER_CHROME_FLAGS` before opening a URL to reduce Chrome's memory footprint:
+
+```bash
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+```
+
+These flags reduce Chrome memory usage from ~500MB to ~150-200MB:
+- `--single-process` — merges browser and renderer processes
+- `--disable-dev-shm-usage` — avoids `/dev/shm` which may be small in containers
+- `--js-flags=--max-old-space-size=256` — limits V8 heap to 256MB
+
+### 3. Lower VNC resolution for sharing
+
+When sharing a browser session, use a smaller VNC resolution to reduce memory:
+
+```bash
+# In ensure_xvfb(), change 1920x1080x24 to 1280x720x16
+Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac
+```
+
+1280x720 at 16-bit color is sufficient for most web browsing and uses ~40% less memory than 1920x1080 at 24-bit.
+
+### 4. Auto-cleanup on memory pressure
+
+If Chrome fails to launch, attempt recovery:
+
+```bash
+# Before opening a URL, check available memory
+AVAILABLE_MB=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
+if [ "$AVAILABLE_MB" -lt 500 ]; then
+    sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+fi
+```
+
 ## Core workflow
 
 ### 1. Open a page and take a snapshot
@@ -280,7 +329,8 @@ ensure_xvfb() {
     export DISPLAY=":${DISPLAY_NUM}"
     
     # Start Xvfb with proper cleanup on exit
-    nohup Xvfb "$DISPLAY" -screen 0 1920x1080x24 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
+    # Use 1280x720x16 for memory-constrained environments (change to 1920x1080x24 if needed)
+    nohup Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
     local XVFB_PID=$!
     
     # Wait for Xvfb to be ready
