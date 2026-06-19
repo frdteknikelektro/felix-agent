@@ -12,6 +12,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "53318:3000"
+      - "[::]:53318:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -25,4 +26,4 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-        - subnet: fd00:cafe::/64
+        - subnet: fd00:felix::/64
