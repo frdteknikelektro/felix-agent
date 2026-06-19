@@ -19,10 +19,21 @@ Optional:
 
 ## Pre-flight checks
 
-Before sharing, verify all dependencies are available:
+### 1. Check browser availability
 
 ```bash
-# Check required tools
+BROWSER_STATUS=$(ensure_browser_available)
+if [ $? -ne 0 ]; then
+    ACTIVE_THREAD="${BROWSER_STATUS#in-use:}"
+    echo "Browser sedang digunakan oleh thread: $ACTIVE_THREAD"
+    echo "Tutup browser di thread tersebut terlebih dahulu."
+    exit 0
+fi
+```
+
+### 2. Check required tools
+
+```bash
 for cmd in x11vnc websockify bore; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "Required tool not found: $cmd"
@@ -32,12 +43,18 @@ for cmd in x11vnc websockify bore; do
 done
 ```
 
+### 3. Set memory optimization flags
+
+```bash
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+```
+
 ## Workflow
 
 ### Start share
-1. Run pre-flight checks for required tools
+1. Run pre-flight checks (browser available, tools, memory flags)
 2. Verify headed mode is running (check `$THREAD_DIR/xvfb.state`)
-3. If not headed, attempt to start Xvfb automatically
+3. If not headed, start Xvfb with lower resolution (1280x720x16)
 4. Check if already sharing (check `$THREAD_DIR/share.state`)
 5. If already sharing, return existing URL from state file
 6. Kill any stale share processes from previous sessions
@@ -46,8 +63,7 @@ done
 9. Start bore tunnel (expose port 6080 externally)
 10. Wait for bore to be ready and capture URL
 11. Save state to `$THREAD_DIR/share.state`
-12. Verify the share is working (optional health check)
-13. Return URL to user
+12. Return URL to user
 
 ### Stop share
 1. Read state from `$THREAD_DIR/share.state`
@@ -60,7 +76,15 @@ done
 ### Start share
 
 ```bash
-# 1. Pre-flight checks
+# 1. Pre-flight: check browser availability
+BROWSER_STATUS=$(ensure_browser_available)
+if [ $? -ne 0 ]; then
+    ACTIVE_THREAD="${BROWSER_STATUS#in-use:}"
+    echo "Browser sedang digunakan oleh thread: $ACTIVE_THREAD"
+    exit 0
+fi
+
+# 2. Pre-flight: check required tools
 for cmd in x11vnc websockify bore; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "Required tool not found: $cmd. Run: install $cmd"
@@ -68,9 +92,11 @@ for cmd in x11vnc websockify bore; do
     fi
 done
 
-# 2. Verify headed mode is running, try to start if not
+# 3. Pre-flight: set memory flags
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+
+# 4. Verify headed mode is running, start Xvfb if not
 if [ ! -f "$THREAD_DIR/xvfb.state" ]; then
-    # Try to start Xvfb
     mkdir -p /tmp/.X11-unix 2>/dev/null || true
     chmod 1777 /tmp/.X11-unix 2>/dev/null || true
     
@@ -79,10 +105,10 @@ if [ ! -f "$THREAD_DIR/xvfb.state" ]; then
         DISPLAY_NUM=$(shuf -i 10-99 -n 1)
     done
     
-    nohup Xvfb ":${DISPLAY_NUM}" -screen 0 1920x1080x24 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
+    # Use 1280x720x16 for memory-constrained environments
+    nohup Xvfb ":${DISPLAY_NUM}" -screen 0 1280x720x16 -ac > /tmp/xvfb_${DISPLAY_NUM}.log 2>&1 &
     XVFB_PID=$!
     
-    # Wait for Xvfb to be ready
     RETRIES=10
     while [ $RETRIES -gt 0 ]; do
         if [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
@@ -100,39 +126,37 @@ if [ ! -f "$THREAD_DIR/xvfb.state" ]; then
     echo "$XVFB_PID :${DISPLAY_NUM}" > "$THREAD_DIR/xvfb.state"
 fi
 
-# 3. Check if already sharing
+# 5. Check if already sharing
 if [ -f "$THREAD_DIR/share.state" ]; then
     read _ _ _ SHARE_URL < "$THREAD_DIR/share.state"
-    # Verify the share is still active
     if curl -s -o /dev/null -w "%{http_code}" "$SHARE_URL" | grep -q "200\|101"; then
         echo "$SHARE_URL"
         exit 0
     fi
-    # Stale share, clean up
     rm -f "$THREAD_DIR/share.state"
 fi
 
-# 4. Clean up any stale share processes
+# 6. Clean up stale share processes
 pkill -f "x11vnc.*$(grep -oP ':\d+' "$THREAD_DIR/xvfb.state")" 2>/dev/null || true
 pkill -f "websockify.*6080" 2>/dev/null || true
 
-# 5. Read DISPLAY from xvfb.state
+# 7. Read DISPLAY from xvfb.state
 read _ DISPLAY < "$THREAD_DIR/xvfb.state"
 export DISPLAY
 
-# 6. Start x11vnc (no password, share existing display)
+# 8. Start x11vnc
 x11vnc -display "$DISPLAY" -forever -nopw -shared -bg -o "$THREAD_DIR/vnc.log"
 VNC_PID=$!
 
-# 7. Start websockify + noVNC (WebSocket proxy on port 6080 → VNC on 5900)
+# 9. Start websockify + noVNC
 websockify --web=/usr/share/novnc 6080 localhost:5900 &
 WEBSOCKIFY_PID=$!
 
-# 8. Start bore tunnel (expose port 6080 externally)
+# 10. Start bore tunnel
 bore local 6080 --to bore.pub > "$THREAD_DIR/bore.log" 2>&1 &
 BORE_PID=$!
 
-# 9. Wait for bore to output URL with timeout
+# 11. Wait for bore URL
 TIMEOUT=10
 ELAPSED=0
 BORE_RAW_URL=""
@@ -151,15 +175,15 @@ if [ -z "$BORE_RAW_URL" ]; then
     exit 1
 fi
 
-# 10. Add /vnc.html path for noVNC web interface
+# 12. Add noVNC path
 BORE_URL="${BORE_RAW_URL}/vnc.html"
 
-# 11. Save share state
+# 13. Save share state
 cat > "$THREAD_DIR/share.state" << EOF
 $VNC_PID $WEBSOCKIFY_PID $BORE_PID $BORE_URL
 EOF
 
-# 12. Return URL to user
+# 14. Return URL
 echo "$BORE_URL"
 ```
 
@@ -217,9 +241,15 @@ If the noVNC interface shows a blank/black screen:
 2. Close the browser and reopen in headed mode:
    ```bash
    agent-browser --session "$SESSION" close
+   ensure_xvfb "$THREAD_DIR"
    agent-browser --session "$SESSION" --headed open <url>
    ```
 3. Restart the share
+
+### Browser in use by another thread
+If you see "Browser sedang digunakan oleh thread...":
+1. Ask the user to close the browser in the other thread first
+2. Or wait until the other thread is idle (browser auto-closes after 5 min timeout)
 
 ### bore connection issues
 If bore fails to connect:
@@ -234,7 +264,8 @@ If you get "port already in use" errors:
 3. Retry the share
 
 ## Failure modes
-- Browser not in headed mode: attempt to start Xvfb automatically, or inform user to start headed session first
+- Browser in use by another thread: inform user which thread has it, do not force-close
+- Browser in headless mode: close and restart in headed mode
 - bore not installed: suggest `install bore`
 - Already sharing: return existing URL if still active, otherwise restart
 - bore.pub down: report error, suggest retry

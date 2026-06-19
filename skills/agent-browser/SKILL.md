@@ -206,22 +206,50 @@ System cache drop is handled outside the agent (by the host or orchestrator). Th
 
 ## Core workflow
 
-### 1. Open a page and take a snapshot
+### 0. Determine mode (headless vs headed)
+
+Before opening a browser, decide which mode to use:
 
 ```bash
-# Check if browser is available
+# Step 0a: Determine mode based on user request
+BROWSER_MODE="headless"
+if echo "$USER_REQUEST" | grep -qiE "share|session|vnc|remote|show|screen"; then
+    BROWSER_MODE="headed"
+fi
+
+# Step 0b: Check if browser is available
 BROWSER_STATUS=$(ensure_browser_available)
 if [ $? -ne 0 ]; then
-    # Browser is in use — BROWSER_STATUS contains "in-use:<thread>"
     ACTIVE_THREAD="${BROWSER_STATUS#in-use:}"
     echo "Browser sedang digunakan oleh thread: $ACTIVE_THREAD"
     echo "Tutup browser di thread tersebut terlebih dahulu."
     exit 0
 fi
 
+# Step 0c: Set Chrome flags for memory optimization
+export AGENT_BROWSER_CHROME_FLAGS="--single-process --disable-gpu --no-sandbox --disable-dev-shm-usage --disable-extensions --disable-background-networking --disable-default-apps --disable-sync --disable-translate --metrics-recording-only --no-first-run --js-flags=--max-old-space-size=256"
+```
+
+### 1. Open a page and take a snapshot
+
+**Headless mode** (default):
+
+```bash
 agent-browser --session "$SESSION" open "$URL"
 save_browser_state
 agent-browser --session "$SESSION" snapshot -i -c -d 5
+```
+
+**Headed mode** (when sharing or site blocks headless):
+
+```bash
+# Start Xvfb first
+ensure_xvfb "$THREAD_DIR"
+
+agent-browser --session "$SESSION" --headed open "$URL"
+save_browser_state
+agent-browser --session "$SESSION" wait --load networkidle
+agent-browser --session "$SESSION" --headed snapshot -i
 ```
 
 Flags:
