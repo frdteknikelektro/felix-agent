@@ -92,8 +92,8 @@ SHARE_STATE="$WORKSPACE_DIR/share.state"
 # Check if browser is available, return info if in use
 ensure_browser_available() {
     if [ -f "$BROWSER_STATE" ]; then
-        read ACTIVE_SESSION ACTIVE_THREAD _ < "$BROWSER_STATE"
-        if [ -n "$ACTIVE_SESSION" ] && [ "$ACTIVE_SESSION" != "$SESSION" ]; then
+        read _ ACTIVE_THREAD _ < "$BROWSER_STATE"
+        if [ -n "$ACTIVE_THREAD" ] && [ "$ACTIVE_THREAD" != "$THREAD_KEY" ]; then
             echo "in-use:$ACTIVE_THREAD"
             return 1
         fi
@@ -134,7 +134,7 @@ Resolve workspace and thread context from the turn contract:
 SESSION="felix-browser"
 ```
 
-All `agent-browser` commands must use `--session "$SESSION"`. Only one browser instance is active at a time — when a new thread requests browser access, the previous session is closed first.
+All `agent-browser` commands must use `--session "$SESSION"`. Only one browser instance is active at a time — if another thread is using it, inform the user and wait.
 
 ## Memory optimization
 
@@ -498,7 +498,7 @@ agent-browser --session "$SESSION" close
 
 ### Single active browser (default)
 
-Only one browser instance may be active at a time. All threads share the same browser session. When a new thread opens the browser, any existing session is closed first.
+Only one browser instance may be active at a time. All threads share the same browser session. If another thread is using the browser, inform the user which thread has it and wait. Never force-close a browser session being used by another thread.
 
 - `SESSION="felix-browser"` — fixed session name for all threads
 - State tracked in `$WORKSPACE_DIR/browser.state`

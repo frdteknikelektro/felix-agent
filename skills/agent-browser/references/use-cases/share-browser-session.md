@@ -12,7 +12,7 @@ Required permission: `agent-browser:agent-browser.share`.
 
 ## Inputs
 Required:
-- Browser must be in headed mode (Xvfb running)
+- Browser must be running and accessible to the requesting thread (the requesting thread does NOT need a separate browser session — it connects to the existing session via VNC)
 
 Optional:
 - None. The URL is disposable and accessible from anywhere.
@@ -251,8 +251,8 @@ If the noVNC interface shows a blank/black screen:
 
 ### Browser in use by another thread
 If you see "Browser sedang digunakan oleh thread...":
-1. Ask the user to close the browser in the other thread first
-2. Or wait until the other thread is idle (browser auto-closes after 5 min timeout)
+1. Inform the user which thread has the browser
+2. Ask the user to close the browser in the other thread first, or wait until the other thread finishes its turn (the browser will be closed automatically when the user's session ends or times out)
 
 ### bore connection issues
 If bore fails to connect:
