@@ -254,8 +254,6 @@ class DiscordAdapter implements SourceAdapter {
     return [
       "**Permission Request**",
       "",
-      "| | |",
-      "|---|---|",
       ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
       "",
       "Reply with one of:",
