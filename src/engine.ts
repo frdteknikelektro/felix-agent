@@ -446,8 +446,16 @@ export class FelixEngine {
     if (!outcome) {
       return;
     }
-    const notification = fallbackNotification(decision.mode);
-    await this.postDecisionNotification(outcome.thread, notification);
+    const notification = await this.harness.generateDecisionNotification?.({
+      thread: outcome.thread,
+      mode: decision.mode,
+      skillId: outcome.record?.skillId ?? "(unknown)",
+      reason: outcome.record?.reason ?? "",
+      ownerDisplay: this.ownerDisplayForSource(outcome.thread.state.source),
+    });
+    if (notification) {
+      await this.postDecisionNotification(outcome.thread, notification);
+    }
     if (decision.mode !== "reject") {
       await this.queueProceedEvent(outcome.thread);
     }
