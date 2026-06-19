@@ -5,9 +5,9 @@ import { createSlackAdapter } from "../src/adapters/slack/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 
 const input = {
-  skillId: "agent-browser",
-  permissions: ["agent-browser.submit", "agent-browser.share"],
-  reason: "User asked to submit a form",
+  skillId: "general",
+  permissions: ["shell.run", "general.write"],
+  reason: "User asked to run a shell command",
   requesterName: "John",
   requesterId: "user-123",
   threadLink: "https://example.com/thread/1",
@@ -25,9 +25,9 @@ describe.each(["mattermost", "discord", "slack"] as const)("%s formatOwnerNotifi
     const text = await adapter.formatOwnerNotification(input);
     expect(text).toContain("**Permission Request**");
     expect(text).toContain("**John** (`user-123`)");
-    expect(text).toContain("`agent-browser`");
-    expect(text).toContain("`agent-browser.submit`, `agent-browser.share`");
-    expect(text).toContain("User asked to submit a form");
+    expect(text).toContain("`general`");
+    expect(text).toContain("`shell.run`, `general.write`");
+    expect(text).toContain("User asked to run a shell command");
     expect(text).toContain("[Open Thread](https://example.com/thread/1)");
     expect(text).toContain("`OK once`");
     expect(text).toContain("`OK always`");

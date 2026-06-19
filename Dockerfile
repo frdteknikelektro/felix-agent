@@ -14,7 +14,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
-        chromium \
         curl \
         dumb-init \
         ghostscript \
@@ -28,10 +27,6 @@ RUN apt-get update \
         python3-venv \
         unzip \
         zip \
-        xvfb \
-        novnc \
-        python3-websockify \
-        x11vnc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
@@ -60,14 +55,9 @@ import xlsxwriter
 print("python core data stack ok")
 PY
 
-RUN npm install -g agent-browser@0.28.0
-
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    AGENT_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage \
-    AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
-    AGENT_BROWSER_IDLE_TIMEOUT_MS=300000 \
     HOME=/home/node \
     WORKSPACE_DIR=/home/node/workspace \
     PYTHONUSERBASE=/home/node/workspace/runtime/python \
