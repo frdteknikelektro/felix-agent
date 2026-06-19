@@ -176,7 +176,7 @@ class SlackAdapter implements SourceAdapter {
         '  -F "title=<filename>" \\',
         '  "https://slack.com/api/files.upload"',
         "```",
-        "After direct Slack posts or uploads, the final FELIX_REPLY should be a conversational chat message that naturally assume that it was part of conversation if it one same thread, or naturally mentions what was posted if post not on same thread, without repeating content already sent via intermediate posts.",
+        "FELIX_REPLY and direct Slack posts must not contain duplicated content. If you posted results or details via Slack, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
       ],
     };
   }

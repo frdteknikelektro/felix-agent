@@ -209,7 +209,7 @@ class MattermostAdapter implements SourceAdapter {
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
         "```",
-        "After direct Mattermost posts or uploads, the final FELIX_REPLY should be a conversational chat message that naturally assume that it was part of conversation if it one same thread, or naturally mentions what was posted if post not on same thread, without repeating content already sent via intermediate posts.",
+        "FELIX_REPLY and direct Mattermost posts must not contain duplicated content. If you posted results or details via Mattermost, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
       ],
     };
   }

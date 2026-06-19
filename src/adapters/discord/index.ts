@@ -156,7 +156,7 @@ class DiscordAdapter implements SourceAdapter {
         '  -F \'payload_json={"content":"<optional caption>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',
         "```",
-        "After direct Discord posts or uploads, the final FELIX_REPLY should be a conversational chat message that naturally assume that it was part of conversation if it one same thread, or naturally mentions what was posted if post not on same thread, without repeating content already sent via intermediate posts.",
+        "FELIX_REPLY and direct Discord posts must not contain duplicated content. If you posted results or details via Discord, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
       ],
     };
   }
