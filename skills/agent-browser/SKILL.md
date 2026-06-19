@@ -8,9 +8,14 @@ kind: operational
 permissions:
   - agent-browser.navigate
   - agent-browser.submit
+  - agent-browser.share
 match:
   - agent-browser
   - agent browser
+  - share browser
+  - share session
+  - get share url
+  - stop sharing
 ---
 
 # Agent Browser
@@ -22,6 +27,8 @@ Navigate web pages, extract content, fill forms, take screenshots, and interact 
 - User starts a message with `agent-browser` followed by an instruction
 - User asks to navigate to a URL, take a screenshot, scrape content, or fill/submit a form on their behalf
 - User says "use agent-browser to ..."
+- User says "share browser", "share session", "get share URL", "get shareable link"
+- User says "stop sharing"
 - This skill is **manual trigger only** — do NOT auto-activate on generic words like "browse", "go to", "search", "look up", "open website", "web", "url", or "scrape". If the user did not say `agent-browser`, fall through to the general skill or reply "I don't have the skill to do that."
 
 ## Out of scope
@@ -32,14 +39,15 @@ Navigate web pages, extract content, fill forms, take screenshots, and interact 
 
 ## Permissions
 
-Two permission levels, following the `<service>.<level>` convention:
+Three permission levels, following the `<service>.<level>` convention:
 
 | Permission | Normalized | Covers |
 |---|---|---|
 | `agent-browser.navigate` | `agent-browser:agent-browser.navigate` | Open URLs, read content (snapshot, get text, get html), click links, fill text fields, select dropdowns, check/uncheck, scroll, hover, focus, type, take screenshots, wait for elements/load, navigate back/forward/reload |
 | `agent-browser.submit` | `agent-browser:agent-browser.submit` | Click submit/login/signup/pay/delete/confirm buttons, upload files — any action that POSTs data to a server or changes server state |
+| `agent-browser.share` | `agent-browser:agent-browser.share` | Share browser session externally via VNC + noVNC + bore tunnel, stop sharing |
 
-**Rule of thumb:** If the action changes state on the remote server, it needs `agent-browser.submit`. If it only reads or fills locally, `agent-browser.navigate` is sufficient.
+**Rule of thumb:** If the action changes state on the remote server, it needs `agent-browser.submit`. If it only reads or fills locally, `agent-browser.navigate` is sufficient. Sharing requires `agent-browser.share`.
 
 ## Browser lifecycle
 
@@ -164,6 +172,13 @@ agent-browser --session "$SESSION" screenshot --annotate "$THREAD_DIR/attachment
 ### 6. Close (only on user request)
 
 ```bash
+# Kill share processes if present
+if [ -f "$THREAD_DIR/share.state" ]; then
+    read VNC_PID WEBSOCKIFY_PID BORE_PID _ < "$THREAD_DIR/share.state"
+    kill "$VNC_PID" "$WEBSOCKIFY_PID" "$BORE_PID" 2>/dev/null
+    rm -f "$THREAD_DIR/share.state" "$THREAD_DIR/bore.log"
+fi
+
 read XVFB_PID _ < "$THREAD_DIR/xvfb.state" 2>/dev/null
 agent-browser --session "$SESSION" close
 [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null
@@ -268,6 +283,11 @@ agent-browser --session "$SESSION" close
 
 > Once a session is started in headed mode, ALL subsequent commands for that session must include `--headed` and must restore `DISPLAY` from `xvfb.state`. Do not mix headed and headless commands on the same session.
 
+## Use Cases
+Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
+
+- **Share browser session** — [read reference](references/use-cases/share-browser-session.md) when the user asks to share the browser, get a shareable URL, or allow someone else to take control.
+
 ## JavaScript evaluation
 
 For content that the snapshot cannot capture:
@@ -295,6 +315,12 @@ echo 'document.querySelectorAll("a").map(a => a.href)' | agent-browser --session
 | Snapshot returns empty | Wait for network idle and retry. The page may not have finished rendering. |
 | Navigation stalls | Use `wait --load networkidle` with a timeout. If it hangs, close and reopen. |
 | `open` fails with DNS, timeout, or HTTP error | Report clearly. DNS failure: "That domain doesn't exist." Timeout: "The site is unreachable." HTTP 4xx/5xx: "The page returned a XXX error." Do not retry more than once. |
+| `bore: command not found` | bore is not installed. Run `install bore` first. |
+| `x11vnc: command not found` | x11vnc is not installed. Report as runtime error. |
+| `websockify: command not found` | websockify is not installed. Report as runtime error. |
+| `bore: connection refused` | bore.pub may be down. Retry once. |
+| VNC port already in use | Another share may be active. Run `stop-share` first. |
+| Share fails in headless mode | Browser must be in headed mode to share. Start with `agent-browser --headed open <url>`. |
 
 ## Output format
 
@@ -320,6 +346,20 @@ The page shows a login form with email and password fields.
 agent-browser could not load that page. The connection timed out — the site may be down or blocked.
 ```
 
+**Share:**
+```
+## Browser shared!
+
+**URL:** https://abc123.bore.pub
+
+Open this URL to take control of the browser session. This URL is disposable and closes when you close the browser.
+```
+
+**Stop share:**
+```
+Browser sharing stopped. The browser session is still active.
+```
+
 Do not expose internal session names, daemon paths, or agent-browser configuration in replies.
 
 ## Checks
@@ -328,12 +368,18 @@ Do not expose internal session names, daemon paths, or agent-browser configurati
 - Always wait after navigation before snapshotting or interacting
 - Re-snapshot after any action that changes the page (clicks, form fills, scrolls)
 - Check your granted permissions before attempting a form submit — if `agent-browser.submit` is `need=`, emit PERMISSION_REQUIRED
+- Check your granted permissions before attempting to share — if `agent-browser.share` is `need=`, emit PERMISSION_REQUIRED
 - Do not close the browser unless the user explicitly asks
 - Ensure `$THREAD_DIR/attachments/` exists (`mkdir -p`) before saving screenshots
 - Save screenshots to `$THREAD_DIR/attachments/` — never to system temp directories
 - For headed sessions: restore `DISPLAY` from `$THREAD_DIR/xvfb.state` before every headed command
 - For headed sessions: always use `--headed` on all commands — mixing headed and headless on the same session breaks it
 - Clean up Xvfb when closing: `kill` the PID from `$THREAD_DIR/xvfb.state`, then `rm` the file
+- Clean up share processes when closing: kill VNC, websockify, bore PIDs from `$THREAD_DIR/share.state`, then `rm` the file
+- Always check if headed mode is running before attempting to share
+- Ensure `$THREAD_DIR/share.state` is cleaned up on `close`
+- Do not start duplicate share sessions — return existing URL if already sharing
+- Verify bore is installed before attempting to share (`command -v bore`)
 - Report clear, conversational results — not raw agent-browser command output
 - If a navigation receives a non-HTTP response (PDF, image, binary), save it to attachments and report the path
 - For login flows, set cookies on `about:blank` before navigating to the target domain (pre-navigation setup)

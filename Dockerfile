@@ -29,6 +29,9 @@ RUN apt-get update \
         unzip \
         zip \
         xvfb \
+        novnc \
+        python3-websockify \
+        x11vnc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
