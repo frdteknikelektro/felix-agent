@@ -51,7 +51,7 @@ Three permission levels, following the `<service>.<level>` convention:
 
 ## Browser lifecycle
 
-**Critical: the browser persists between turns on the same thread. Do not close it unless the user explicitly asks.**
+**Critical: Only one browser instance may be active at a time.** Before opening a new session, any existing browser must be closed first. This prevents memory exhaustion in constrained environments.
 
 ```
 Turn 1 (user: "agent-browser open example.com"):
@@ -73,11 +73,42 @@ Turn 3 (user: "close the browser"):
 ```
 
 Lifecycle rules:
-1. **Open on first use** — `agent-browser open <url>` auto-starts the daemon + Chrome. No separate start command needed.
-2. **Keep alive** — after your work is done, leave the browser running. The next turn on this thread will reconnect instantly.
-3. **Close only when asked** — if the user says "close", "stop", "done browsing", "exit", run `agent-browser --session "$SESSION" close`.
-4. **Clean up on error** — if Chrome crashes mid-session, run `agent-browser --session "$SESSION" close` then restart.
-5. **Don't close for a new URL** — just `open` the new URL. The daemon navigates in-place.
+1. **One active browser only** — before opening a new session, close any existing browser first. Use the global state file `$WORKSPACE_DIR/browser.state` to track the active session.
+2. **Open on first use** — `agent-browser open <url>` auto-starts the daemon + Chrome. No separate start command needed.
+3. **Keep alive** — after your work is done, leave the browser running. The next turn on this thread will reconnect instantly.
+4. **Close only when asked** — if the user says "close", "stop", "done browsing", "exit", run `agent-browser --session "$SESSION" close`.
+5. **Clean up on error** — if Chrome crashes mid-session, run `agent-browser --session "$SESSION" close` then restart.
+6. **Don't close for a new URL** — just `open` the new URL. The daemon navigates in-place.
+
+### Global browser state
+
+Track the active browser session globally to enforce single-instance:
+
+```bash
+BROWSER_STATE="$WORKSPACE_DIR/browser.state"
+
+# Before opening a new session, close any existing browser
+ensure_browser_available() {
+    if [ -f "$BROWSER_STATE" ]; then
+        read ACTIVE_SESSION _ < "$BROWSER_STATE"
+        if [ -n "$ACTIVE_SESSION" ] && [ "$ACTIVE_SESSION" != "$SESSION" ]; then
+            echo "Closing existing browser session: $ACTIVE_SESSION" >&2
+            agent-browser --session "$ACTIVE_SESSION" close 2>/dev/null || true
+            rm -f "$BROWSER_STATE"
+        fi
+    fi
+}
+
+# After opening, save the active session
+save_browser_state() {
+    echo "$SESSION $(date +%s)" > "$BROWSER_STATE"
+}
+
+# On close, remove the state
+clear_browser_state() {
+    rm -f "$BROWSER_STATE"
+}
+```
 
 ## Environment
 
@@ -90,26 +121,17 @@ Resolve workspace and thread context from the turn contract:
 #   THREAD_KEY — e.g. mattermost:abc123:xyz789
 #   THREAD_DIR — path to the thread directory
 
-# Sanitize thread key for agent-browser session name
-SESSION=$(printf '%s' "$THREAD_KEY" | tr ':' '-')
+# Use a single global session for all threads
+SESSION="felix-browser"
 ```
 
-All `agent-browser` commands must use `--session "$SESSION"` for thread-isolated browser instances. This ensures each Felix thread has its own daemon + Chrome with independent cookies/storage/history.
+All `agent-browser` commands must use `--session "$SESSION"`. Only one browser instance is active at a time — when a new thread requests browser access, the previous session is closed first.
 
 ## Memory optimization
 
-In memory-constrained environments (Docker containers with limited RAM), Chrome can crash when the system runs out of memory. Apply these optimizations before starting the browser:
+In memory-constrained environments (Docker containers with limited RAM), Chrome can crash when the system runs out of memory. Apply these optimizations:
 
-### 1. Drop system caches (requires root or privileged container)
-
-```bash
-# Free page cache, dentries, and inodes
-sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
-```
-
-If `/proc/sys/vm/drop_caches` is not writable, skip this step — the Chrome flags below will compensate.
-
-### 2. Chrome memory-saving flags
+### Chrome memory-saving flags
 
 Set `AGENT_BROWSER_CHROME_FLAGS` before opening a URL to reduce Chrome's memory footprint:
 
@@ -122,7 +144,7 @@ These flags reduce Chrome memory usage from ~500MB to ~150-200MB:
 - `--disable-dev-shm-usage` — avoids `/dev/shm` which may be small in containers
 - `--js-flags=--max-old-space-size=256` — limits V8 heap to 256MB
 
-### 3. Lower VNC resolution for sharing
+### Lower VNC resolution for sharing
 
 When sharing a browser session, use a smaller VNC resolution to reduce memory:
 
@@ -133,24 +155,20 @@ Xvfb "$DISPLAY" -screen 0 1280x720x16 -ac
 
 1280x720 at 16-bit color is sufficient for most web browsing and uses ~40% less memory than 1920x1080 at 24-bit.
 
-### 4. Auto-cleanup on memory pressure
+### System cache drop
 
-If Chrome fails to launch, attempt recovery:
-
-```bash
-# Before opening a URL, check available memory
-AVAILABLE_MB=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
-if [ "$AVAILABLE_MB" -lt 500 ]; then
-    sync && echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
-fi
-```
+System cache drop is handled outside the agent (by the host or orchestrator). The agent does not require root access.
 
 ## Core workflow
 
 ### 1. Open a page and take a snapshot
 
 ```bash
+# Ensure any existing browser is closed first
+ensure_browser_available
+
 agent-browser --session "$SESSION" open "$URL"
+save_browser_state
 agent-browser --session "$SESSION" snapshot -i -c -d 5
 ```
 
@@ -232,6 +250,7 @@ read XVFB_PID _ < "$THREAD_DIR/xvfb.state" 2>/dev/null
 agent-browser --session "$SESSION" close
 [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null
 rm -f "$THREAD_DIR/xvfb.state"
+clear_browser_state
 ```
 
 ## Wait strategies
@@ -390,19 +409,24 @@ agent-browser --session "$SESSION" close
 
 ## Session modes
 
-### Thread session (default)
-Each Felix thread gets its own isolated browser session. This is the default and recommended mode:
-- Cookies, storage, and history are isolated per thread
-- Multiple threads can browse independently
-- Sessions persist between turns on the same thread
+### Single active browser (default)
+
+Only one browser instance may be active at a time. All threads share the same browser session. When a new thread opens the browser, any existing session is closed first.
+
+- `SESSION="felix-browser"` — fixed session name for all threads
+- State tracked in `$WORKSPACE_DIR/browser.state`
+- Prevents memory exhaustion from multiple Chrome instances
+- Simple and predictable resource usage
 
 ### Owner session (optional)
-For cases where the owner wants to share a single browser across multiple threads or have a persistent browsing session:
-- Use a fixed session name like `owner-browser` instead of the thread-derived session
-- The owner can access the same browser from different threads
+
+For cases where the owner wants a persistent browser that doesn't get closed by other threads:
+
+- Use a fixed session name like `owner-browser`
+- The owner can access the browser from different threads
 - Useful for tasks like "browse with me" or shared research
 
-To use owner session, set `SESSION="owner-browser"` instead of deriving from `THREAD_KEY`.
+To use owner session, set `SESSION="owner-browser"` instead of `felix-browser`.
 
 ## Use Cases
 Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
@@ -485,12 +509,12 @@ Do not expose internal session names, daemon paths, or agent-browser configurati
 
 ## Checks
 - Always use `--session "$SESSION"` — never run agent-browser without a session flag
-- Sanitize `$THREAD_KEY` by replacing `:` with `-` — colons in thread keys break session names
+- **Only one browser at a time** — call `ensure_browser_available` before opening a new session
 - Always wait after navigation before snapshotting or interacting
 - Re-snapshot after any action that changes the page (clicks, form fills, scrolls)
 - Check your granted permissions before attempting a form submit — if `agent-browser.submit` is `need=`, emit PERMISSION_REQUIRED
 - Check your granted permissions before attempting to share — if `agent-browser.share` is `need=`, emit PERMISSION_REQUIRED
-- Do not close the browser unless the user explicitly asks
+- Do not close the browser unless the user explicitly asks (or another session needs it)
 - Ensure `$THREAD_DIR/attachments/` exists (`mkdir -p`) before saving screenshots
 - Save screenshots to `$THREAD_DIR/attachments/` — never to system temp directories
 - For headed sessions: restore `DISPLAY` from `$THREAD_DIR/xvfb.state` before every headed command
