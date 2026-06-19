@@ -415,21 +415,14 @@ export class FelixEngine {
       return null;
     }
     const threadLink = await adapter.getThreadLink(event.thread_key);
-    const message = [
-      `Permission request for thread ${event.thread_key}`,
-      `Requester: ${event.sender.display ?? event.sender.id} (${event.sender.id})`,
-      `Skill: ${request.skill_id}`,
-      `Missing permissions: ${request.permissions.join(", ") || "(none)"}`,
-      `Reason: ${request.reason}`,
-      threadLink ? `Thread: ${threadLink}` : "",
-      "",
-      `Reply with one of:`,
-      `- OK once`,
-      `- OK always`,
-      `- REJECT`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const message = await adapter.formatOwnerNotification({
+      skillId: request.skill_id,
+      permissions: request.permissions,
+      reason: request.reason,
+      requesterName: event.sender.display ?? event.sender.id,
+      requesterId: event.sender.id,
+      threadLink,
+    });
     try {
       return await adapter.sendUserMessage({ userId: ownerId, text: message });
     } catch (error) {

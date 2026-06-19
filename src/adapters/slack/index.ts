@@ -252,6 +252,37 @@ class SlackAdapter implements SourceAdapter {
     }
   }
 
+  async formatOwnerNotification(input: {
+    skillId: string;
+    permissions: string[];
+    reason: string;
+    requesterName: string;
+    requesterId: string;
+    threadLink?: string;
+  }): Promise<string> {
+    const rows: [string, string][] = [
+      ["Requester", `**${input.requesterName}** (\`${input.requesterId}\`)`],
+      ["Skill", `\`${input.skillId}\``],
+      ["Permissions", input.permissions.map((p) => `\`${p}\``).join(", ")],
+      ["Reason", input.reason],
+    ];
+    if (input.threadLink) {
+      rows.push(["Thread", `[Open Thread](${input.threadLink})`]);
+    }
+    return [
+      "**Permission Request**",
+      "",
+      "| | |",
+      "|---|---|",
+      ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
+      "",
+      "Reply with one of:",
+      "- `OK once` — grant this time only",
+      "- `OK always` — grant permanently",
+      "- `REJECT` — deny",
+    ].join("\n");
+  }
+
   async downloadAttachment(input: {
     event: UniversalEvent;
     attachment: UniversalAttachment;

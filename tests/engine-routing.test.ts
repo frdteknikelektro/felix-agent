@@ -24,6 +24,7 @@ function makeAdapter(calls: {
     sendThreadReply: async (input) => { calls.sendThreadReply(input); },
     sendUserMessage: async (input) => { calls.sendUserMessage(input); return null; },
     downloadAttachment: async (input) => { calls.downloadAttachment(input); return input.attachment; },
+    formatOwnerNotification: async () => "mock notification",
   };
 }
 

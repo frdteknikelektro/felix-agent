@@ -24,6 +24,14 @@ export interface SourceAdapter {
     destinationDir: string;
     maxBytes: number;
   }): Promise<UniversalAttachment>;
+  formatOwnerNotification(input: {
+    skillId: string;
+    permissions: string[];
+    reason: string;
+    requesterName: string;
+    requesterId: string;
+    threadLink?: string;
+  }): Promise<string>;
 }
 
 export type SourceEventStatus = "processing" | "replied" | "permission_required";
