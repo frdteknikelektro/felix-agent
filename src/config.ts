@@ -1,12 +1,10 @@
 import fs from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { buildWorkspacePaths, type WorkspacePaths } from "./workspace.js";
 import { DEFAULT_ATTACHMENT_MAX_BYTES } from "./core/attachments.js";
 
 const Env = z.object({
   WORKSPACE_DIR: z.string().default("./workspace"),
-  CONFIG_DIR: z.string().default("./config"),
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
   CODEX_BIN: z.string().default("codex"),
   CODEX_MODEL: z.string().default("gpt-5.4-mini"),
@@ -50,12 +48,10 @@ export type AppConfig = z.infer<typeof Env> & {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const configDir = env.CONFIG_DIR ?? "/home/node/config";
   const secretEnvFile = env.SECRET_ENV_FILE ?? "/run/secrets/.env";
   const merged = {
     ...env,
     ...readDotEnv(secretEnvFile),
-    ...readDotEnv(path.join(configDir, ".env")),
   };
   // Inject loaded secrets into process.env so spawned child processes inherit them
   for (const [key, value] of Object.entries(merged)) {

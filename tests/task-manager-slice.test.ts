@@ -19,7 +19,6 @@ async function makeTestCfg(): Promise<AppConfig> {
   const workspace = path.join(root, "workspace");
   return {
     WORKSPACE_DIR: workspace,
-    CONFIG_DIR: "/config",
     SECRET_ENV_FILE: "/run/secrets/.env",
     CODEX_BIN: "codex",
     CODEX_MODEL: "gpt-5.4-mini",

@@ -81,7 +81,6 @@ describe("codex output parser", () => {
         MATTERMOST_OWNER_DISPLAY: "Owner",
         SOURCE: "mattermost",
         THREAD_SCAN_INTERVAL_MS: 1000,
-        CONFIG_DIR: "/config",
         SECRET_ENV_FILE: "/run/secrets/.env",
         CODEX_TIMEOUT_SECONDS: 1800,
         paths: buildWorkspacePaths("/workspace"),

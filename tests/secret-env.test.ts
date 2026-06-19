@@ -4,16 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.js";
 
-describe("secret env file precedence", () => {
-  it("loads from /run/secrets/.env and lets config/.env override it", async () => {
+describe("secret env file", () => {
+  it("loads from SECRET_ENV_FILE", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-secret-env-"));
     const workspace = path.join(dir, "workspace");
-    const config = path.join(dir, "config");
     const secretEnv = path.join(dir, "run", "secrets", ".env");
 
     await fs.mkdir(workspace, { recursive: true });
     await fs.mkdir(path.dirname(secretEnv), { recursive: true });
-    await fs.mkdir(config, { recursive: true });
     await fs.writeFile(
       secretEnv,
       [
@@ -23,25 +21,16 @@ describe("secret env file precedence", () => {
       ].join("\n") + "\n",
       { mode: 0o600 },
     );
-    await fs.writeFile(
-      path.join(config, ".env"),
-      [
-        "MATTERMOST_TOKEN=mm-config",
-        "CODEX_MODEL=gpt-config",
-      ].join("\n") + "\n",
-      { mode: 0o600 },
-    );
 
     try {
       const cfg = loadConfig({
         WORKSPACE_DIR: workspace,
-        CONFIG_DIR: config,
         SECRET_ENV_FILE: secretEnv,
       });
 
       expect(cfg.OPENAI_API_KEY).toBe("sk-secret");
-      expect(cfg.MATTERMOST_TOKEN).toBe("mm-config");
-      expect(cfg.CODEX_MODEL).toBe("gpt-config");
+      expect(cfg.MATTERMOST_TOKEN).toBe("mm-secret");
+      expect(cfg.CODEX_MODEL).toBe("gpt-secret");
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

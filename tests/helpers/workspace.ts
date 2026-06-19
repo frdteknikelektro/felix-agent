@@ -11,7 +11,6 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
   await fs.mkdir(workspace, { recursive: true });
   return {
     WORKSPACE_DIR: workspace,
-    CONFIG_DIR: "/config",
     SECRET_ENV_FILE: "/run/secrets/.env",
     CODEX_BIN: "codex",
     CODEX_MODEL: "gpt-5.4-mini",
