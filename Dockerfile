@@ -61,7 +61,7 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     WORKSPACE_DIR=/home/node/workspace \
     PYTHONUSERBASE=/home/node/workspace/runtime/python \
-    PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/python/bin:$PATH"
+    PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \

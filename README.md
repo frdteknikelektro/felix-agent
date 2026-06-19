@@ -39,6 +39,7 @@ UID=$(id -u) GID=$(id -g) docker compose up -d
 docker pull frdinawan/felix-agent:latest
 
 docker run -d \
+  --add-host host.docker.internal:host-gateway \
   --name felix-agent \
   --restart unless-stopped \
   --user "$(id -u):$(id -g)" \
@@ -116,6 +117,7 @@ docker compose up -d --build
 docker build -t felix-agent .
 
 docker run -d \
+  --add-host host.docker.internal:host-gateway \
   --name felix-agent \
   --restart unless-stopped \
   --user "$(id -u):$(id -g)" \

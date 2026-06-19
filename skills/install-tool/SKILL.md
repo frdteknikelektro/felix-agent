@@ -1,7 +1,7 @@
 ---
 id: install-tool
 name: Install Tool
-description: Install, update, remove, list, and check tools in the agent workspace. Supports single-file static binaries and directory-style tools (e.g. AWS CLI) that bundle their own libs. Tools are placed on PATH and persist across container restarts and rebuilds.
+description: Install, update, remove, list, and check tools in the agent workspace. Supports single-file static binaries, directory-style tools (e.g. AWS CLI), and npm packages. Tools are placed on PATH and persist across container restarts and rebuilds.
 version: 1
 enabled: true
 kind: operational
@@ -18,15 +18,19 @@ match:
   - list installed
   - check tool
   - is installed
+  - npm install
+  - npm
+  - via npm
 ---
 
 # Install Tool
 
 ## Purpose
-Manage tools available to the agent and other skills. Tools are installed into the workspace and persist across container restarts and image rebuilds. Two install modes are supported:
+Manage tools available to the agent and other skills. Tools are installed into the workspace and persist across container restarts and image rebuilds. Three install modes are supported:
 
 - **Single-binary** — one executable file, placed directly in `workspace/runtime/bin/`
 - **Directory tool** — tool ships with bundled libs or multiple files (e.g. AWS CLI), extracted to `workspace/runtime/tools/<name>/`, with a wrapper script placed in `workspace/runtime/bin/<name>`
+- **npm package** — Node.js CLI published to npm (e.g. `agent-browser`), installed via `npm --prefix` and linked into `workspace/runtime/bin/`
 
 Both modes end up on PATH identically. Callers never need to know which mode was used.
 
@@ -65,10 +69,11 @@ Resolve workspace directories at runtime — never hardcode paths:
 WORKSPACE_RUNTIME="${WORKSPACE_DIR}/runtime"
 WORKSPACE_BIN="${WORKSPACE_RUNTIME}/bin"
 WORKSPACE_TOOLS="${WORKSPACE_RUNTIME}/tools"
+NPM_PREFIX="${WORKSPACE_RUNTIME}/npm"
 mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS"
 ```
 
-`WORKSPACE_DIR` is always set in the container environment. `workspace/runtime/bin` is on `PATH` in the agent runtime image.
+`WORKSPACE_DIR` is always set in the container environment. `workspace/runtime/bin` and `workspace/runtime/npm/bin` are on `PATH` in the agent runtime image.
 
 ## Finding the download URL
 
@@ -83,7 +88,62 @@ Do not guess URLs. If unsure, ask.
 
 ## Detecting install mode
 
-After extracting the archive, determine which mode to use:
+Before choosing a workflow, determine which mode to use:
+
+1. **npm package** — if the name contains `@` followed by a semver version (e.g. `agent-browser@0.28.0`), or the user says "via npm" / "npm install", use the npm workflow.
+2. **Single-binary or directory tool** — if the name is a URL or a plain tool name. Proceed with the download-and-extract paths below.
+
+### npm detection examples
+
+| User input | Mode |
+|---|---|
+| `install agent-browser@0.28.0` | npm |
+| `npm install agent-browser` | npm (version defaults to latest) |
+| `install agent-browser via npm` | npm (pins to latest) |
+| `install gh@2.67.0` | npm |
+| `install jq` | binary (try URL-based) |
+
+When npm mode is selected, skip OS/ARCH detection — npm handles platform resolution automatically.
+
+## Install workflow — npm package
+
+1. Parse the package specifier. If the user said "via npm" without a version, append `@latest`:
+```bash
+PKG="${NAME%@*}@${VERSION:-latest}"
+```
+If the name already contains `@<version>` (e.g. `agent-browser@0.28.0`), use it as-is.
+
+2. Ensure `NPM_PREFIX` exists:
+```bash
+mkdir -p "$NPM_PREFIX"
+```
+
+3. Install via npm with `--prefix`. This installs the package to `workspace/runtime/npm/lib/node_modules/<name>/` and creates a symlink in `workspace/runtime/npm/bin/<name>` (which is on PATH):
+```bash
+npm install "$PKG" --prefix "$NPM_PREFIX" --no-save
+```
+
+4. Extract the bare name from the package specifier for reporting:
+```bash
+NAME_BARE="${PKG%%@*}"
+```
+
+5. Verify the binary is accessible and works:
+```bash
+"$NAME_BARE" --version 2>&1 || "$NAME_BARE" version 2>&1 || echo "installed (version check skipped)"
+```
+
+**Example — agent-browser:**
+```bash
+# User: "install agent-browser@0.28.0"
+npm install agent-browser@0.28.0 --prefix /home/node/workspace/runtime/npm --no-save
+# Symlink created: workspace/runtime/npm/bin/agent-browser → ../lib/node_modules/agent-browser/bin/agent-browser.js
+# Since PATH includes workspace/runtime/npm/bin, agent-browser is immediately available.
+```
+
+## Detecting binary mode
+
+For non-npm installs, determine whether the downloaded archive is single-binary or directory tool:
 
 - **Single-binary**: the archive contains exactly one executable, or an executable whose name matches `$NAME` with no required sibling files
 - **Directory tool**: the archive contains a nested binary that depends on sibling files or directories (e.g. `dist/aws` alongside `dist/*.so`)
@@ -178,13 +238,19 @@ chmod +x "$WORKSPACE_BIN/$NAME"
 
 ## Update workflow
 
-Same as install for the detected mode. For directory tools, remove the old `workspace/runtime/tools/<name>/` before re-extracting. Report old version → new version.
+Same as install for the detected mode. For directory tools, remove the old `workspace/runtime/tools/<name>/` before re-extracting. For npm packages, use `npm install "$NAME@latest"`. Report old version → new version.
 
 ## Remove workflow
 
+**Single-binary / directory tool:**
 ```bash
 rm -f "$WORKSPACE_BIN/$NAME"
 rm -rf "${WORKSPACE_TOOLS}/$NAME"
+```
+
+**npm package:**
+```bash
+npm uninstall "$NAME" --prefix "$NPM_PREFIX"
 ```
 
 Confirm deletion. If not found, say so.
@@ -192,10 +258,11 @@ Confirm deletion. If not found, say so.
 ## List workflow
 
 ```bash
-ls -1 "$WORKSPACE_BIN"
+ls -1 "$WORKSPACE_BIN" 2>/dev/null
+[ -d "$NPM_PREFIX/bin" ] && ls -1 "$NPM_PREFIX/bin" 2>/dev/null
 ```
 
-For each entry, run `$NAME --version 2>&1 | head -1` to show version. Mark directory tools with `(dir)` in the list. Skip version check if it takes more than 2 seconds.
+For each entry, run `$NAME --version 2>&1 | head -1` to show version. Mark directory tools with `(dir)` and npm packages with `(npm)` in the list. Skip version check if it takes more than 2 seconds.
 
 ## Check workflow
 
@@ -204,7 +271,7 @@ command -v "$NAME"
 "$NAME" --version 2>&1 | head -1
 ```
 
-Report: installed or not, single-binary or directory tool, version if available.
+Report: installed or not, single-binary, directory tool, or npm package, version if available.
 
 ## Checksum verification (optional)
 
@@ -236,6 +303,7 @@ Strip platform/version suffixes when naming the binary in `workspace/runtime/bin
 
 **List:**
 > Installed tools in workspace/runtime/bin:
+> - agent-browser 0.28.0 (npm)
 > - aws 2.x.x (dir)
 > - gh 2.67.0
 > - jq 1.7.1
@@ -243,6 +311,7 @@ Strip platform/version suffixes when naming the binary in `workspace/runtime/bin
 
 **Check:**
 > `aws` is installed (directory tool). Version: aws-cli/2.x.x
+> `agent-browser` is installed (npm). Version: 0.28.0
 
 **Failure (verbose):**
 > Failed to install `wkhtmltopdf`.
@@ -251,13 +320,15 @@ Strip platform/version suffixes when naming the binary in `workspace/runtime/bin
 > Please provide a direct download URL for linux/amd64.
 
 ## Checks
-- Always detect OS and ARCH before downloading — never assume linux/amd64.
+- Always detect OS and ARCH before downloading — never assume linux/amd64 (skip for npm packages).
 - Never hardcode workspace paths — always resolve from `$WORKSPACE_DIR`.
 - Do not use apt, brew, or any system package manager.
+- For npm packages, always use `--prefix "$NPM_PREFIX"` — never install globally.
 - If URL cannot be determined with confidence, ask before downloading anything.
 - Clean up all temp files and directories on both success and failure.
 - If the tool is already installed and the user did not ask to update, report current version and ask if they want to update.
 - For directory tools, always remove the old `workspace/runtime/tools/<name>/` before reinstalling to avoid stale files.
+- For npm packages, `npm uninstall --prefix "$NPM_PREFIX"` before reinstalling to avoid stale `node_modules`.
 
 ## Cross-skill convention
 Other skills that depend on an external tool should check for it at the start of their workflow:

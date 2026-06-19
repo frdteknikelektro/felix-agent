@@ -12,6 +12,8 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "53318:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./.env:/run/secrets/.env:ro
       - ./workspace:/home/node/workspace
