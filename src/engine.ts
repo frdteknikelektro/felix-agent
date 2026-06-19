@@ -168,7 +168,7 @@ export class FelixEngine {
           clearInterval(typingInterval);
           const decision = decideTurnResult(result, resumed, retriedFreshStart);
           if (decision.kind === "retry_fresh") {
-            log.warn("codex.resume_fallback", {
+            log.warn("harness.resume_fallback", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,
               exit_code: result.exitCode,
@@ -185,7 +185,7 @@ export class FelixEngine {
               ? exitCodeMessage(result.exitCode)
               : "The agent produced no usable output. ";
             await this.postThreadError(thread, event, detail);
-            log.error("codex.empty_output", {
+            log.error("harness.empty_output", {
               thread_key: thread.state.thread_key,
               session_id: result.sessionId,
               exit_code: result.exitCode,
