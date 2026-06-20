@@ -16,15 +16,15 @@ match:
 # Felix Browser
 
 ## Purpose
-Connect to a user-provided remote Chrome instance via Chrome DevTools Protocol (CDP) and automate it. Felix never launches or manages a browser — the user runs Chrome on their machine, exposes its debugging port through a tunnel, and provides the CDP endpoint. `agent-browser` CLI connects to that endpoint and drives the browser.
+Connect to a user-provided remote Chrome instance via Chrome DevTools Protocol (CDP) and automate it. Felix never launches or manages a browser — the user runs Chrome on their machine, exposes its debugging port through a tunnel, and provides the tunnel URL. Felix auto-resolves the CDP WebSocket endpoint and `agent-browser` CLI connects to it.
 
 Only triggers when the user explicitly mentions `felix-browser`.
 
 ## When to use
-- User says "felix-browser connect to wss://abc.ngrok-free.app/devtools/..."
+- User says "felix-browser connect to https://abc.ngrok-free.app"
 - User says "felix-browser open example.com"
 - User says "help me set up felix-browser" or "how do I expose my Chrome"
-- User provides a CDP URL and asks to browse, screenshot, scrape, or fill/submit a form
+- User provides a tunnel URL and asks to browse, screenshot, scrape, or fill/submit a form
 - This skill is **manual trigger only** — do NOT auto-activate on generic words like "browse", "go to", "search", "look up", "open website", "web", "url", or "scrape".
 
 ## Out of scope
@@ -61,109 +61,76 @@ When the user asks how to set up felix-browser (but hasn't provided a CDP URL ye
 
 ### Step 1: Launch Chrome with remote debugging
 
-The user runs Chrome with remote debugging enabled. This opens a CDP endpoint.
+The user runs Chrome with remote debugging enabled. Always use a separate profile so existing Chrome sessions are not affected.
 
 **macOS:**
 ```bash
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
 ```
 
-**Linux:**
+**Linux (Ubuntu/Debian):**
 ```bash
-google-chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
 ```
 
 **Windows:**
 ```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
+"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir=%TEMP%\chrome-debug
 ```
 
-`--remote-debugging-address=0.0.0.0` makes Chrome listen on all interfaces — required for Docker's `host.docker.internal` to reach it. If Chrome is already running, close it first or use a separate profile:
-```bash
-google-chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
-```
+`--user-data-dir` uses a separate profile so Chrome can be running normally at the same time. If the directory does not exist, Chrome creates it.
 
-### Step 2: Make the port reachable
+### Step 2: Expose the port via tunnel
 
 Choose one of these approaches:
-
-#### Option A — tunnel (Chrome on any machine, universal)
-
-The debugging port (`localhost:9222`) must be reachable from the internet. The user can use any tunneling tool.
 
 **ngrok:**
 ```bash
 ngrok http 9222 --host-header="localhost:9222"
 ```
 - `--host-header` flag is required for WebSocket to work
-- Use `wss://` prefix
 
 **cloudflared:**
 ```bash
 cloudflared tunnel --http-host-header localhost:9222 --url http://localhost:9222
 ```
 - `--http-host-header` flag helps with WebSocket support
-- Use `wss://` prefix
 
-#### Option B — same machine (Chrome and Docker on the same host)
+The user will see a public URL like `https://abc123.ngrok-free.app` or `https://abc123.trycloudflare.com`.
 
-If Chrome and the felix container run on the same machine, no tunnel is needed. The container can reach the host at `host.docker.internal`:
+### Step 3: Send the tunnel URL to felix
 
-```bash
-# Already done in Step 1: Chrome listens on 0.0.0.0:9222
-# Get the CDP URL:
-curl -s http://localhost:9222/json/version | grep -o '"webSocketDebuggerUrl": "[^"]*"' | cut -d'"' -f4
-```
-
-Replace `localhost` with `host.docker.internal`:
-```
-ws://host.docker.internal:9222/devtools/browser/<uuid>
-```
-
-This requires `extra_hosts` in docker-compose or `--add-host` in docker run (both already configured in the project).
-
-### Step 3: Get the CDP WebSocket URL
-
-**Option A — Auto-discover from tunnel URL (recommended):**
-
-If the user provides a tunnel URL (e.g., `https://abc.ngrok-free.app` or `https://abc.trycloudflare.com`), automatically fetch the CDP endpoint:
-
-```bash
-# For ngrok/cloudflared - fetch from /json/version
-PROXY_URL="https://abc.ngrok-free.app"
-curl -s "$PROXY_URL/json/version" | jq -r '.webSocketDebuggerUrl'
-# Output: ws://localhost:9222/devtools/browser/<uuid>
-
-# Convert to WSS with tunnel host
-WSS_URL=$(echo "$PROXY_URL" | sed 's|https://|wss://|')"/devtools/browser/<uuid>"
-```
-
-**Option B — Manual construction:**
-
-```bash
-curl -s http://localhost:9222/json/version | grep -o '"webSocketDebuggerUrl": "[^"]*"' | cut -d'"' -f4
-```
-
-Replace `localhost:9222` with the tunnel address. For example, if ngrok gives `abc.ngrok-free.app`:
-```
-wss://abc.ngrok-free.app/devtools/browser/<uuid>
-```
-
-### Step 4: Provide the URL to felix
+The user just sends the tunnel URL. Felix auto-resolves the CDP WebSocket endpoint by fetching `/json/version` from the tunnel.
 
 ```
-felix-browser connect to wss://abc123.ngrok-free.app/devtools/browser/abc123-def456
+felix-browser connect to https://abc123.ngrok-free.app
 ```
+
+Felix will:
+1. Fetch `$TUNNEL_URL/json/version` to discover the CDP WebSocket URL
+2. Convert it to `wss://` using the tunnel host
+3. Connect via `agent-browser --cdp`
 
 The URL is sensitive — anyone with it can control the user's browser. Felix does not store or log it.
 
 ## Connection — establishing the CDP link
 
-Once the user provides a CDP URL, use it with every `agent-browser` command via the `--cdp` flag:
+When the user provides a tunnel URL (e.g., `https://abc.ngrok-free.app`), auto-resolve the CDP WebSocket endpoint:
 
 ```bash
-CDP_URL="wss://abc123.bore.pub/devtools/browser/uuid"
+TUNNEL_URL="https://abc.ngrok-free.app"
+
+# Fetch CDP WebSocket URL from the tunnel
+CDP_WS=$(curl -s "$TUNNEL_URL/json/version" | jq -r '.webSocketDebuggerUrl')
+# Output: ws://localhost:9222/devtools/browser/<uuid>
+
+# Convert to wss:// with the tunnel host
+TUNNEL_HOST=$(echo "$TUNNEL_URL" | sed 's|https://||' | sed 's|http://||')
+CDP_URL="wss://${TUNNEL_HOST}${CDP_WS#*://}"
+# Result: wss://abc.ngrok-free.app/devtools/browser/<uuid>
 ```
+
+If the user provides a full `wss://` URL directly, use it as-is.
 
 ### First connection test
 
@@ -325,10 +292,11 @@ echo 'document.querySelectorAll("a").map(a => a.href)' | agent-browser --cdp "$C
 
 | Symptom | Action |
 |---|---|
-| No CDP URL provided | Reply: "I need a CDP endpoint to connect to. See the setup guide — run Chrome with `--remote-debugging-address=0.0.0.0 --remote-debugging-port=9222`, expose it via tunnel or host.docker.internal, and give me the URL." |
+| No CDP URL provided | Reply: "I need a tunnel URL to connect to. Run Chrome with `--remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug`, expose it via ngrok or cloudflared, and send me the tunnel URL." |
 | `command not found: agent-browser` | CLI is not installed. Reply: "agent-browser is not installed. Run `install agent-browser@0.28.0` first." |
-| Connection refused / timeout | The CDP endpoint is unreachable. Ask the user: "Is Chrome still running with `--remote-debugging-address=0.0.0.0 --remote-debugging-port=9222`? Is the tunnel still up? Can you re-share the CDP URL?" |
+| Connection refused / timeout | The CDP endpoint is unreachable. Ask the user: "Is Chrome still running with `--remote-debugging-port=9222`? Is the tunnel still up? Can you re-share the tunnel URL?" |
 | HTTP 530 with ngrok/cloudflared | Tunnel is blocking WebSocket connections. Try: 1) Use `--host-header="localhost:9222"` for ngrok, 2) Use `--http-host-header localhost:9222` for cloudflared, 3) Ask user to re-check tunnel setup |
+| `/json/version` fetch fails | The tunnel is up but Chrome's CDP is not reachable through it. Ask the user to verify Chrome is running with `--remote-debugging-port=9222`. |
 | Element not found | Re-snapshot and check for consent banners, modals, or page errors. Dismiss overlays first. |
 | Page shows captcha or anti-bot page | Report to user. The user sees the same page in their Chrome and can solve it manually. |
 | Snapshot returns empty | Wait for network idle and retry. The page may not have finished rendering. |
@@ -345,16 +313,16 @@ Return content through FELIX_REPLY:
 ## Setting up felix-browser
 
 1. Launch Chrome with remote debugging:
-   google-chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
+   macOS:   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+   Linux:   google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
+   Windows: "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir=%TEMP%\chrome-debug
 
 2. Expose the port via tunnel:
-   ngrok http 9222 --host-header="localhost:9222"
+   ngrok:       ngrok http 9222 --host-header="localhost:9222"
+   cloudflared: cloudflared tunnel --http-host-header localhost:9222 --url http://localhost:9222
 
-3. Get your CDP URL:
-   curl http://localhost:9222/json/version | grep webSocketDebuggerUrl
-
-4. Replace `localhost:9222` with your tunnel address and send me the URL:
-   felix-browser connect to wss://abc.ngrok-free.app/devtools/browser/<uuid>
+3. Send me the tunnel URL:
+   felix-browser connect to https://abc.ngrok-free.app
 ```
 
 **Page content:**
@@ -374,7 +342,7 @@ The page shows a login form with email and password fields.
 
 **Error:**
 ```
-Cannot connect to the browser. Is Chrome still running with --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 and is the tunnel active?
+Cannot connect to the browser. Is Chrome still running with --remote-debugging-port=9222 and is the tunnel active?
 ```
 
 Do not expose internal session names, daemon paths, or the raw CDP URL in replies after the initial connection.
