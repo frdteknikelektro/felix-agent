@@ -75,6 +75,7 @@ export interface TurnInput {
   precedingEvents?: { event: UniversalEvent; eventFile: string }[];
   memoryContext?: string;
   promptOverride?: string;
+  signal?: AbortSignal;
 }
 
 export interface TurnResult {

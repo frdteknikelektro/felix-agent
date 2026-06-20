@@ -53,6 +53,10 @@ export class CodexHarness implements Harness {
 
     await writeTextAtomic(turnPath, prompt);
 
+    if (input.signal?.aborted) {
+      return { sessionId, exitCode: 143, success: false, parsed: parseAgentOutput("Stopped."), logPath };
+    }
+
     let capturedSessionId = sessionId;
     const child = spawn(this.cfg.CODEX_BIN, args, {
       cwd: this.cfg.paths.root,
@@ -67,6 +71,10 @@ export class CodexHarness implements Harness {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    if (input.signal) {
+      input.signal.addEventListener("abort", () => { child.kill("SIGTERM"); }, { once: true });
+    }
     await ensureDir(path.dirname(logPath));
     const logStream = await fs.open(logPath, "a");
     const stderrStream = await fs.open(`${logPath}.stderr`, "a");

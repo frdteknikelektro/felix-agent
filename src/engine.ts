@@ -28,6 +28,8 @@ export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
   private processing = new Map<string, Promise<void>>();
   private skills: SkillRecord[] = [];
+  private readonly abortControllers = new Map<string, AbortController>();
+  private readonly stopRequested = new Set<string>();
 
   constructor(
     private readonly cfg: AppConfig,
@@ -43,6 +45,12 @@ export class FelixEngine {
     await this.refreshSkills();
     await this.recoverThreads();
     startMemoryCron(this.cfg, this.harness);
+  }
+
+  abortThread(threadKey: string): void {
+    this.stopRequested.add(threadKey);
+    const ctrl = this.abortControllers.get(threadKey);
+    if (ctrl) ctrl.abort();
   }
 
   async refreshSkills(): Promise<void> {
@@ -80,6 +88,18 @@ export class FelixEngine {
       return;
     }
 
+    if (FelixEngine.isStopCommand(event)) {
+      const session = await loadSessionState(thread);
+      if (session.busy) {
+        this.abortThread(thread.state.thread_key);
+        await this.drainThreadQueue(thread);
+        await this.postThreadReply(thread, event, undefined, "Stopped.");
+      } else {
+        await this.postThreadReply(thread, event, undefined, "Nothing running.");
+      }
+      return;
+    }
+
     event.attachments = await this.prepareAttachments(thread, event, adapter);
 
     const eventFile = await appendEventToThread(thread, event);
@@ -108,6 +128,17 @@ export class FelixEngine {
     return shouldAcceptEvent(event, thread?.state);
   }
 
+  private static isStopCommand(event: UniversalEvent): boolean {
+    return event.text.trim().toLowerCase() === "/stop";
+  }
+
+  private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
+    const session = await loadSessionState(thread);
+    if (session.queue.length === 0) return;
+    session.queue = [];
+    await saveSessionState(thread, session);
+  }
+
   async processThread(thread: ThreadHandle): Promise<void> {
     if (this.processing.has(thread.state.thread_key)) {
       return this.processing.get(thread.state.thread_key)!;
@@ -129,6 +160,8 @@ export class FelixEngine {
 
   private async processThreadInternal(thread: ThreadHandle): Promise<void> {
     await setThreadBusy(thread, true);
+    const controller = new AbortController();
+    this.abortControllers.set(thread.state.thread_key, controller);
     try {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
@@ -143,6 +176,7 @@ export class FelixEngine {
         let resumed = Boolean(session.harness_session_id);
         let retriedFreshStart = false;
         while (true) {
+          if (this.stopRequested.has(thread.state.thread_key)) break;
           let result;
           const typingInterval = setInterval(() => {
             adapter.sendTyping({ event }).catch(() => {});
@@ -157,15 +191,21 @@ export class FelixEngine {
               sourceContext,
               resumed,
               precedingEvents: preceding.length > 0 ? preceding : undefined,
+              signal: controller.signal,
             });
           } catch (error) {
             clearInterval(typingInterval);
+            if (this.stopRequested.has(thread.state.thread_key)) {
+              this.stopRequested.delete(thread.state.thread_key);
+              break;
+            }
             await requeueEvent(thread, item);
             const detail = error instanceof Error ? `${error.message}. ` : "";
             await this.postThreadError(thread, event, detail);
             throw error;
           }
           clearInterval(typingInterval);
+          if (this.stopRequested.has(thread.state.thread_key)) break;
           const decision = decideTurnResult(result, resumed, retriedFreshStart);
           if (decision.kind === "retry_fresh") {
             log.warn("harness.resume_fallback", {
@@ -218,14 +258,20 @@ export class FelixEngine {
                 resumed: true,
                 precedingEvents: preceding.length > 0 ? preceding : undefined,
                 promptOverride: correctionPrompt,
+                signal: controller.signal,
               });
             } catch (error) {
               clearInterval(typingInterval);
+              if (this.stopRequested.has(thread.state.thread_key)) {
+                this.stopRequested.delete(thread.state.thread_key);
+                break;
+              }
               await requeueEvent(thread, item);
               const detail = error instanceof Error ? `${error.message}. ` : "";
               await this.postThreadError(thread, event, detail);
               throw error;
             }
+            if (this.stopRequested.has(thread.state.thread_key)) break;
             const retriedDecision = decideTurnResult(result, true, retriedFreshStart);
             if (retriedDecision.kind === "retry_fresh") {
               await clearHarnessSession(thread);
@@ -282,6 +328,8 @@ export class FelixEngine {
         }
       }
     } finally {
+      this.abortControllers.delete(thread.state.thread_key);
+      this.stopRequested.delete(thread.state.thread_key);
       await setThreadBusy(thread, false);
     }
   }

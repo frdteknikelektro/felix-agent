@@ -33,14 +33,23 @@ export async function opencodeRun(
   cwd: string,
   env: Record<string, string | undefined>,
   logPath: string,
+  signal?: AbortSignal,
 ): Promise<RunResult> {
   await ensureDir(path.dirname(logPath));
+
+  if (signal?.aborted) {
+    return { exitCode: 143, sessionId: "", assistantText: "" };
+  }
 
   const child = spawn(bin, args, {
     cwd,
     env: { ...process.env, ...env } as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
+  if (signal) {
+    signal.addEventListener("abort", () => { child.kill("SIGTERM"); }, { once: true });
+  }
 
   const logStream = await fs.open(logPath, "a");
   const stderrStream = await fs.open(`${logPath}.stderr`, "a");
@@ -146,7 +155,7 @@ export class OpencodeHarness implements Harness {
       : [...baseArgs, prompt];
 
     const { exitCode, sessionId: capturedSessionId, assistantText } =
-      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath);
+      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath, input.signal);
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
