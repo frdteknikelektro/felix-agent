@@ -35,11 +35,16 @@ UID=$(id -u) GID=$(id -g) docker compose up -d
 
 ### docker pull + run (manual)
 
+IPv6 is required for the container to reach services tunneled through ngrok or cloudflared, which expose IPv6 addresses.
+
 ```bash
 docker pull frdinawan/felix-agent:latest
 
+docker network create --ipv6 --subnet fd00:cafe::/64 felix-net
+
 docker run -d \
   --add-host host.docker.internal:host-gateway \
+  --network felix-net \
   --name felix-agent \
   --restart unless-stopped \
   --user "$(id -u):$(id -g)" \
@@ -113,11 +118,16 @@ docker compose up -d --build
 
 ### docker run (manual)
 
+IPv6 is required for the container to reach services tunneled through ngrok or cloudflared, which expose IPv6 addresses.
+
 ```bash
 docker build -t felix-agent .
 
+docker network create --ipv6 --subnet fd00:cafe::/64 felix-net
+
 docker run -d \
   --add-host host.docker.internal:host-gateway \
+  --network felix-net \
   --name felix-agent \
   --restart unless-stopped \
   --user "$(id -u):$(id -g)" \
