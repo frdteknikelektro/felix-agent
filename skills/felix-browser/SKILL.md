@@ -21,7 +21,7 @@ Connect to a user-provided remote Chrome instance via Chrome DevTools Protocol (
 Only triggers when the user explicitly mentions `felix-browser`.
 
 ## When to use
-- User says "felix-browser connect to wss://abc.bore.pub/devtools/..."
+- User says "felix-browser connect to wss://abc.ngrok-free.app/devtools/..."
 - User says "felix-browser open example.com"
 - User says "help me set up felix-browser" or "how do I expose my Chrome"
 - User provides a CDP URL and asks to browse, screenshot, scrape, or fill/submit a form
@@ -53,12 +53,6 @@ if ! command -v agent-browser &>/dev/null; then
   echo "agent-browser is not installed. Run: install agent-browser@0.28.0"
   exit 1
 fi
-```
-
-**Optional fallback:** If `agent-browser` fails with connection errors, install `ws` module for direct WebSocket connection:
-
-```bash
-npm install ws
 ```
 
 ## User onboarding — exposing Chrome via tunnel
@@ -97,23 +91,14 @@ Choose one of these approaches:
 
 The debugging port (`localhost:9222`) must be reachable from the internet. The user can use any tunneling tool.
 
-**bore (recommended — simplest, TCP tunneling):**
-```bash
-# Install: https://github.com/ekzhang/bore
-bore local 9222 --to bore.pub
-```
-Output: `listening at bore.pub:12345` → tunneled to `bore.pub:12345`
-- Uses TCP tunneling, so `ws://` works directly
-- No header issues, most reliable
-
-**ngrok (if bore unavailable):**
+**ngrok:**
 ```bash
 ngrok http 9222 --host-header="localhost:9222"
 ```
 - `--host-header` flag is required for WebSocket to work
 - Use `wss://` prefix
 
-**cloudflared (if bore unavailable):**
+**cloudflared:**
 ```bash
 cloudflared tunnel --http-host-header localhost:9222 --url http://localhost:9222
 ```
@@ -159,12 +144,10 @@ WSS_URL=$(echo "$PROXY_URL" | sed 's|https://|wss://|')"/devtools/browser/<uuid>
 curl -s http://localhost:9222/json/version | grep -o '"webSocketDebuggerUrl": "[^"]*"' | cut -d'"' -f4
 ```
 
-Replace `localhost:9222` with the tunnel address. For bore (`bore.pub:12345`):
+Replace `localhost:9222` with the tunnel address. For example, if ngrok gives `abc.ngrok-free.app`:
 ```
-ws://bore.pub:12345/devtools/browser/<uuid>
+wss://abc.ngrok-free.app/devtools/browser/<uuid>
 ```
-
-For HTTPS tunnels (ngrok, cloudflared), use `wss://`.
 
 ### Step 4: Provide the URL to felix
 
@@ -345,53 +328,13 @@ echo 'document.querySelectorAll("a").map(a => a.href)' | agent-browser --cdp "$C
 | No CDP URL provided | Reply: "I need a CDP endpoint to connect to. See the setup guide — run Chrome with `--remote-debugging-address=0.0.0.0 --remote-debugging-port=9222`, expose it via tunnel or host.docker.internal, and give me the URL." |
 | `command not found: agent-browser` | CLI is not installed. Reply: "agent-browser is not installed. Run `install agent-browser@0.28.0` first." |
 | Connection refused / timeout | The CDP endpoint is unreachable. Ask the user: "Is Chrome still running with `--remote-debugging-address=0.0.0.0 --remote-debugging-port=9222`? Is the tunnel still up? Can you re-share the CDP URL?" |
-| HTTP 530 with ngrok/cloudflared | Tunnel is blocking WebSocket connections. Try: 1) Use `--host-header="localhost:9222"` for ngrok, 2) Use `--protocol http2` for cloudflared, 3) Switch to bore (TCP tunneling), 4) Use direct WebSocket client as fallback |
+| HTTP 530 with ngrok/cloudflared | Tunnel is blocking WebSocket connections. Try: 1) Use `--host-header="localhost:9222"` for ngrok, 2) Use `--http-host-header localhost:9222` for cloudflared, 3) Ask user to re-check tunnel setup |
 | Element not found | Re-snapshot and check for consent banners, modals, or page errors. Dismiss overlays first. |
 | Page shows captcha or anti-bot page | Report to user. The user sees the same page in their Chrome and can solve it manually. |
 | Snapshot returns empty | Wait for network idle and retry. The page may not have finished rendering. |
 | Navigation stalls | Use `wait --load networkidle` with a timeout. Retry once. |
 | `open` fails with DNS, timeout, or HTTP error | DNS failure: "That domain doesn't exist." Timeout: "The site is unreachable." HTTP 4xx/5xx: "The page returned a XXX error." Do not retry more than once. |
 | IPv6 unreachable | Container may lack IPv6 routing. User needs to enable IPv6 on server, or use a tunnel that handles IPv4 only. |
-
-## Fallback — Direct WebSocket connection
-
-If `agent-browser` fails with connection errors (e.g., HTTP 530 with ngrok), use a direct WebSocket client:
-
-```javascript
-const WebSocket = require('ws');
-const ws = new WebSocket(CDP_URL, { 
-  headers: { 'Host': new URL(CDP_URL).host }
-});
-
-ws.on('open', async () => {
-  // Enable Page domain
-  ws.send(JSON.stringify({ id: 1, method: 'Page.enable' }));
-  
-  // Navigate
-  ws.send(JSON.stringify({ id: 2, method: 'Page.navigate', params: { url: 'https://example.com' } }));
-  
-  // Take screenshot
-  ws.send(JSON.stringify({ id: 3, method: 'Page.captureScreenshot' }));
-});
-
-ws.on('message', (data) => {
-  const msg = JSON.parse(data);
-  if (msg.id === 3 && msg.result) {
-    // Save screenshot
-    const fs = require('fs');
-    fs.writeFileSync('screenshot.png', Buffer.from(msg.result.data, 'base64'));
-  }
-});
-```
-
-CDP command sequence:
-1. `Target.getTargets` — list available targets
-2. `Target.attachToTarget` — attach to a page target
-3. `Page.enable` — enable Page domain events
-4. `Page.navigate` — navigate to URL
-5. `Page.captureScreenshot` — capture screenshot
-
-Install ws module: `npm install ws`
 
 ## Output format
 
@@ -404,14 +347,14 @@ Return content through FELIX_REPLY:
 1. Launch Chrome with remote debugging:
    google-chrome --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222
 
-2. Expose the port via bore:
-   bore local 9222 --to bore.pub
+2. Expose the port via tunnel:
+   ngrok http 9222 --host-header="localhost:9222"
 
 3. Get your CDP URL:
    curl http://localhost:9222/json/version | grep webSocketDebuggerUrl
 
-4. Replace `localhost:9222` with your bore address and send me the URL:
-   felix-browser connect to ws://bore.pub:12345/devtools/browser/<uuid>
+4. Replace `localhost:9222` with your tunnel address and send me the URL:
+   felix-browser connect to wss://abc.ngrok-free.app/devtools/browser/<uuid>
 ```
 
 **Page content:**
