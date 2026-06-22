@@ -155,7 +155,7 @@ function parseTemplate(path) {
   });
 }
 
-function writeEnv(templatePath, outputPath, answers) {
+function writeEnv(templatePath, outputPath, answers, existing) {
   const template = parseTemplate(templatePath);
   const templateKeys = new Set();
   const lines = template.map((entry) => {
@@ -168,13 +168,17 @@ function writeEnv(templatePath, outputPath, answers) {
     return entry.raw;
   });
 
-  const extra = Object.keys(answers)
-    .filter((k) => !templateKeys.has(k) && answers[k])
-    .sort();
-  if (extra.length > 0) {
+  const extra = new Set([
+    ...Object.keys(answers).filter((k) => !templateKeys.has(k) && answers[k]),
+    ...Object.keys(existing || {}).filter((k) => !templateKeys.has(k) && existing[k]),
+  ]);
+  if (extra.size > 0) {
     lines.push("");
-    lines.push("# ── Skill environment ───────────────────────────");
-    for (const key of extra) lines.push(`${key}=${answers[key]}`);
+    lines.push("# ── Extra environment ──────────────────────────");
+    for (const key of [...extra].sort()) {
+      const val = key in answers && answers[key] ? answers[key] : existing[key];
+      lines.push(`${key}=${val}`);
+    }
   }
 
   writeFileSync(outputPath, lines.join("\n") + "\n");
@@ -626,7 +630,7 @@ async function main() {
       return;
     }
 
-    writeEnv(EXAMPLE_PATH, ENV_PATH, final);
+    writeEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
     if (IN_CONTAINER) {
       // Enforce restrictive permissions on .env (Unix only)
       if (process.platform !== "win32") {
