@@ -199,6 +199,12 @@ async function ensureDeps() {
   }
 }
 
+function secretTransformer(value, { isFinal }) {
+  if (isFinal) return "*".repeat(value.length);
+  if (value.length === 0) return `${c.dim}(empty)${c.reset}`;
+  return "*".repeat(value.length - 1) + value[value.length - 1];
+}
+
 function existingHint(existing, key) {
   if (existing && key in existing && existing[key]) {
     return ` ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`;
@@ -206,9 +212,10 @@ function existingHint(existing, key) {
   return "";
 }
 
-async function promptRequired(passwordFn, key, src, existing) {
-  const val = await passwordFn({
-    message: `${key}:${existingHint(existing, key)}`,
+async function promptRequired(key, src, existing) {
+  const val = await input({
+    message: `${key} [required]:`,
+    transformer: secretTransformer,
     validate: (v) => {
       if (v.length > 0) return true;
       if (existing && existing[key]) return true;
@@ -292,7 +299,7 @@ async function main() {
   try {
     await ensureDeps();
 
-    const { select, input, password, checkbox, confirm } = await import("@inquirer/prompts");
+    const { select, input, checkbox, confirm } = await import("@inquirer/prompts");
 
     if (!existsSync(EXAMPLE_PATH)) {
       console.error(`${c.red}ERROR:${c.reset} .env.example not found. Cannot generate .env template.`);
@@ -363,7 +370,7 @@ async function main() {
       });
 
       if (authMethod === "api-key") {
-        const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
+        const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
       } else {
         // OAuth: use CODEX_HOME to isolate auth from host's ~/.codex/
@@ -383,7 +390,7 @@ async function main() {
 
         if (exitCode !== 0) {
           warn("codex login failed. Falling back to API key method.");
-          const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
+          const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
           if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
         } else {
           const authPath = join(tmpHome, "auth.json");
@@ -399,24 +406,31 @@ async function main() {
     }
 
     if (harness === "opencode") {
-      const ocKey = await promptRequired(password, "OPENCODE_API_KEY", "opencode", existing);
+      const ocKey = await promptRequired("OPENCODE_API_KEY", "opencode", existing);
       if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
 
-      const orKey = await password({
-        message: `OPENROUTER_API_KEY (optional):${existingHint(existing, "OPENROUTER_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+      const orKey = await input({
+        message: `OPENROUTER_API_KEY [optional]:${existingHint(existing, "OPENROUTER_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+        transformer: secretTransformer,
       });
       if (orKey) wizard.OPENROUTER_API_KEY = orKey;
 
       const ocModel = await input({
         message:
           "OPENCODE_MODEL (provider/model format):\n  Browse: https://models.dev\n  Docs:   https://opencode.ai/docs/providers",
-        default: existing.OPENCODE_MODEL || "deepseek/deepseek-v4-flash",
+        default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
       });
       wizard.OPENCODE_MODEL = ocModel;
+
+      const ocVariant = await input({
+        message: "OPENCODE_VARIANT (reasoning effort):",
+        default: existing.OPENCODE_VARIANT || "high",
+      });
+      wizard.OPENCODE_VARIANT = ocVariant;
     }
 
     if (harness === "claude-code") {
-      const ccKey = await promptRequired(password, "ANTHROPIC_API_KEY", "claude-code", existing);
+      const ccKey = await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
       if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
 
       const ccModel = await input({
@@ -485,13 +499,13 @@ async function main() {
       console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}${ownerBadge}`);
 
       for (const reqKey of def.required) {
-        const val = await promptRequired(password, reqKey, src, existing);
+        const val = await promptRequired(reqKey, src, existing);
         if (val) wizard[reqKey] = val;
       }
 
       for (const [optKey, fallback] of Object.entries(def.optional)) {
         const val = await input({
-          message: `${optKey}:`,
+          message: `${optKey} [optional]:`,
           default: existing[optKey] || fallback,
         });
         wizard[optKey] = val;
@@ -500,7 +514,7 @@ async function main() {
       if (src === ownerSource) {
         for (const ownerKey of def.ownerKeys) {
           const val = await input({
-            message: `${ownerKey}:`,
+            message: `${ownerKey} [optional]:`,
             default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
           });
           wizard[ownerKey] = val;
