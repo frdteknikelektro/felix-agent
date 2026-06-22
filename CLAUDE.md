@@ -134,5 +134,6 @@ Login with `OWNER_UI_SECRET`. Sessions, approvals, contacts, skills, audit log.
 
 ## Git rules
 
-- **Do not push to GitHub** — local merges to `main` only.
-- Feature branch → commit → `git merge --ff-only` → `git branch -d`.
+- **Default workflow is local:** feature branch → commit → `git merge --ff-only` into `main` → `git branch -d`. No merge commits.
+- **The agent never pushes on its own.** Committing and local merges are fine without asking; `git push` is not part of the default flow.
+- **Push only when the owner explicitly asks** ("push", "open a PR"). Even then, confirm before pushing to `origin/main`, and prefer pushing a branch + opening a PR over pushing straight to `main`.
