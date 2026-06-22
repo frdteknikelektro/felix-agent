@@ -1,89 +1,130 @@
-# Felix Agent
+# 🦊 Felix Agent
 
-A persistent AI agent that wraps an LLM backend and routes messages from Mattermost, Discord, or Slack through skill-gated turns.
+A persistent AI agent that wraps an LLM backend (Codex or OpenCode) and routes messages from Mattermost, Discord, or Slack through skill-gated turns.
+
+> 🦊 Felix runs as a Docker container with a live owner console for monitoring sessions, approving skills, and managing contacts.
 
 ```
-source thread → Felix session → LLM turn → skill-gated reply
+💬 source thread → 🧵 Felix session → 🤖 LLM turn → 🛡️ skill-gated reply
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-npm install && npm run setup   # one-time
-docker compose up -d           # build & start
+# 📥 Clone
+git clone https://github.com/frdteknikelektro/felix-agent.git
+cd felix-agent
+
+# ⚙️ One-time setup
+npm install && npm run setup
+
+# 🐳 Build & start
+docker compose up -d
+
+# ❤️ Check health
 curl http://localhost:53318/healthz
 ```
 
-Open the owner console at [http://localhost:53318](http://localhost:53318), log in with `OWNER_UI_SECRET`.
+> 🖥️ Open the owner console at **http://localhost:53318** and log in with `OWNER_UI_SECRET`.
 
-## Configure
+## ⚙️ Configure
 
 Run `npm run setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
 
-Key variables:
-
 | Variable | Purpose |
 |---|---|
-| `OWNER_UI_SECRET` | Owner console login |
-| `HARNESS` | `codex` or `opencode` |
-| `OPENAI_API_KEY` | Required when `HARNESS=codex` |
-| `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
-| `MATTERMOST_TOKEN` | Enables Mattermost |
-| `DISCORD_TOKEN` | Enables Discord |
-| `SLACK_TOKEN` | Enables Slack |
+| 🔑 `OWNER_UI_SECRET` | Owner console login |
+| 🤖 `HARNESS` | `codex` or `opencode` |
+| 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` |
+| 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
+| 💬 `MATTERMOST_TOKEN` | Enables Mattermost |
+| 🎮 `DISCORD_TOKEN` | Enables Discord |
+| 💼 `SLACK_TOKEN` | Enables Slack |
 
-See `.env.example` for all defaults.
+> 💡 See `.env.example` for all defaults.
 
-## Manage
+## 🐳 Docker
 
 ```bash
+# 🔧 Set UID/GID to match the host user that owns workspace/ (defaults 1000:1000)
+UID=$(id -u) GID=$(id -g) docker compose up -d   # Unix / WSL
+docker compose up -d                              # Windows Docker Desktop
+
+# 📜 Manage
 docker compose logs -f
 docker compose ps
-docker compose up -d --build   # rebuild on source changes
+docker compose up -d --build   # 🔁 rebuild on source changes
 ```
 
-Pre-built image (skip local build):
+> 📦 Prefer a pre-built image? Skip the local build:
+> ```bash
+> cp docker-compose.image.yml docker-compose.yml   # uses frdinawan/felix-agent:latest
+> docker compose up -d
+> ```
 
-```bash
-cp docker-compose.image.yml docker-compose.yml
-docker compose up -d
-```
-
-## Owner Console
+## 🖥️ Owner Console
 
 ```
 http://localhost:53318/
 ```
 
-Sessions, approvals, contacts, skills, and audit history. Log in with `OWNER_UI_SECRET`.
+A live React monitoring dashboard — 🌙 dark by default with a 🌞 light toggle:
 
-## Runtime image
+- 📊 **Dashboard** — real-time stat tiles, pending approvals, live activity feed, and active sessions (streamed over Server-Sent Events)
+- 💬 **Sessions** — threads grouped by source, opened as a WhatsApp-style chat view
+- 🛡️ **Approvals** — approve or reject skill permission requests inline
+- ✨ **Skills** — create, edit, and delete skills
+- 👥 **Contacts** — manage per-user permissions
+- 📋 **Audit** — full owner action history
 
-The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: Node, Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts.
+Log in with `OWNER_UI_SECRET`.
+
+## 📦 Runtime Image
+
+The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts.
 
 Provider-specific operational CLIs are **not** bundled — install them on demand with the `install-tool` skill:
 
-- AWS CLI (`aws`), `gcloud`, `kubectl`, and Terraform are excluded.
-- LibreOffice and browser automation runtimes are excluded in v1.
+- 🚫 AWS CLI (`aws`), `gcloud`, `kubectl`, and Terraform are excluded.
+- 🚫 LibreOffice and browser automation runtimes are excluded in v1.
 
-See [docs/adr/0002-agent-runtime-image-contract.md](docs/adr/0002-agent-runtime-image-contract.md) for the full contract.
+> 📖 See [docs/adr/0002-agent-runtime-image-contract.md](docs/adr/0002-agent-runtime-image-contract.md) for the full contract.
 
-## Development
+## 🧩 Skills
+
+Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart. You can also create or remove skills from the owner console.
+
+> 🦊 Extra skills (GitHub, GitLab, Vercel, PostHog, and more) live in **[felix-custom-skills](https://github.com/frdteknikelektro/felix-custom-skills)** — copy them into `workspace/catalog/skills/` to deploy.
+
+## 🛠️ Development
 
 ```bash
-npm install
-npm run setup                 # initial setup or update .env
-npm test                      # vitest
-npm run build                 # tsc
+npm install          # 📥 install dependencies
+npm run dev          # 🔁 API server (tsx watch)
+npm run dev:web      # 🎨 Vite dev server with HMR (proxies /api + /events)
+npm test             # ✅ run tests (vitest)
+npm run lint         # 🔍 typecheck (tsc --noEmit)
+npm run build        # 📦 build SPA + server → dist/ + web/dist
 ```
 
-## Project layout
+> 💡 For UI work, run `npm run dev` and `npm run dev:web` together and open the Vite URL. To just run Felix, `docker compose up -d` builds and serves everything.
+
+## 📂 Project Layout
 
 ```
-src/          core · adapters (codex/opencode/mattermost/discord/slack) · server
-tests/        vitest unit tests
-skills/       bundled skills shipped in the image
-workspace/    runtime data — threads, contacts, skills, approvals
+src/
+├── core/        # ⚙️  ports · routing · decide-turn · schemas
+├── adapters/    # 🔌 codex · opencode · mattermost · discord · slack
+├── slices/      # 🧱 sessions · events · approvals · contacts · skills · audit
+├── server/      # 🌐 HTTP API + static SPA + SSE
+├── engine.ts    # 🧠 main dispatch loop
+└── index.ts     # 🚀 composition root
+web/             # 🖥️  React + Vite owner console
+skills/          # 🧩 bundled skills shipped in the image
+tests/           # 🧪 vitest unit tests
+workspace/       # 💾 runtime data (git-ignored)
 ```
 
-Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart.
+## 🔗 Related
+
+- 🦊 **[felix-custom-skills](https://github.com/frdteknikelektro/felix-custom-skills)** — extra skills for Felix Agent
