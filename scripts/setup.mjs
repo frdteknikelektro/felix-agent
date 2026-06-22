@@ -184,63 +184,7 @@ function writeEnv(templatePath, outputPath, answers, existing) {
   writeFileSync(outputPath, lines.join("\n") + "\n");
 }
 
-function writeEnvPreserveOrder(templatePath, outputPath, answers, existing) {
-  if (!existsSync(outputPath)) {
-    return writeEnv(templatePath, outputPath, answers, existing);
-  }
 
-  const existingRaw = readFileSync(outputPath, "utf8");
-  const existingLines = existingRaw.split(/\r?\n/);
-  const templateKeys = new Set();
-  const template = parseTemplate(template);
-
-  for (const entry of template) {
-    if (entry.type === "setting") templateKeys.add(entry.key);
-  }
-
-  const extra = new Set([
-    ...Object.keys(answers).filter((k) => !templateKeys.has(k) && answers[k]),
-    ...Object.keys(existing || {}).filter((k) => !templateKeys.has(k) && existing[k]),
-  ]);
-
-  const outputLines = [];
-  const seenKeys = new Set();
-
-  for (const line of existingLines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      outputLines.push(line);
-      continue;
-    }
-    const eq = trimmed.indexOf("=");
-    if (eq < 1) {
-      outputLines.push(line);
-      continue;
-    }
-    const key = trimmed.slice(0, eq).trim();
-    seenKeys.add(key);
-
-    if (key in answers) {
-      outputLines.push(`${key}=${answers[key] ?? ""}`);
-    } else {
-      outputLines.push(line);
-    }
-  }
-
-  const remainingExtra = [...extra].filter((k) => !seenKeys.has(k)).sort();
-  if (remainingExtra.length > 0) {
-    if (outputLines.length > 0 && outputLines[outputLines.length - 1] !== "") {
-      outputLines.push("");
-    }
-    outputLines.push("# ── Extra environment ──────────────────────────");
-    for (const key of remainingExtra) {
-      const val = key in answers && answers[key] ? answers[key] : existing[key];
-      outputLines.push(`${key}=${val}`);
-    }
-  }
-
-  writeFileSync(outputPath, outputLines.join("\n") + "\n");
-}
 
 async function ensureDeps() {
   // In container: dependencies are pre-installed
@@ -688,7 +632,7 @@ async function main() {
       return;
     }
 
-    writeEnvPreserveOrder(EXAMPLE_PATH, ENV_PATH, final, existing);
+    writeEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
     if (IN_CONTAINER) {
       // Enforce restrictive permissions on .env (Unix only)
       if (process.platform !== "win32") {
