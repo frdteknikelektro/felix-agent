@@ -416,7 +416,7 @@ async function main() {
         } else {
           const authPath = join(tmpHome, "auth.json");
           const authContent = readFileSync(authPath, "utf8");
-          wizard.OPENAI_CODEX_AUTH_JSON = authContent;
+          wizard.OPENAI_CODEX_AUTH_JSON = JSON.stringify(JSON.parse(authContent));
           wizard.OPENAI_API_KEY = "";
           succeed("Logged in via ChatGPT OAuth");
         }
