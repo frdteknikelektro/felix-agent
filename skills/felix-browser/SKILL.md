@@ -8,10 +8,6 @@ kind: operational
 permissions:
   - felix-browser.navigate
   - felix-browser.submit
-env:
-  - key: TUNNEL_URL
-    description: CDP tunnel endpoint (e.g., https://your-tunnel.example.com)
-    required: true
 match:
   - felix-browser
   - felix browser
