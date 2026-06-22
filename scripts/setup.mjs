@@ -133,7 +133,12 @@ function readEnv(path) {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const idx = trimmed.indexOf("=");
     if (idx < 1) continue;
-    out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    const key = trimmed.slice(0, idx).trim();
+    let val = trimmed.slice(idx + 1).trim();
+    if (val.startsWith("'") && val.endsWith("'")) {
+      val = val.slice(1, -1);
+    }
+    out[key] = val;
   }
   return out;
 }
@@ -163,7 +168,11 @@ function writeEnv(templatePath, outputPath, answers, existing) {
     templateKeys.add(entry.key);
     if (entry.key in answers) {
       const eqIdx = entry.raw.indexOf("=");
-      return entry.raw.slice(0, eqIdx + 1) + (answers[entry.key] ?? "");
+      let val = answers[entry.key] ?? "";
+      if (/[\s"'#]/.test(val) || val.includes("\n")) {
+        val = "'" + val.replace(/'/g, "'\\''") + "'";
+      }
+      return entry.raw.slice(0, eqIdx + 1) + val;
     }
     return entry.raw;
   });
@@ -176,7 +185,10 @@ function writeEnv(templatePath, outputPath, answers, existing) {
     lines.push("");
     lines.push("# ── Extra environment ──────────────────────────");
     for (const key of [...extra].sort()) {
-      const val = key in answers && answers[key] ? answers[key] : existing[key];
+      let val = key in answers && answers[key] ? answers[key] : existing[key];
+      if (/[\s"'#]/.test(val) || val.includes("\n")) {
+        val = "'" + val.replace(/'/g, "'\\''") + "'";
+      }
       lines.push(`${key}=${val}`);
     }
   }

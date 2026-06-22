@@ -129,7 +129,8 @@ async function main(): Promise<void> {
           await fs.access(authPath);
         } catch {
           await fs.mkdir(codexHome, { recursive: true });
-          await fs.writeFile(authPath, cfg.OPENAI_CODEX_AUTH_JSON, "utf-8");
+          const authJson = cfg.OPENAI_CODEX_AUTH_JSON.replace(/^'|'$/g, "");
+          await fs.writeFile(authPath, authJson, "utf-8");
           log.info("codex.auth_written", { path: authPath });
         }
       }
