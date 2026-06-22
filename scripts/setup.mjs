@@ -356,7 +356,7 @@ async function main() {
 
     if (harness === "codex") {
       const codexModel = await input({
-        message: "CODEX_MODEL:",
+        message: "CODEX_MODEL [optional]:",
         default: existing.CODEX_MODEL || "gpt-5.4-mini",
       });
       wizard.CODEX_MODEL = codexModel;
@@ -418,13 +418,13 @@ async function main() {
 
       const ocModel = await input({
         message:
-          "OPENCODE_MODEL (provider/model format):\n  Browse: https://models.dev\n  Docs:   https://opencode.ai/docs/providers",
+          "OPENCODE_MODEL [optional] (provider/model format):\n  Browse: https://models.dev\n  Docs:   https://opencode.ai/docs/providers",
         default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
       });
       wizard.OPENCODE_MODEL = ocModel;
 
       const ocVariant = await input({
-        message: "OPENCODE_VARIANT (reasoning effort):",
+        message: "OPENCODE_VARIANT [optional] (reasoning effort):",
         default: existing.OPENCODE_VARIANT || "high",
       });
       wizard.OPENCODE_VARIANT = ocVariant;
@@ -435,7 +435,7 @@ async function main() {
       if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
 
       const ccModel = await input({
-        message: "CLAUDE_CODE_MODEL (alias: sonnet, opus, haiku, fable or full model ID):",
+        message: "CLAUDE_CODE_MODEL [optional] (alias: sonnet, opus, haiku, fable or full model ID):",
         default: existing.CLAUDE_CODE_MODEL || "sonnet",
       });
       wizard.CLAUDE_CODE_MODEL = ccModel;
@@ -449,7 +449,7 @@ async function main() {
     info("  Press Enter to auto-generate one.\n");
 
     const secret = await input({
-      message: "OWNER_UI_SECRET:",
+      message: "OWNER_UI_SECRET [optional]:",
       default: existing.OWNER_UI_SECRET || randomUUID(),
     });
     wizard.OWNER_UI_SECRET = secret;
@@ -560,7 +560,7 @@ async function main() {
           ? ` ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
           : "";
         const val = await input({
-          message: `${v.key} — ${v.description} (${v.skill}):${hint}`,
+          message: `${v.key} — ${v.description} (${v.skill}) [${v.required ? "required" : "optional"}]:${hint}`,
           default: v.default || "",
           validate: (val) => {
             if (v.required && !val && !hasExisting) return `${v.key} is required by ${v.skill}`;
