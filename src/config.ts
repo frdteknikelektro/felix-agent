@@ -49,10 +49,18 @@ export type AppConfig = z.infer<typeof Env> & {
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const secretEnvFile = env.SECRET_ENV_FILE ?? "/run/secrets/.env";
+  const explicitSecretFile = env.SECRET_ENV_FILE;
+  const secretEnvFile = explicitSecretFile ?? "/run/secrets/.env";
+  // Production mounts the secrets file at /run/secrets/.env. For local `npm run
+  // dev` that mount is absent, so fall back to a repo-root .env. This convenience
+  // applies only to the real runtime env — callers that inject an explicit env
+  // (tests) get hermetic behavior — and never overrides an explicit SECRET_ENV_FILE.
+  const isRealRuntime = env === process.env && !env.VITEST;
+  const allowDotenvFallback = isRealRuntime && !explicitSecretFile && !fs.existsSync(secretEnvFile);
+  const dotenvFile = allowDotenvFallback ? ".env" : secretEnvFile;
   const merged = {
     ...env,
-    ...readDotEnv(secretEnvFile),
+    ...readDotEnv(dotenvFile),
   };
   // Inject loaded secrets into process.env so spawned child processes inherit them
   for (const [key, value] of Object.entries(merged)) {
