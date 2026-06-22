@@ -12,6 +12,8 @@ services:
     profiles: ["setup"]
     stdin_open: true
     tty: true
+    networks:
+      - felix-net
 
   felix:
     build:
