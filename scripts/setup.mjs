@@ -561,7 +561,7 @@ async function main() {
           : "";
         const val = await input({
           message: `${v.key} — ${v.description} (${v.skill}) [${v.required ? "required" : "optional"}]:${hint}`,
-          default: v.default || "",
+          default: hasExisting ? existing[v.key] : (v.default || ""),
           validate: (val) => {
             if (v.required && !val && !hasExisting) return `${v.key} is required by ${v.skill}`;
             return true;
