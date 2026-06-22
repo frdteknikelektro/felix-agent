@@ -81,20 +81,11 @@ Log in with `OWNER_UI_SECRET`.
 
 ## 📦 Runtime Image
 
-The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts.
-
-Provider-specific operational CLIs are **not** bundled — install them on demand with the `install-tool` skill:
-
-- 🚫 AWS CLI (`aws`), `gcloud`, `kubectl`, and Terraform are excluded.
-- 🚫 LibreOffice and browser automation runtimes are excluded in v1.
-
-> 📖 See [docs/adr/0002-agent-runtime-image-contract.md](docs/adr/0002-agent-runtime-image-contract.md) for the full contract.
+The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
 
 ## 🧩 Skills
 
 Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart. You can also create or remove skills from the owner console.
-
-> 🦊 Extra skills (GitHub, GitLab, Vercel, PostHog, and more) live in **[felix-agent-custom-skills](https://github.com/frdteknikelektro/felix-agent-custom-skills)** — copy them into `workspace/catalog/skills/` to deploy.
 
 ## 🛠️ Development
 
