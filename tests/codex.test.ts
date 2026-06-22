@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { parseAgentOutput, buildTurnPrompt } from "../src/core/harness-common.js";
+import { parseAgentOutput, buildTurnPrompt, buildOpencodeEnv } from "../src/core/harness-common.js";
 import { buildWorkspacePaths } from "../src/workspace.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -299,5 +299,49 @@ describe("codex output parser", () => {
     expect(prompt).toContain("- event_file: /workspace/records/sessions/mattermost/thread/events/pre-2.md");
     expect(prompt).toContain("/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf (application/pdf)");
     expect(prompt).toContain("huge.zip [rejected: File is 30.0 MiB, above the 25.0 MiB limit.]");
+  });
+});
+
+describe("buildOpencodeEnv", () => {
+  it("returns the full writable env set", () => {
+    const cfg = {
+      WORKSPACE_DIR: "/home/node/workspace",
+      OPENAI_API_KEY: "sk-test",
+      OPENCODE_API_KEY: "oc-test",
+      OPENROUTER_API_KEY: "or-test",
+      DEEPSEEK_API_KEY: "ds-test",
+      OPENCODE_VARIANT: undefined,
+      paths: buildWorkspacePaths("/home/node/workspace"),
+    } as never;
+    const env = buildOpencodeEnv(cfg);
+    expect(env.HOME).toBe("/home/node/workspace/runtime");
+    expect(env.WORKSPACE_DIR).toBe("/home/node/workspace");
+    expect(env.OPENAI_API_KEY).toBe("sk-test");
+    expect(env.OPENCODE_API_KEY).toBe("oc-test");
+    expect(env.OPENROUTER_API_KEY).toBe("or-test");
+    expect(env.DEEPSEEK_API_KEY).toBe("ds-test");
+    expect(env.XDG_DATA_HOME).toBe("/home/node/workspace/runtime/.local");
+    expect(env.XDG_CONFIG_HOME).toBe("/home/node/workspace/runtime/.config");
+    expect(env.XDG_STATE_HOME).toBe("/home/node/workspace/runtime/.local/state");
+    expect(env.XDG_CACHE_HOME).toBe("/home/node/workspace/runtime/.cache");
+    expect(env.PATH).toContain("node_modules/.bin");
+  });
+
+  it("falls back to process.env when config keys are undefined", () => {
+    const cfg = {
+      WORKSPACE_DIR: "/workspace",
+      OPENAI_API_KEY: undefined,
+      OPENCODE_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+      DEEPSEEK_API_KEY: undefined,
+      OPENCODE_VARIANT: undefined,
+      paths: buildWorkspacePaths("/workspace"),
+    } as never;
+    const env = buildOpencodeEnv(cfg);
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.OPENCODE_API_KEY).toBeUndefined();
+    expect(env.XDG_DATA_HOME).toBe("/workspace/runtime/.local");
+    expect(env.XDG_STATE_HOME).toBe("/workspace/runtime/.local/state");
+    expect(env.XDG_CACHE_HOME).toBe("/workspace/runtime/.cache");
   });
 });
