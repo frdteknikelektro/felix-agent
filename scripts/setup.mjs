@@ -94,7 +94,7 @@ const SOURCE_DEFS = {
       MATTERMOST_BOT_USERNAME: "",
       MATTERMOST_BOT_DISPLAY: "Felix",
     },
-    ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
+    ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_USERNAME", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
     ownerHint: "Enter your Mattermost username — the script will look up your User ID automatically.",
   },
@@ -537,6 +537,7 @@ async function main() {
           const mmUrl = wizard.MATTERMOST_URL || existing.MATTERMOST_URL;
           const mmToken = wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN;
           const existingUserId = existing.MATTERMOST_OWNER_USER_ID || wizard.MATTERMOST_OWNER_USER_ID;
+          const existingUsername = existing.MATTERMOST_OWNER_USERNAME || wizard.MATTERMOST_OWNER_USERNAME || "";
           const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
 
           const display = await input({
@@ -552,11 +553,21 @@ async function main() {
               default: existingUserId,
             });
             wizard.MATTERMOST_OWNER_USER_ID = val || existingUserId;
+
+            const usernameHint = existingUsername
+              ? ` ${c.dim}(current: ${existingUsername} — Enter to keep)${c.reset}`
+              : "";
+            const username = await input({
+              message: `MATTERMOST_OWNER_USERNAME [optional] (your login username for API lookups):${usernameHint}`,
+              default: existingUsername,
+            });
+            wizard.MATTERMOST_OWNER_USERNAME = username || existingUsername;
           } else if (mmUrl && mmToken) {
             const username = await input({
               message: `MATTERMOST_OWNER_USERNAME [optional] (your login username, e.g. farid):`,
-              default: "",
+              default: existingUsername,
             });
+            wizard.MATTERMOST_OWNER_USERNAME = username;
             if (username) {
               info("  Looking up your User ID via Mattermost API...\n");
               try {
@@ -592,6 +603,11 @@ async function main() {
             }
           } else {
             info(`\n  ${def.ownerHint}`);
+            const username = await input({
+              message: `MATTERMOST_OWNER_USERNAME [optional] (your login username):`,
+              default: existingUsername,
+            });
+            wizard.MATTERMOST_OWNER_USERNAME = username;
             const val = await input({
               message: `MATTERMOST_OWNER_USER_ID [optional]:`,
               default: "",
