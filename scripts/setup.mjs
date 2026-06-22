@@ -300,7 +300,7 @@ async function main() {
     box(
       [
         "",
-        `⚡  ${c.bold}Felix Agent Setup${c.reset}`,
+        `${c.bold}Felix Agent Setup${c.reset}`,
         "",
         `Configure your environment interactively.`,
         `Press ${c.bold}Ctrl+C${c.reset} to cancel at any time.`,
@@ -315,7 +315,7 @@ async function main() {
 
     // ═══ Step 1: Harness ═══════════════════════════════════════════════════
 
-    step(1, 5, "Harness");
+    step(1, 6, "Harness");
 
     const harness = await select({
       message: "Select LLM backend:",
@@ -329,7 +329,7 @@ async function main() {
 
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
 
-    step(2, 5, "API Keys");
+    step(2, 6, "API Keys");
 
     if (harness === "codex") {
       const codexModel = await input({
@@ -361,7 +361,7 @@ async function main() {
 
     // ═══ Step 3: Owner Console ══════════════════════════════════════════════
 
-    step(3, 5, "Owner Console");
+    step(3, 6, "Owner Console");
 
     info("  Enter a secret for the owner web console.");
     info("  Press Enter to auto-generate one.\n");
@@ -374,7 +374,7 @@ async function main() {
 
     // ═══ Step 4: Sources ════════════════════════════════════════════════════
 
-    step(4, 5, "Sources");
+    step(4, 6, "Sources");
 
     info("  Select chat sources Felix will listen to.\n");
 
@@ -456,29 +456,37 @@ async function main() {
       }
     }
 
-    // ── Skill environment variables ─────────────────────────────────────
+    // ═══ Step 5: Skill Environment ══════════════════════════════════════════
+
+    step(5, 6, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
     const catalogDir = join(ROOT, "workspace", "catalog", "skills");
     if (existsSync(catalogDir)) skillDirs.push(catalogDir);
 
     const skillVars = await scanSkillEnv(skillDirs);
-    for (const v of skillVars) {
-      if (v.key in existing || v.key in wizard) continue;
-      const val = await input({
-        message: `${v.key} — ${v.description} (${v.skill}):`,
-        default: v.default || "",
-        validate: (val) => {
-          if (v.required && !val) return `${v.key} is required by ${v.skill}`;
-          return true;
-        },
-      });
-      if (val) wizard[v.key] = val;
+    const pendingSkillVars = skillVars.filter((v) => !(v.key in existing) && !(v.key in wizard));
+
+    if (pendingSkillVars.length === 0) {
+      info("  No skill environment variables to configure.\n");
+    } else {
+      info("  Bundled skills request these environment variables.\n");
+      for (const v of pendingSkillVars) {
+        const val = await input({
+          message: `${v.key} — ${v.description} (${v.skill}):`,
+          default: v.default || "",
+          validate: (val) => {
+            if (v.required && !val) return `${v.key} is required by ${v.skill}`;
+            return true;
+          },
+        });
+        if (val) wizard[v.key] = val;
+      }
     }
 
-    // ═══ Step 5: Review ═════════════════════════════════════════════════════
+    // ═══ Step 6: Review ═════════════════════════════════════════════════════
 
-    step(5, 5, "Review");
+    step(6, 6, "Review");
 
     const template = parseTemplate(EXAMPLE_PATH);
     const templateKeys = new Set();
