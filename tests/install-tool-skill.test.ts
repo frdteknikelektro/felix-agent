@@ -10,7 +10,9 @@ describe("install-tool skill", () => {
     expect(skill).toContain('WORKSPACE_RUNTIME="${WORKSPACE_DIR}/runtime"');
     expect(skill).toContain('WORKSPACE_BIN="${WORKSPACE_RUNTIME}/bin"');
     expect(skill).toContain('WORKSPACE_TOOLS="${WORKSPACE_RUNTIME}/tools"');
-    expect(skill).toContain("workspace/runtime/bin` is on `PATH`");
+    // Both the shared bin dir and the npm-install bin dir are documented as on PATH.
+    expect(skill).toContain("workspace/runtime/npm/bin");
+    expect(skill).toContain("are on `PATH`");
 
     expect(skill).not.toContain("workspace/bin/");
     expect(skill).not.toContain("workspace/tools/<name>/");

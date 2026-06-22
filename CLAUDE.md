@@ -9,10 +9,11 @@ src/
   core/          ports.ts · routing.ts · decide-turn.ts · schemas.ts
   adapters/      codex/ · opencode/ · mattermost/ · discord/ · slack/
   slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/
-  server/        app.ts (HTTP + owner console) · routes.ts (API route table) · owner-client.ts
+  server/        app.ts (HTTP + static SPA + SSE) · routes.ts (API route table) · sse.ts (dashboard stream)
   engine.ts      main dispatch loop
   index.ts       composition root — boots engine, supervises sources, handles SIGTERM
   config.ts      env var loading
+web/             owner console SPA — React + Vite + Tailwind (own package.json/lockfile)
 tests/           vitest unit tests (no network, no disk)
 workspace/       runtime data — threads, contacts, skills, approvals (git-ignored)
 skills/          bundled skills shipped in the image
@@ -20,17 +21,28 @@ skills/          bundled skills shipped in the image
 .env.example     env template (tracked)
 ```
 
+The owner console is a React SPA in `web/`, built to `web/dist` and served as static
+assets by the Node HTTP server. The server exposes a REST API under `/api/*` and a live
+dashboard stream at `/events/dashboard` (SSE). The bundle is served unauthenticated (it
+contains its own login screen); `/api/*` and `/events/*` require the owner session cookie.
+
 ## Dev workflow
 
 ```bash
 npm install
 npm run setup          # interactive .env setup
-npm run dev            # tsx watch — no build step needed
+npm run dev            # tsx watch — API server (serves built web/dist if present)
+npm run dev:web        # optional: Vite dev server on :5173 with HMR, proxies /api + /events
 npm run lint         # tsc --noEmit
-npm test             # vitest run (104 tests, ~1 s)
-npm run build        # tsc → dist/
+npm test             # vitest run
+npm run build:web    # install web deps + build SPA → web/dist
+npm run build        # build:web + build:server → dist/ (+ web/dist)
 npm start            # node dist/index.js
 ```
+
+For UI development run `npm run dev` and `npm run dev:web` together and open the Vite URL
+(:5173) for hot-reload. To just run Felix, the Docker image builds the SPA at image-build
+time and serves it — no local `npm` needed (see below).
 
 ## Docker — compose (recommended)
 

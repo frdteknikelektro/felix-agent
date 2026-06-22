@@ -14,7 +14,7 @@ describe("owner web ui", () => {
     }
   });
 
-  it("authenticates the owner and protects json endpoints", async () => {
+  it("serves the SPA unauthenticated and gates the api + sse endpoints", async () => {
     const cfg = await makeTestConfig("felix-owner-ui-", {
       OWNER_UI_SECRET: "owner-secret",
     });
@@ -24,12 +24,17 @@ describe("owner web ui", () => {
     server = await startAppServer(cfg, engine, 0);
 
     const base = `http://localhost:${server.port}`;
-    const loginPage = await fetch(`${base}/`);
-    expect(loginPage.status).toBe(200);
-    expect(await loginPage.text()).toContain("Sign in");
 
-    const unauthorized = await fetch(`${base}/api/sessions`);
-    expect(unauthorized.status).toBe(401);
+    // The static SPA is served without auth (it contains its own login screen).
+    // In the test environment web/dist is not built, so the server replies 503
+    // rather than 401 — the point is that "/" is never auth-gated.
+    const spa = await fetch(`${base}/`);
+    expect(spa.status).not.toBe(401);
+    expect([200, 503]).toContain(spa.status);
+
+    // API + SSE are gated.
+    expect((await fetch(`${base}/api/sessions`)).status).toBe(401);
+    expect((await fetch(`${base}/events/dashboard`)).status).toBe(401);
 
     const login = await fetch(`${base}/api/login`, {
       method: "POST",
@@ -43,12 +48,6 @@ describe("owner web ui", () => {
     const setCookie = login.headers.get("set-cookie");
     expect(setCookie).toContain("felix_owner_session=");
     const cookie = setCookie!.split(";")[0]!;
-
-    const shell = await fetch(`${base}/`, {
-      headers: { cookie },
-    });
-    expect(shell.status).toBe(200);
-    expect(await shell.text()).toContain("Operator console");
 
     const sessions = await fetch(`${base}/api/sessions`, {
       headers: { cookie },

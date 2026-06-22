@@ -4,10 +4,16 @@ WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.build.json ./
 RUN npm ci
 
+# Build the React owner console first (its deps stay in the build stage only).
+COPY web/package.json web/package-lock.json* ./web/
+RUN npm --prefix web install
+COPY web ./web
+RUN npm --prefix web run build
+
 COPY src ./src
 COPY tests ./tests
 COPY skills ./skills
-RUN npm run build
+RUN npm run build:server
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
@@ -69,6 +75,7 @@ RUN npm ci --omit=dev \
 
 COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/web/dist ./web/dist
 
 USER node
 

@@ -52,7 +52,10 @@ describe("agent runtime image contract", () => {
     const dockerfile = await read("Dockerfile");
 
     expect(dockerfile).toContain("PYTHONUSERBASE=/home/node/workspace/runtime/python");
-    expect(dockerfile).toContain("/home/node/workspace/runtime/bin:/home/node/workspace/runtime/python/bin:$PATH");
+    // Shared binaries, npm-installed CLIs, and the Python user base are all on PATH.
+    expect(dockerfile).toContain("/home/node/workspace/runtime/bin:");
+    expect(dockerfile).toContain("/home/node/workspace/runtime/npm/bin:");
+    expect(dockerfile).toContain("/home/node/workspace/runtime/python/bin:$PATH");
   });
 
   it("runs as the default node user, no custom uid/gid build args", async () => {

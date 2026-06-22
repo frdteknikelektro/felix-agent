@@ -5,6 +5,7 @@ import type { FelixEngine } from "../engine.js";
 import {
   listSessionSummaries,
   loadSessionDetail,
+  loadChatTimeline,
   listSkillsForUi,
   loadSkillForUi,
   saveSkillForUi,
@@ -12,6 +13,7 @@ import {
   listContactsForUi,
   loadContactForUi,
   saveContactForUi,
+  createContactForUi,
   listAuditForUi,
   addSkillAudit,
   addContactAudit,
@@ -114,6 +116,18 @@ export const API_ROUTES: Route[] = [
         return;
       }
       send(200, detail);
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/sessions/:threadKey/messages",
+    async handler({ cfg, params, send }) {
+      const messages = await loadChatTimeline(cfg, params["threadKey"]!);
+      if (!messages) {
+        send(404, { error: "not_found" });
+        return;
+      }
+      send(200, { items: messages });
     },
   },
 
@@ -245,6 +259,31 @@ export const API_ROUTES: Route[] = [
         permissions: saved.allowed_permissions,
       });
       send(200, saved);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/contacts/:source/**",
+    async handler({ cfg, params, readBody, send }) {
+      const { source, userId } = extractContactParams(params);
+      if (!source || !userId) {
+        send(400, { error: "invalid_contact_path" });
+        return;
+      }
+      const body = await readBody();
+      try {
+        const saved = await createContactForUi(cfg, source, userId, normalizeContactBody(body));
+        await addContactAudit(cfg, source, userId, "create", `Created contact ${source}:${userId}`, {
+          permissions: saved.allowed_permissions,
+        });
+        send(201, saved);
+      } catch (error: any) {
+        if (error?.message === "contact_exists") {
+          send(409, { error: "contact_exists" });
+          return;
+        }
+        throw error;
+      }
     },
   },
 

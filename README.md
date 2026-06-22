@@ -57,6 +57,17 @@ http://localhost:53318/
 
 Sessions, approvals, contacts, skills, and audit history. Log in with `OWNER_UI_SECRET`.
 
+## Runtime image
+
+The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: Node, Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts.
+
+Provider-specific operational CLIs are **not** bundled — install them on demand with the `install-tool` skill:
+
+- AWS CLI (`aws`), `gcloud`, `kubectl`, and Terraform are excluded.
+- LibreOffice and browser automation runtimes are excluded in v1.
+
+See [docs/adr/0002-agent-runtime-image-contract.md](docs/adr/0002-agent-runtime-image-contract.md) for the full contract.
+
 ## Development
 
 ```bash

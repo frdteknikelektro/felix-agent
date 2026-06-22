@@ -4,13 +4,14 @@ import type { AppConfig } from "./config.js";
 import { loadContact, saveContact, contactPath } from "./slices/contacts/index.js";
 import { readText, writeTextAtomic, ensureDir, pathExists } from "./lib/fs.js";
 import { renderFrontmatter } from "./lib/markdown.js";
-import { eventAt, historyTitle, parseEventFile } from "./slices/events/index.js";
+import { eventAt, historyTitle, parseEventFile, type ParsedEvent } from "./slices/events/index.js";
 import type { AuditEntry } from "./slices/audit/index.js";
 import { listAuditEntries, recordAuditEntry } from "./slices/audit/index.js";
-import type { ContactRecord, SessionState, SkillRecord, ThreadState } from "./types.js";
+import type { ContactRecord, SessionState, SkillRecord, SourceSender, ThreadState } from "./types.js";
 import { findThreadHandle, listThreadHandles, loadSessionState, loadThreadState, type ThreadHandle } from "./slices/sessions/index.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
+import { listApprovalRecords } from "./slices/approvals/index.js";
 
 export interface SessionSummary {
   threadKey: string;
@@ -52,6 +53,53 @@ export interface SessionDetail {
   artifacts: SessionArtifact[];
 }
 
+/** A single rendered message in the chat-style thread view. */
+export interface ChatMessage {
+  id: string;
+  at: string;
+  kind: ParsedEvent["kind"];
+  /** inbound = from a source user, outbound = from Felix, system = permission notices. */
+  direction: "inbound" | "outbound" | "system";
+  sender: SourceSender;
+  text: string;
+}
+
+/** One row in the dashboard live activity feed. */
+export interface DashboardActivityItem {
+  at: string;
+  kind: "audit" | "turn" | "message";
+  summary: string;
+  threadKey?: string;
+  source?: string;
+}
+
+/** A compact session entry for the dashboard active-sessions panel. */
+export interface DashboardActiveSession {
+  threadKey: string;
+  source: string;
+  busy: boolean;
+  queueLength: number;
+  updatedAt: string;
+  lastEventAt?: string;
+  lastTurnAt?: string;
+  pendingPermissionSkillId?: string;
+}
+
+/** The full snapshot pushed to dashboard clients over SSE. */
+export interface DashboardSnapshot {
+  at: string;
+  activeSessions: number;
+  totalQueueDepth: number;
+  pendingApprovals: number;
+  sessionsToday: number;
+  activeSessionList: DashboardActiveSession[];
+  pendingApprovalList: ApprovalRecord[];
+  recentActivity: DashboardActivityItem[];
+}
+
+const ACTIVE_SESSION_LIMIT = 15;
+const RECENT_ACTIVITY_LIMIT = 40;
+
 export async function listSessionSummaries(cfg: AppConfig): Promise<SessionSummary[]> {
   const threads = await listThreadHandles(cfg);
   const summaries = await Promise.all(threads.map(async (thread) => buildSessionSummary(thread)));
@@ -71,6 +119,154 @@ export async function loadSessionDetail(cfg: AppConfig, threadKey: string): Prom
     session,
     history,
     artifacts,
+  };
+}
+
+/**
+ * Load a thread's full message history as chat bubbles — full body text (not the
+ * 220-char summary used by {@link loadSessionDetail}), ordered chronologically.
+ * Returns null when the thread does not exist.
+ */
+export async function loadChatTimeline(cfg: AppConfig, threadKey: string): Promise<ChatMessage[] | null> {
+  const thread = await findThreadHandle(cfg, threadKey);
+  if (!thread) return null;
+  const entries = await fs.readdir(thread.eventsDir, { withFileTypes: true }).catch(() => []);
+  const messages: ChatMessage[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const raw = await readText(path.join(thread.eventsDir, entry.name), "");
+    const parsed = parseEventFile(raw);
+    const at = eventAt(parsed) ?? fsDateFromName(entry.name);
+    messages.push(chatMessageFromEvent(parsed, at, entry.name, thread.state.source));
+  }
+  return messages.sort((a, b) => a.at.localeCompare(b.at));
+}
+
+/**
+ * Map a parsed event file to a chat bubble. Pure — no IO — so it is unit-tested
+ * directly. `source` is the thread's source, used for Felix's own bubbles.
+ */
+export function chatMessageFromEvent(
+  parsed: ParsedEvent,
+  at: string,
+  fallbackId: string,
+  source: string,
+): ChatMessage {
+  switch (parsed.kind) {
+    case "source_event":
+      return {
+        id: parsed.frontmatter.event_id ?? fallbackId,
+        at,
+        kind: parsed.kind,
+        direction: "inbound",
+        sender: parsed.frontmatter.sender ?? { source, id: "unknown" },
+        text: parsed.body.trim(),
+      };
+    case "felix_reply":
+      return {
+        id: `felix_${at}`,
+        at,
+        kind: parsed.kind,
+        direction: "outbound",
+        sender: { source, id: "felix", display: "Felix" },
+        text: parsed.body.trim(),
+      };
+    case "permission_request":
+      return {
+        id: parsed.frontmatter.request_id ?? `req_${at}`,
+        at,
+        kind: parsed.kind,
+        direction: "system",
+        sender: { source, id: "felix", display: "Felix" },
+        text: parsed.body.trim(),
+      };
+    case "owner_permission":
+      return {
+        id: parsed.frontmatter.request_id ?? `owner_${at}`,
+        at,
+        kind: parsed.kind,
+        direction: "system",
+        sender: { source: "owner", id: parsed.frontmatter.owner_user_id ?? "owner", display: "Owner" },
+        text: parsed.body.trim(),
+      };
+    case "unknown":
+      return {
+        id: `evt_${at}`,
+        at,
+        kind: parsed.kind,
+        direction: "system",
+        sender: { source: "system", id: "system" },
+        text: parsed.body.trim(),
+      };
+  }
+}
+
+/**
+ * Build the live dashboard snapshot. Reads session summaries, approvals and the
+ * audit log, then delegates to the pure {@link buildDashboardSnapshot}.
+ */
+export async function dashboardSnapshot(cfg: AppConfig): Promise<DashboardSnapshot> {
+  const [summaries, approvals, audit] = await Promise.all([
+    listSessionSummaries(cfg),
+    listApprovalRecords(cfg),
+    listAuditForUi(cfg),
+  ]);
+  return buildDashboardSnapshot(summaries, approvals, audit, new Date());
+}
+
+/**
+ * Pure dashboard-snapshot builder — no IO, so it is unit-tested directly.
+ * `recentActivity` merges owner audit entries with per-session turn/message
+ * activity derived from the summaries we already loaded (no extra disk reads).
+ */
+export function buildDashboardSnapshot(
+  summaries: SessionSummary[],
+  approvals: ApprovalRecord[],
+  audit: AuditEntry[],
+  now: Date,
+): DashboardSnapshot {
+  const pending = approvals.filter((a) => a.status === "pending");
+  const today = now.toISOString().slice(0, 10);
+
+  const activeSessionList = [...summaries]
+    .sort((a, b) => Number(b.busy) - Number(a.busy) || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, ACTIVE_SESSION_LIMIT)
+    .map((s) => ({
+      threadKey: s.threadKey,
+      source: s.source,
+      busy: s.busy,
+      queueLength: s.queueLength,
+      updatedAt: s.updatedAt,
+      lastEventAt: s.lastEventAt,
+      lastTurnAt: s.lastTurnAt,
+      pendingPermissionSkillId: s.pendingPermissionSkillId,
+    }));
+
+  const activity: DashboardActivityItem[] = [];
+  for (const entry of audit) {
+    activity.push({ at: entry.at, kind: "audit", summary: entry.summary });
+  }
+  for (const s of summaries) {
+    if (s.lastTurnAt) {
+      activity.push({ at: s.lastTurnAt, kind: "turn", summary: `Felix replied in ${s.source}`, threadKey: s.threadKey, source: s.source });
+    }
+    if (s.lastEventAt && s.lastEventAt !== s.lastTurnAt) {
+      activity.push({ at: s.lastEventAt, kind: "message", summary: `New message in ${s.source}`, threadKey: s.threadKey, source: s.source });
+    }
+  }
+  const recentActivity = activity
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, RECENT_ACTIVITY_LIMIT);
+
+  return {
+    at: now.toISOString(),
+    activeSessions: summaries.filter((s) => s.busy).length,
+    totalQueueDepth: summaries.reduce((sum, s) => sum + s.queueLength, 0),
+    pendingApprovals: pending.length,
+    sessionsToday: summaries.filter((s) => s.createdAt.slice(0, 10) === today).length,
+    activeSessionList,
+    pendingApprovalList: pending,
+    recentActivity,
   };
 }
 
@@ -160,6 +356,29 @@ export async function saveContactForUi(
     source,
     user_id: userId,
     allowed_permissions: normalizeList(patch.allowed_permissions ?? current.allowed_permissions),
+  };
+  await saveContact(cfg, next);
+  return next;
+}
+
+export async function createContactForUi(
+  cfg: AppConfig,
+  source: string,
+  userId: string,
+  patch: Partial<ContactRecord>,
+): Promise<ContactRecord> {
+  const file = contactPath(cfg, source, userId);
+  if (await pathExists(file)) {
+    throw new Error("contact_exists");
+  }
+  const next: ContactRecord = {
+    source,
+    user_id: userId,
+    display: patch.display,
+    username: patch.username,
+    alias: patch.alias,
+    allowed_permissions: normalizeList(patch.allowed_permissions ?? []),
+    notes: patch.notes,
   };
   await saveContact(cfg, next);
   return next;
