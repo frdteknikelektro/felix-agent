@@ -7,6 +7,7 @@ import { log } from "../../lib/log.js";
 import type { AppConfig } from "../../config.js";
 import { between, buildSpawnPath } from "../../core/harness-common.js";
 import { opencodeRun } from "../../adapters/opencode/index.js";
+import { claudeCodeRun } from "../../adapters/claude-code/index.js";
 
 const CLASSIFY_PROMPT = [
   "Classify this message from an owner responding to a permission request.",
@@ -35,6 +36,9 @@ export async function classifyOwnerDecision(
 ): Promise<"once" | "always" | "reject" | null> {
   if (cfg.HARNESS === "opencode") {
     return classifyViaOpencode(text, cfg);
+  }
+  if (cfg.HARNESS === "claude-code") {
+    return classifyViaClaudeCode(text, cfg);
   }
   return classifyViaCodex(text, cfg);
 }
@@ -159,6 +163,60 @@ async function classifyViaOpencode(
     return null;
   } catch (error) {
     log.warn("classify.opencode_error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+async function classifyViaClaudeCode(
+  text: string,
+  cfg: AppConfig,
+): Promise<"once" | "always" | "reject" | null> {
+  if (!cfg.ANTHROPIC_API_KEY) return null;
+  const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
+  const workDir = path.join(cfg.paths.approvals, "_classify");
+  const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
+  const turnPath = path.join(workDir, `${runId}.md`);
+  const logPath = `${turnPath}.log`;
+
+  await ensureDir(workDir);
+  await writeTextAtomic(turnPath, prompt);
+
+  const args = [
+    "-p",
+    "--output-format", "json",
+    "--dangerously-skip-permissions",
+    "--model", cfg.CLAUDE_CODE_MODEL,
+    prompt,
+  ];
+
+  try {
+    const { exitCode, assistantText } = await claudeCodeRun(
+      cfg.CLAUDE_CODE_BIN,
+      args,
+      workDir,
+      {
+        WORKSPACE_DIR: cfg.WORKSPACE_DIR,
+        ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
+        PATH: buildSpawnPath(cfg),
+      },
+      logPath,
+    );
+
+    if (exitCode !== 0) {
+      log.warn("classify.claude-code_nonzero_exit", { exitCode });
+      return null;
+    }
+
+    const reply = between(assistantText, "FELIX_REPLY", "END_FELIX_REPLY");
+    const word = ((reply ?? assistantText) || "").trim().toLowerCase();
+    if (word.startsWith("once")) return "once";
+    if (word.startsWith("always")) return "always";
+    if (word.startsWith("reject")) return "reject";
+    return null;
+  } catch (error) {
+    log.warn("classify.claude-code_error", {
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
