@@ -96,7 +96,7 @@ const SOURCE_DEFS = {
     },
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: run curl -s -H 'Authorization: Bearer BOT_TOKEN' YOUR_URL/api/v4/users/username/YOUR_USERNAME | jq .id",
+    ownerHint: "Find YOUR User ID (not the bot's): curl -s -H 'Authorization: Bearer BOT_TOKEN' YOUR_URL/api/v4/users/username/YOUR_USERNAME | jq .id",
   },
   discord: {
     label: "Discord",
@@ -104,7 +104,7 @@ const SOURCE_DEFS = {
     optional: {},
     ownerKeys: ["DISCORD_OWNER_USER_ID", "DISCORD_OWNER_DISPLAY"],
     ownerDefaults: { DISCORD_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID (or: curl -s -H 'Authorization: Bot BOT_TOKEN' https://discord.com/api/users/@me | jq .id)",
+    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID",
   },
   slack: {
     label: "Slack",
