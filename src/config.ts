@@ -29,17 +29,17 @@ const Env = z.object({
   OPENAI_ORGANIZATION: z.string().optional(),
   OPENAI_PROJECT: z.string().optional(),
   MATTERMOST_URL: z.string().optional(),
-  MATTERMOST_TOKEN: z.string().optional(),
+  MATTERMOST_BOT_TOKEN: z.string().optional(),
   MATTERMOST_BOT_USER_ID: z.string().optional(),
   MATTERMOST_BOT_USERNAME: z.string().optional(),
   MATTERMOST_BOT_DISPLAY: z.string().default("Felix"),
   MATTERMOST_OWNER_USER_ID: z.string().optional(),
   MATTERMOST_OWNER_DISPLAY: z.string().default("Owner"),
-  DISCORD_TOKEN: z.string().optional(),
+  DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_BOT_USER_ID: z.string().optional(),
   DISCORD_OWNER_USER_ID: z.string().optional(),
   DISCORD_OWNER_DISPLAY: z.string().default("Owner"),
-  SLACK_TOKEN: z.string().optional(),
+  SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_APP_TOKEN: z.string().optional(),
   SLACK_BOT_USER_ID: z.string().optional(),
   SLACK_OWNER_USER_ID: z.string().optional(),
@@ -67,6 +67,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...env,
     ...readDotEnv(dotenvFile),
   };
+
+  // Migrate legacy env var names (backward compatibility)
+  const legacyTokenMap: Record<string, string> = {
+    MATTERMOST_TOKEN: "MATTERMOST_BOT_TOKEN",
+    DISCORD_TOKEN: "DISCORD_BOT_TOKEN",
+    SLACK_TOKEN: "SLACK_BOT_TOKEN",
+  };
+  for (const [oldKey, newKey] of Object.entries(legacyTokenMap)) {
+    if (!merged[newKey] && merged[oldKey]) {
+      merged[newKey] = merged[oldKey];
+    }
+  }
+
   // Inject loaded secrets into process.env so spawned child processes inherit them
   for (const [key, value] of Object.entries(merged)) {
     process.env[key] = String(value);

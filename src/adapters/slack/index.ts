@@ -60,13 +60,13 @@ class SlackAdapter implements SourceAdapter {
   // ── start (supervisor contract) ──────────────────────────────────────────
 
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
-    if (!this.cfg.SLACK_TOKEN || !this.cfg.SLACK_APP_TOKEN) {
+    if (!this.cfg.SLACK_BOT_TOKEN || !this.cfg.SLACK_APP_TOKEN) {
       log.warn("slack.disabled", { reason: "missing_token" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
 
     const app = new App({
-      token: this.cfg.SLACK_TOKEN,
+      token: this.cfg.SLACK_BOT_TOKEN,
       socketMode: true,
       appToken: this.cfg.SLACK_APP_TOKEN,
     });
@@ -149,7 +149,7 @@ class SlackAdapter implements SourceAdapter {
         "```bash",
         `CHANNEL_ID="${channelId}"`,
         `ROOT_TS="${rootMessageId}"`,
-        'curl -sS -H "Authorization: Bearer $SLACK_TOKEN" \\',
+        'curl -sS -H "Authorization: Bearer $SLACK_BOT_TOKEN" \\',
         '  "https://slack.com/api/conversations.replies?channel=$CHANNEL_ID&ts=$ROOT_TS&limit=100"',
         "```",
         "Parse the JSON response: check ok=true, then read .messages[]. Each message has .text, .user, and .ts fields. The response includes the parent message and all thread replies.",
@@ -162,7 +162,7 @@ class SlackAdapter implements SourceAdapter {
         "Post text messages:",
         "```bash",
         'curl -sS -X POST \\',
-        '  -H "Authorization: Bearer $SLACK_TOKEN" \\',
+        '  -H "Authorization: Bearer $SLACK_BOT_TOKEN" \\',
         '  -H "Content-Type: application/json" \\',
         '  -d "{\\"channel\\":\\"$CHANNEL_ID\\",\\"text\\":\\"<message>\\"}" \\',
         '  "https://slack.com/api/chat.postMessage"',
@@ -170,7 +170,7 @@ class SlackAdapter implements SourceAdapter {
         "Upload files:",
         "```bash",
         "ARTIFACT_PATH=\"<path under session artifact directory>\"",
-        'curl -sS -F "token=$SLACK_TOKEN" \\',
+        'curl -sS -F "token=$SLACK_BOT_TOKEN" \\',
         '  -F "channels=$CHANNEL_ID" \\',
         '  -F "file=@${ARTIFACT_PATH}" \\',
         '  -F "title=<filename>" \\',
@@ -307,7 +307,7 @@ class SlackAdapter implements SourceAdapter {
     }
     const url = fileInfo.file.url_private;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.cfg.SLACK_TOKEN}` },
+      headers: { Authorization: `Bearer ${this.cfg.SLACK_BOT_TOKEN}` },
     });
     if (!res.ok) {
       throw new Error(`download failed for ${input.attachment.file_id}: ${res.status}`);

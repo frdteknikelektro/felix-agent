@@ -53,7 +53,7 @@ class DiscordAdapter implements SourceAdapter {
   // ── start (supervisor contract) ──────────────────────────────────────────
 
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
-    if (!this.cfg.DISCORD_TOKEN) {
+    if (!this.cfg.DISCORD_BOT_TOKEN) {
       log.warn("discord.disabled", { reason: "missing_token" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
@@ -86,7 +86,7 @@ class DiscordAdapter implements SourceAdapter {
       log.warn("discord.client_error", { error: error.message });
     });
 
-    await client.login(this.cfg.DISCORD_TOKEN);
+    await client.login(this.cfg.DISCORD_BOT_TOKEN);
     this.client = client;
 
     return {
@@ -130,7 +130,7 @@ class DiscordAdapter implements SourceAdapter {
         "```bash",
         `CHANNEL_ID="${channelId}"`,
         `ROOT_MESSAGE_ID="${rootMessageId}"`,
-        'curl -sS -H "Authorization: Bot $DISCORD_TOKEN" \\',
+        'curl -sS -H "Authorization: Bot $DISCORD_BOT_TOKEN" \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages?limit=100"',
         "```",
         "If the fetch fails, do not claim you read live Discord history. Reply that the history could not be fetched and ask for the Discord link or a retry. Do not use the local thread transcript as a substitute for live Discord history.",
@@ -142,7 +142,7 @@ class DiscordAdapter implements SourceAdapter {
         "Post text messages (max 2000 characters per message — split longer content into multiple messages):",
         "```bash",
         'curl -sS -X POST \\',
-        '  -H "Authorization: Bot $DISCORD_TOKEN" \\',
+        '  -H "Authorization: Bot $DISCORD_BOT_TOKEN" \\',
         '  -H "Content-Type: application/json" \\',
         '  -d \'{"content":"<message>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',
@@ -151,7 +151,7 @@ class DiscordAdapter implements SourceAdapter {
         "```bash",
         'ARTIFACT_PATH="<path under session artifact directory>"',
         'curl -sS -X POST \\',
-        '  -H "Authorization: Bot $DISCORD_TOKEN" \\',
+        '  -H "Authorization: Bot $DISCORD_BOT_TOKEN" \\',
         '  -F "file=@${ARTIFACT_PATH}" \\',
         '  -F \'payload_json={"content":"<optional caption>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',

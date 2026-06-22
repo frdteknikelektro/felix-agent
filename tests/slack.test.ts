@@ -88,7 +88,7 @@ describe("SlackAdapter getTurnContext", () => {
     expect(joined).toContain("Slack");
     expect(joined).toContain("CHANNEL_ID");
     expect(joined).toContain("slack.com");
-    expect(joined).toContain("SLACK_TOKEN");
+    expect(joined).toContain("SLACK_BOT_TOKEN");
     expect(joined).toContain("conversations.replies");
     expect(joined).toContain("chat.postMessage");
   });

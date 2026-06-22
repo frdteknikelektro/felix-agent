@@ -89,7 +89,7 @@ describe("DiscordAdapter getTurnContext", () => {
     expect(joined).toContain("CHANNEL_ID");
     expect(joined).toContain("discord.com");
     expect(joined).toContain("/api/v10/channels");
-    expect(joined).toContain("DISCORD_TOKEN");
+    expect(joined).toContain("DISCORD_BOT_TOKEN");
     expect(joined).toContain("2000");
   });
 });

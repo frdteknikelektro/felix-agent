@@ -88,32 +88,30 @@ const SECRET_KEYS = new Set([
 const SOURCE_DEFS = {
   mattermost: {
     label: "Mattermost",
-    required: ["MATTERMOST_URL", "MATTERMOST_TOKEN"],
+    required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
     optional: {
-      MATTERMOST_BOT_USER_ID: "",
       MATTERMOST_BOT_USERNAME: "",
       MATTERMOST_BOT_DISPLAY: "Felix",
     },
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
+    ownerHint: "Find your User ID: Account Settings → Security → User ID (or click your name → Copy User ID)",
   },
   discord: {
     label: "Discord",
-    required: ["DISCORD_TOKEN"],
-    optional: {
-      DISCORD_BOT_USER_ID: "",
-    },
+    required: ["DISCORD_BOT_TOKEN"],
+    optional: {},
     ownerKeys: ["DISCORD_OWNER_USER_ID", "DISCORD_OWNER_DISPLAY"],
     ownerDefaults: { DISCORD_OWNER_DISPLAY: "Owner" },
+    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID",
   },
   slack: {
     label: "Slack",
-    required: ["SLACK_TOKEN", "SLACK_APP_TOKEN"],
-    optional: {
-      SLACK_BOT_USER_ID: "",
-    },
+    required: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
+    optional: {},
     ownerKeys: ["SLACK_OWNER_USER_ID", "SLACK_OWNER_DISPLAY"],
     ownerDefaults: { SLACK_OWNER_DISPLAY: "Owner" },
+    ownerHint: "Find your User ID: Click your name → View profile → ⋯ → Copy member ID",
   },
 };
 
@@ -512,6 +510,7 @@ async function main() {
       }
 
       if (src === ownerSource) {
+        info(`\n  ${def.ownerHint}`);
         for (const ownerKey of def.ownerKeys) {
           const val = await input({
             message: `${ownerKey} [optional]:`,

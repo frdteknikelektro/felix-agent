@@ -93,7 +93,7 @@ class MattermostAdapter implements SourceAdapter {
   constructor(private readonly cfg: AppConfig) {}
 
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
-    if (!this.cfg.MATTERMOST_URL || !this.cfg.MATTERMOST_TOKEN) {
+    if (!this.cfg.MATTERMOST_URL || !this.cfg.MATTERMOST_BOT_TOKEN) {
       log.warn("mattermost.disabled", { reason: "missing_url_or_token" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
@@ -159,14 +159,14 @@ class MattermostAdapter implements SourceAdapter {
         `10. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         "```bash",
         `THREAD_POST_ID="${rootPostId}"`,
-        'curl -sS -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
+        'curl -sS -H "Authorization: Bearer $MATTERMOST_BOT_TOKEN" \\',
         '  "$MATTERMOST_URL/api/v4/posts/$THREAD_POST_ID/thread"',
         "```",
         "If the fetch fails, do not claim you read live Mattermost history. Reply that the thread could not be fetched and ask for the Mattermost link or a retry. Do not use the local thread transcript as a substitute for live Mattermost history in that case.",
         "Use the fetched thread history only as context for the current turn. Limit the fetch to the current thread only and do not persist the fetched history unless it is required for the current turn.",
         "Source API posting for Mattermost: FELIX_REPLY is the primary reply channel. Use the source API for supplementary content — files, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source API for every reply.",
         "Use source API posting only for the active Mattermost thread and only for files generated for this current session/request. Never upload secrets, credential files, raw env files, unrelated repo files, or arbitrary readable files.",
-        "MATTERMOST_URL and MATTERMOST_TOKEN are already in environment. For every posting shell block, start by setting the thread identifiers first:",
+        "MATTERMOST_URL and MATTERMOST_BOT_TOKEN are already in environment. For every posting shell block, start by setting the thread identifiers first:",
         "```bash",
         `MATTERMOST_CHANNEL_ID="${channelId}"`,
         `MATTERMOST_ROOT_POST_ID="${rootPostId}"`,
@@ -182,7 +182,7 @@ class MattermostAdapter implements SourceAdapter {
         "export MATTERMOST_MESSAGE",
         'PAYLOAD=$(node -e \'console.log(JSON.stringify({channel_id: process.env.MATTERMOST_CHANNEL_ID, root_id: process.env.MATTERMOST_ROOT_POST_ID, message: process.env.MATTERMOST_MESSAGE}))\')',
         "curl -sS -X POST \\",
-        '  -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
+        '  -H "Authorization: Bearer $MATTERMOST_BOT_TOKEN" \\',
         '  -H "Content-Type: application/json" \\',
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
@@ -196,7 +196,7 @@ class MattermostAdapter implements SourceAdapter {
         'MATTERMOST_MESSAGE="<message>"',
         "export MATTERMOST_MESSAGE",
         "UPLOAD_JSON=$(curl -sS -X POST \\",
-        '  -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
+        '  -H "Authorization: Bearer $MATTERMOST_BOT_TOKEN" \\',
         '  -F "channel_id=$MATTERMOST_CHANNEL_ID" \\',
         '  -F "files=@${ARTIFACT_PATH}" \\',
         '  "$MATTERMOST_URL/api/v4/files")',
@@ -204,7 +204,7 @@ class MattermostAdapter implements SourceAdapter {
         "export FILE_ID",
         'PAYLOAD=$(node -e \'console.log(JSON.stringify({channel_id: process.env.MATTERMOST_CHANNEL_ID, root_id: process.env.MATTERMOST_ROOT_POST_ID, message: process.env.MATTERMOST_MESSAGE, file_ids: [process.env.FILE_ID]}))\')',
         "curl -sS -X POST \\",
-        '  -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
+        '  -H "Authorization: Bearer $MATTERMOST_BOT_TOKEN" \\',
         '  -H "Content-Type: application/json" \\',
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
@@ -234,7 +234,7 @@ class MattermostAdapter implements SourceAdapter {
       await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+          Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -342,7 +342,7 @@ class MattermostAdapter implements SourceAdapter {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(input.attachment.file_id)}/download`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
     });
     if (!res.ok) {
@@ -376,7 +376,7 @@ class MattermostAdapter implements SourceAdapter {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/me`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
     });
     if (!res.ok) {
@@ -435,7 +435,7 @@ class MattermostAdapter implements SourceAdapter {
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(url.toString(), {
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
     });
     this.socket = socket;
@@ -533,7 +533,7 @@ class MattermostAdapter implements SourceAdapter {
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -559,7 +559,7 @@ class MattermostAdapter implements SourceAdapter {
     const res = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify([this.cfg.MATTERMOST_BOT_USER_ID, userId]),
@@ -582,7 +582,7 @@ class MattermostAdapter implements SourceAdapter {
     const res = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
         "Content-Type": "application/json",
       },
       body:
@@ -620,7 +620,7 @@ class MattermostAdapter implements SourceAdapter {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(fileId)}`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
     });
     if (!res.ok) {
@@ -681,7 +681,7 @@ class MattermostAdapter implements SourceAdapter {
   private async prefetchBotTeams(): Promise<void> {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/me/teams`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}` },
+      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}` },
     }).catch(() => null);
     if (!res?.ok) return;
     const teams = (await res.json()) as { id?: string; name?: string }[];
@@ -696,7 +696,7 @@ class MattermostAdapter implements SourceAdapter {
   private async resolvePostTeamId(postId: string): Promise<string | undefined> {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/posts/${encodeURIComponent(postId)}/info`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}` },
+      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}` },
     }).catch(() => null);
     if (!res?.ok) return undefined;
     const info = (await res.json()) as { team_id?: string };
@@ -708,7 +708,7 @@ class MattermostAdapter implements SourceAdapter {
     if (cached !== undefined) return cached;
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/teams/${encodeURIComponent(teamId)}`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}` },
+      headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}` },
     }).catch(() => null);
     if (!res?.ok) {
       this.teamNameCache.set(teamId, undefined);
@@ -725,7 +725,7 @@ class MattermostAdapter implements SourceAdapter {
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/channels/${encodeURIComponent(channelId)}`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.cfg.MATTERMOST_TOKEN}`,
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
     }).catch(() => null);
     if (!res?.ok) {

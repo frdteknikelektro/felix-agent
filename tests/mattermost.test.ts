@@ -93,7 +93,7 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("FELIX_REPLY is the primary reply channel");
     expect(text).not.toContain("source /run/secrets/.env");
     expect(text).toContain("MATTERMOST_URL");
-    expect(text).toContain("MATTERMOST_TOKEN");
+    expect(text).toContain("MATTERMOST_BOT_TOKEN");
     expect(text).toContain('MATTERMOST_CHANNEL_ID="channel"');
     expect(text).toContain('MATTERMOST_ROOT_POST_ID="root-post"');
     expect(text).toContain("export MATTERMOST_CHANNEL_ID MATTERMOST_ROOT_POST_ID");
