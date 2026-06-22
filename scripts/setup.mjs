@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { input, select, checkbox, confirm } from "@inquirer/prompts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
@@ -296,8 +297,6 @@ async function scanSkillEnv(dirs) {
 async function main() {
   try {
     await ensureDeps();
-
-    const { select, input, checkbox, confirm } = await import("@inquirer/prompts");
 
     if (!existsSync(EXAMPLE_PATH)) {
       console.error(`${c.red}ERROR:${c.reset} .env.example not found. Cannot generate .env template.`);
