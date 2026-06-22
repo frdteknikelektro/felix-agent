@@ -294,6 +294,12 @@ async function main() {
     const existing = readEnv(ENV_PATH);
     const existingExists = Object.keys(existing).length > 0;
     const wizard = {};
+    const hostUid = String(process.getuid?.() ?? 1000);
+    const hostGid = String(process.getgid?.() ?? 1000);
+
+    // Keep the container aligned with the host user that owns workspace/.
+    wizard.UID = existing.UID || hostUid;
+    wizard.GID = existing.GID || hostGid;
 
     clear();
 
