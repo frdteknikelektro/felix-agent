@@ -96,7 +96,7 @@ const SOURCE_DEFS = {
     },
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: run curl -H 'Authorization: Bearer YOUR_TOKEN' YOUR_URL/api/v4/users/me | jq .id (or ask your admin: System Console → Users → select user → copy ID)",
+    ownerHint: "Find your User ID: run curl -s -H 'Authorization: Bearer BOT_TOKEN' YOUR_URL/api/v4/users/username/YOUR_USERNAME | jq .id",
   },
   discord: {
     label: "Discord",
