@@ -85,19 +85,25 @@ export async function opencodeRun(
 
   let capturedSessionId = "";
   const textParts: string[] = [];
+  let lastEventType: string | null = null;
 
   for (const line of stdoutLines) {
     try {
       const event = JSON.parse(line) as Record<string, unknown>;
-      if (event.type === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
+      const eventType = typeof event.type === "string" ? event.type : null;
+      if (eventType === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
         capturedSessionId = event.sessionID;
       }
-      if (event.type === "text" && typeof event.part === "object" && event.part !== null) {
+      if (eventType === "text" && typeof event.part === "object" && event.part !== null) {
         const part = event.part as Record<string, unknown>;
         if (part.type === "text" && typeof part.text === "string") {
+          if (lastEventType !== null && lastEventType !== "text") {
+            textParts.push("\n\n");
+          }
           textParts.push(part.text);
         }
       }
+      if (eventType) lastEventType = eventType;
     } catch {
     }
   }
