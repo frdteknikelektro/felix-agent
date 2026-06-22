@@ -96,7 +96,7 @@ const SOURCE_DEFS = {
     },
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find YOUR User ID (not the bot's): curl -s -H 'Authorization: Bearer BOT_TOKEN' YOUR_URL/api/v4/users/username/YOUR_USERNAME | jq .id",
+    ownerHint: "Enter your Mattermost username — the script will look up your User ID automatically.",
   },
   discord: {
     label: "Discord",
@@ -519,13 +519,68 @@ async function main() {
       }
 
       if (src === ownerSource) {
-        info(`\n  ${def.ownerHint}`);
-        for (const ownerKey of def.ownerKeys) {
-          const val = await input({
-            message: `${ownerKey} [optional]:`,
-            default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
+        if (src === "mattermost") {
+          const mmUrl = wizard.MATTERMOST_URL || existing.MATTERMOST_URL;
+          const mmToken = wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN;
+          const existingUserId = existing.MATTERMOST_OWNER_USER_ID || wizard.MATTERMOST_OWNER_USER_ID;
+          const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
+
+          const display = await input({
+            message: `MATTERMOST_OWNER_DISPLAY [optional]:`,
+            default: existingDisplay,
           });
-          wizard[ownerKey] = val;
+          wizard.MATTERMOST_OWNER_DISPLAY = display;
+
+          if (existingUserId) {
+            const hint = ` ${c.dim}(current: ${mask(existingUserId)} — Enter to keep)${c.reset}`;
+            const val = await input({
+              message: `MATTERMOST_OWNER_USER_ID [optional]:${hint}`,
+              default: existingUserId,
+            });
+            wizard.MATTERMOST_OWNER_USER_ID = val || existingUserId;
+          } else if (mmUrl && mmToken && display) {
+            info("  Attempting to look up your User ID via Mattermost API...\n");
+            try {
+              const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(display)}`, {
+                headers: { Authorization: `Bearer ${mmToken}` },
+              });
+              if (res.ok) {
+                const user = await res.json();
+                wizard.MATTERMOST_OWNER_USER_ID = user.id;
+                succeed(`Found User ID: ${user.id}`);
+              } else {
+                warn(`API lookup failed (${res.status}). Please enter manually.`);
+                const val = await input({
+                  message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+                  default: "",
+                });
+                wizard.MATTERMOST_OWNER_USER_ID = val;
+              }
+            } catch (err) {
+              warn(`API lookup failed: ${err.message}. Please enter manually.`);
+              const val = await input({
+                message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+                default: "",
+              });
+              wizard.MATTERMOST_OWNER_USER_ID = val;
+            }
+          } else {
+            info(`\n  ${def.ownerHint}`);
+            const val = await input({
+              message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+              default: "",
+            });
+            wizard.MATTERMOST_OWNER_USER_ID = val;
+          }
+        } else {
+          info(`\n  ${def.ownerHint}`);
+          for (const ownerKey of def.ownerKeys) {
+            const val = await input({
+              message: `${ownerKey} [optional]:`,
+              default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
+            });
+            wizard[ownerKey] = val;
+          }
         }
       }
     }
