@@ -1,13 +1,13 @@
 # Felix Agent — Agent Guide
 
-Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI) and routes messages from source adapters (Mattermost, Discord, or Slack) through skill-gated LLM turns.
+Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, or Slack) through skill-gated LLM turns.
 
 ## Project layout
 
 ```
 src/
   core/          ports.ts · routing.ts · decide-turn.ts · schemas.ts
-  adapters/      codex/ · opencode/ · mattermost/ · discord/ · slack/
+  adapters/      codex/ · opencode/ · claude-code/ · mattermost/ · discord/ · slack/
   slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/
   server/        app.ts (HTTP + static SPA + SSE) · routes.ts (API route table) · sse.ts (dashboard stream)
   engine.ts      main dispatch loop
@@ -109,9 +109,11 @@ Key variables:
 |---|---|---|
 | `OWNER_UI_SECRET` | owner console | shared secret for login |
 | `OPENAI_API_KEY` | Codex harness | OpenAI API key |
-| `HARNESS` | — | `codex` (default) or `opencode` |
+| `ANTHROPIC_API_KEY` | Claude Code harness | Anthropic API key |
+| `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node/workspace` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
+| `CLAUDE_CODE_MODEL` | — | default `sonnet` |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
 | `SLACK_TOKEN` | Slack | enables the adapter when set |
@@ -125,7 +127,7 @@ Login with `OWNER_UI_SECRET`. Sessions, approvals, contacts, skills, audit log.
 
 ## Architecture notes
 
-- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. Concrete implementations: `CodexHarness` / `OpencodeHarness` (harnesses); `MattermostAdapter` / `DiscordAdapter` / `SlackAdapter` (sources).
+- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. Concrete implementations: `CodexHarness` / `OpencodeHarness` / `ClaudeCodeHarness` (harnesses); `MattermostAdapter` / `DiscordAdapter` / `SlackAdapter` (sources).
 - **Pure core**: `decideTurnResult()` and routing predicates have zero IO — fully unit-testable.
 - **Supervised source**: Each `startXxxSource` returns `{ stop(), done }`. The supervisor in `index.ts` awaits `done`. Transient connection drops are handled per adapter: Mattermost uses exponential backoff (1 s → 30 s); Discord and Slack use library-managed reconnection.
 - **Graceful shutdown**: SIGTERM → stop all sources → `engine.drain(15 s)` → close HTTP server → hard exit after 10 s.

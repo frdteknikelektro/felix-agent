@@ -1,6 +1,6 @@
 # 🦊 Felix Agent
 
-A persistent AI agent that wraps an LLM backend (Codex or OpenCode) and routes messages from Mattermost, Discord, or Slack through skill-gated turns.
+A persistent AI agent that wraps an LLM backend (Codex, OpenCode, or Claude Code) and routes messages from Mattermost, Discord, or Slack through skill-gated turns.
 
 > 🦊 Felix runs as a Docker container with a live owner console for monitoring sessions, approving skills, and managing contacts.
 
@@ -34,9 +34,10 @@ Run `npm run setup` to configure your `.env` interactively. Re-run anytime to up
 | Variable | Purpose |
 |---|---|
 | 🔑 `OWNER_UI_SECRET` | Owner console login |
-| 🤖 `HARNESS` | `codex` or `opencode` |
+| 🤖 `HARNESS` | `codex`, `opencode`, or `claude-code` |
 | 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` |
 | 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
+| 🧠 `ANTHROPIC_API_KEY` | Required when `HARNESS=claude-code` |
 | 💬 `MATTERMOST_TOKEN` | Enables Mattermost |
 | 🎮 `DISCORD_TOKEN` | Enables Discord |
 | 💼 `SLACK_TOKEN` | Enables Slack |
@@ -105,7 +106,7 @@ npm run build        # 📦 build SPA + server → dist/ + web/dist
 ```
 src/
 ├── core/        # ⚙️  ports · routing · decide-turn · schemas
-├── adapters/    # 🔌 codex · opencode · mattermost · discord · slack
+├── adapters/    # 🔌 codex · opencode · claude-code · mattermost · discord · slack
 ├── slices/      # 🧱 sessions · events · approvals · contacts · skills · audit
 ├── server/      # 🌐 HTTP API + static SPA + SSE
 ├── engine.ts    # 🧠 main dispatch loop

@@ -74,6 +74,7 @@ const SECRET_KEYS = new Set([
   "DEEPSEEK_API_KEY",
   "OPENCODE_API_KEY",
   "OPENROUTER_API_KEY",
+  "ANTHROPIC_API_KEY",
   "MATTERMOST_TOKEN",
   "DISCORD_TOKEN",
   "SLACK_TOKEN",
@@ -328,6 +329,7 @@ async function main() {
       choices: [
         { value: "codex", name: "codex — OpenAI Codex CLI" },
         { value: "opencode", name: "opencode — OpenCode CLI" },
+        { value: "claude-code", name: "claude-code — Claude Code CLI by Anthropic" },
       ],
       default: existing.HARNESS || "codex",
     });
@@ -363,6 +365,17 @@ async function main() {
         default: existing.OPENCODE_MODEL || "deepseek/deepseek-v4-flash",
       });
       wizard.OPENCODE_MODEL = ocModel;
+    }
+
+    if (harness === "claude-code") {
+      const ccKey = await promptRequired(password, "ANTHROPIC_API_KEY", "claude-code", existing);
+      if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
+
+      const ccModel = await input({
+        message: "CLAUDE_CODE_MODEL (alias: sonnet, opus, haiku, fable or full model ID):",
+        default: existing.CLAUDE_CODE_MODEL || "sonnet",
+      });
+      wizard.CLAUDE_CODE_MODEL = ccModel;
     }
 
     // ═══ Step 3: Owner Console ══════════════════════════════════════════════

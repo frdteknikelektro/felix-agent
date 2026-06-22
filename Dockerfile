@@ -69,6 +69,9 @@ ENV NODE_ENV=production \
     PYTHONUSERBASE=/home/node/workspace/runtime/python \
     PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
 
+# Install Claude Code CLI (native install recommended by Anthropic)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
     && npm cache clean --force

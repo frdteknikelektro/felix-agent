@@ -10,6 +10,7 @@ import { createSlackAdapter, startSlackSource } from "./adapters/slack/index.js"
 import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
+import { ClaudeCodeHarness, ensureClaudeCodeAuth } from "./adapters/claude-code/index.js";
 
 // ---------------------------------------------------------------------------
 // Supervisor — restarts a subsystem with exponential backoff on failure
@@ -113,6 +114,10 @@ async function main(): Promise<void> {
     case "opencode":
       await ensureOpencodeAuth(cfg);
       harness = new OpencodeHarness(cfg);
+      break;
+    case "claude-code":
+      await ensureClaudeCodeAuth(cfg);
+      harness = new ClaudeCodeHarness(cfg);
       break;
     case "codex":
     default:
