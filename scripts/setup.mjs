@@ -483,9 +483,9 @@ async function main() {
     const listenSources = await checkbox({
       message: "Listening sources:",
       choices: [
-        { value: "mattermost", name: "Mattermost", checked: !!existing.MATTERMOST_TOKEN },
-        { value: "discord", name: "Discord", checked: !!existing.DISCORD_TOKEN },
-        { value: "slack", name: "Slack", checked: !!existing.SLACK_TOKEN },
+        { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
+        { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
+        { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
       ],
     });
 
