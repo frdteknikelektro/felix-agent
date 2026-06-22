@@ -96,7 +96,7 @@ const SOURCE_DEFS = {
     },
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
     ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: Account Settings → Security → User ID (or click your name → Copy User ID)",
+    ownerHint: "Find your User ID: Click your avatar → Profile → copy User ID",
   },
   discord: {
     label: "Discord",
