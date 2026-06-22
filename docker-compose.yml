@@ -1,4 +1,18 @@
 services:
+  setup:
+    build:
+      context: .
+      target: setup
+    image: felix-agent:latest
+    container_name: felix-setup
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./.env:/app/.env
+      - ./workspace:/home/node/workspace
+    profiles: ["setup"]
+    stdin_open: true
+    tty: true
+
   felix:
     build:
       context: .
@@ -10,11 +24,26 @@ services:
       - "53318:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    secrets:
+      - .env
     volumes:
-      - ./.env:/run/secrets/.env:ro
       - ./workspace:/home/node/workspace
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
+      - /home/node/.codex:rw,noexec,nosuid
     networks:
       - felix-net
+
+secrets:
+  .env:
+    file: .env
 
 networks:
   felix-net:

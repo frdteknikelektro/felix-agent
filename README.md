@@ -15,10 +15,10 @@ A persistent AI agent that wraps an LLM backend (Codex, OpenCode, or Claude Code
 git clone https://github.com/frdteknikelektro/felix-agent.git
 cd felix-agent
 
-# ⚙️ One-time setup
-npm install && npm run setup
+# ⚙️ One-time setup (no Node.js required — just Docker)
+docker compose run --rm setup
 
-# 🐳 Build & start
+# 🐳 Start
 docker compose up -d
 
 # ❤️ Check health
@@ -29,13 +29,13 @@ curl http://localhost:53318/healthz
 
 ## ⚙️ Configure
 
-Run `npm run setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
+Run `docker compose run --rm setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
 
 | Variable | Purpose |
 |---|---|
 | 🔑 `OWNER_UI_SECRET` | Owner console login |
 | 🤖 `HARNESS` | `codex`, `opencode`, or `claude-code` |
-| 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` |
+| 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` (or use OAuth) |
 | 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
 | 🧠 `ANTHROPIC_API_KEY` | Required when `HARNESS=claude-code` |
 | 💬 `MATTERMOST_TOKEN` | Enables Mattermost |
@@ -56,6 +56,8 @@ docker compose logs -f
 docker compose ps
 docker compose up -d --build   # 🔁 rebuild on source changes
 ```
+
+> 🔒 **Security:** Secrets are injected via Docker secrets (not bind mounts). Container runs with `cap_drop: ALL` and read-only rootfs.
 
 > 📦 Prefer a pre-built image? Skip the local build:
 > ```bash

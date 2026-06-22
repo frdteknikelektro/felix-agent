@@ -67,10 +67,7 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     WORKSPACE_DIR=/home/node/workspace \
     PYTHONUSERBASE=/home/node/workspace/runtime/python \
-    PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
-
-# Install harness CLIs
-RUN npm install -g @openai/codex@^0.133.0 opencode-ai@^1.17.3 @anthropic-ai/claude-code@^2.1.161
+    PATH="/app/node_modules/.bin:/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
@@ -89,3 +86,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "dist/index.js"]
+
+# ── Setup stage ─────────────────────────────────────────────────────────────
+FROM node:24-bookworm-slim AS setup-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY scripts/setup.mjs ./scripts/setup.mjs
+COPY .env.example ./.env.example
+
+FROM runtime AS setup
+COPY --from=setup-deps /app/node_modules /app/node_modules
+COPY --from=setup-deps /app/scripts/setup.mjs /app/scripts/setup.mjs
+COPY --from=setup-deps /app/.env.example /app/.env.example
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "scripts/setup.mjs"]

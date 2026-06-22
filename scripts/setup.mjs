@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
-const EXAMPLE_PATH = join(ROOT, ".env.example");
-const ENV_PATH = join(ROOT, ".env");
-const WORKSPACE_PATH = join(ROOT, "workspace");
+const IN_CONTAINER = existsSync("/app");
+
+const ROOT = IN_CONTAINER ? "/app" : join(__dirname, "..");
+const EXAMPLE_PATH = IN_CONTAINER ? "/app/.env.example" : join(ROOT, ".env.example");
+const ENV_PATH = IN_CONTAINER ? "/app/.env" : join(ROOT, ".env");
+const WORKSPACE_PATH = IN_CONTAINER ? "/home/node/workspace" : join(ROOT, "workspace");
 
 // ── ANSI colors ────────────────────────────────────────────────────────────
 
@@ -180,6 +182,9 @@ function writeEnv(templatePath, outputPath, answers) {
 }
 
 async function ensureDeps() {
+  // In container: dependencies are pre-installed
+  if (IN_CONTAINER) return;
+
   if (!existsSync(join(ROOT, "node_modules", "@inquirer"))) {
     process.stdout.write(`${c.dim}Installing dependencies...${c.reset} `);
     const code = await new Promise((resolve, reject) => {
@@ -523,7 +528,7 @@ async function main() {
     step(5, 6, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
-    const catalogDir = join(ROOT, "workspace", "catalog", "skills");
+    const catalogDir = join(WORKSPACE_PATH, "catalog", "skills");
     if (existsSync(catalogDir)) skillDirs.push(catalogDir);
 
     const skillVars = await scanSkillEnv(skillDirs);
@@ -602,13 +607,22 @@ async function main() {
     }
 
     writeEnv(EXAMPLE_PATH, ENV_PATH, final);
-    if (!existsSync(WORKSPACE_PATH)) {
+    if (IN_CONTAINER) {
+      // Enforce restrictive permissions on .env (Unix only)
+      if (process.platform !== "win32") {
+        try { chmodSync(ENV_PATH, 0o600); } catch {}
+      }
+    } else if (!existsSync(WORKSPACE_PATH)) {
       mkdirSync(WORKSPACE_PATH);
     }
-    const cmd = process.platform === "win32"
-      ? "docker compose up -d"
-      : "UID=$(id -u) GID=$(id -g) docker compose up -d";
-    succeed(`Done. Run \`${cmd}\` to start the agent.`);
+    if (IN_CONTAINER) {
+      succeed("Done. Run `docker compose up -d` to start the agent.");
+    } else {
+      const cmd = process.platform === "win32"
+        ? "docker compose up -d"
+        : "UID=$(id -u) GID=$(id -g) docker compose up -d";
+      succeed(`Done. Run \`${cmd}\` to start the agent.`);
+    }
   } catch (err) {
     if (err && err.name === "ExitPromptError") {
       console.log(`\n${c.yellow}Setup cancelled.${c.reset}\n`);

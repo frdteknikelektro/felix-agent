@@ -30,7 +30,7 @@ contains its own login screen); `/api/*` and `/events/*` require the owner sessi
 
 ```bash
 npm install
-npm run setup          # interactive .env setup
+npm run setup          # interactive .env setup (local dev only — Docker users: docker compose run --rm setup)
 npm run dev            # tsx watch — API server (serves built web/dist if present)
 npm run dev:web        # optional: Vite dev server on :5173 with HMR, proxies /api + /events
 npm run lint         # tsc --noEmit
@@ -47,8 +47,8 @@ time and serves it — no local `npm` needed (see below).
 ## Docker — compose (recommended)
 
 ```bash
-# First-time setup
-npm run setup
+# First-time setup (no Node.js required — just Docker)
+docker compose run --rm setup
 
 # Build & start (Unix / WSL):
 UID=$(id -u) GID=$(id -g) docker compose up -d
@@ -76,6 +76,9 @@ docker run -d \
   --restart unless-stopped \
   --user "$(id -u):$(id -g)" \    # omit --user on Windows
   -p 53318:3000 \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid \
+  --tmpfs /home/node/.codex:rw,noexec,nosuid \
   -v $(pwd)/.env:/run/secrets/.env:ro \
   -v $(pwd)/workspace:/home/node/workspace \
   felix-agent:latest
@@ -101,7 +104,7 @@ LibreOffice and browser automation runtimes are excluded from v1. See `docs/adr/
 
 ## Config
 
-Runtime config is loaded from environment variables. In production with docker-compose, `.env` is mounted read-only at `/run/secrets/.env`. Locally copy `.env.example` → `.env` and fill in values.
+Runtime config is loaded from environment variables. In production with docker-compose, `.env` is injected as a Docker secret at `/run/secrets/.env`. Locally copy `.env.example` → `.env` and fill in values.
 
 Key variables:
 
