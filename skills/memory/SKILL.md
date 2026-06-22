@@ -2,6 +2,9 @@
 id: memory
 name: Memory Wiki
 description: Conventions for maintaining the Felix knowledge wiki. Read by the ingest harness on every run.
+version: 1
+enabled: true
+kind: general
 permissions:
   - write
 ---

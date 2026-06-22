@@ -1,233 +1,78 @@
-# Felix Agent Docker
+# Felix Agent
 
-Felix is a persistent thread/session agent that wraps Codex or Opencode LLM backends and routes messages from source adapters through skill-gated LLM turns.
+A persistent AI agent that wraps an LLM backend and routes messages from Mattermost, Discord, or Slack through skill-gated turns.
 
-Mattermost, Discord, and Slack are the current source adapters. Each source thread maps to one persisted Felix session, and each session uses skills copied from disk into the runtime workspace.
-
-```text
-source thread -> Felix session -> Codex turn -> skill-gated response or permission request
+```
+source thread → Felix session → LLM turn → skill-gated reply
 ```
 
 ## Quick Start
 
 ```bash
-npm install && npm run setup   # interactive .env setup
-docker compose up -d           # builds & starts the agent
+npm install && npm run setup   # one-time
+docker compose up -d           # build & start
 curl http://localhost:53318/healthz
 ```
 
-## Install Without Cloning
+Open the owner console at [http://localhost:53318](http://localhost:53318), log in with `OWNER_UI_SECRET`.
 
-### docker-compose (recommended)
+## Configure
+
+Run `npm run setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
+
+Key variables:
+
+| Variable | Purpose |
+|---|---|
+| `OWNER_UI_SECRET` | Owner console login |
+| `HARNESS` | `codex` or `opencode` |
+| `OPENAI_API_KEY` | Required when `HARNESS=codex` |
+| `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
+| `MATTERMOST_TOKEN` | Enables Mattermost |
+| `DISCORD_TOKEN` | Enables Discord |
+| `SLACK_TOKEN` | Enables Slack |
+
+See `.env.example` for all defaults.
+
+## Manage
 
 ```bash
-mkdir felix-agent && cd felix-agent
-curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/docker-compose.image.yml
-curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/.env.example
+docker compose logs -f
+docker compose ps
+docker compose up -d --build   # rebuild on source changes
+```
+
+Pre-built image (skip local build):
+
+```bash
 cp docker-compose.image.yml docker-compose.yml
-cp .env.example .env
-# edit .env with your secrets, then:
-# Unix / WSL:
-UID=$(id -u) GID=$(id -g) docker compose up -d
-# Windows (PowerShell / CMD):
 docker compose up -d
 ```
 
-### docker pull + run (manual)
+## Owner Console
 
-IPv6 is required for the container to reach services tunneled through ngrok or cloudflared, which expose IPv6 addresses.
-
-```bash
-docker pull frdinawan/felix-agent:latest
-
-docker network create --ipv6 --subnet fd00:cafe::/64 felix-net
-
-docker run -d \
-  --add-host host.docker.internal:host-gateway \
-  --network felix-net \
-  --name felix-agent \
-  --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \              # omit --user on Windows
-  -p 53318:3000 \
-  -v $(pwd)/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/node/workspace \
-  frdinawan/felix-agent:latest
+```
+http://localhost:53318/
 ```
 
-The image supports `linux/amd64` and `linux/arm64` — covers macOS (Intel + Apple Silicon), Linux, and Windows via WSL2.
-
-## Project Layout
-
-```text
-src/
-  core/          ports, routing, turn decisions, schemas
-  adapters/      Codex & Opencode harnesses; Mattermost, Discord & Slack adapters
-  slices/        sessions, events, approvals, contacts, skills, audit
-  server/        owner console, health endpoint, API routes
-  engine.ts      main dispatch loop
-  index.ts       composition root and supervisor
-  config.ts      env loading
-tests/           Vitest unit tests
-skills/          bundled skills shipped in the image
-.env             local secrets (git-ignored)
-workspace/       runtime data, copied skills, sessions, approvals, contacts
-```
-
-`skills/` is the source of bundled skills. On startup, Felix copies those skills into `workspace/catalog/skills`, then loads the runtime catalog. Manual edits inside `workspace/catalog/skills` are overwritten on restart.
+Sessions, approvals, contacts, skills, and audit history. Log in with `OWNER_UI_SECRET`.
 
 ## Development
 
 ```bash
 npm install
-npm run setup
-npm run dev
-npm run lint
-npm test
-npm run build
-npm start
+npm run setup                 # initial setup or update .env
+npm test                      # vitest
+npm run build                 # tsc
 ```
 
-## Docker
+## Project layout
 
-### docker-compose (recommended)
-
-```bash
-npm run setup                              # one-time bootstrap
-# Unix / WSL:
-UID=$(id -u) GID=$(id -g) \
-  docker compose up -d                    # build & start
-# Windows (PowerShell / CMD):
-docker compose up -d                       # build & start
-docker compose logs -f                    # follow logs
-docker compose ps                         # check status
-curl http://localhost:53318/healthz       # verify
+```
+src/          core · adapters (codex/opencode/mattermost/discord/slack) · server
+tests/        vitest unit tests
+skills/       bundled skills shipped in the image
+workspace/    runtime data — threads, contacts, skills, approvals
 ```
 
-To use the pre-built Docker Hub image instead of building locally, swap the compose file:
-
-```bash
-cp docker-compose.image.yml docker-compose.yml
-# edit the image: field with your Docker Hub repo
-# Unix / WSL:
-UID=$(id -u) GID=$(id -g) docker compose up -d
-# Windows (PowerShell / CMD):
-docker compose up -d
-```
-
-Set `UID` / `GID` to match your host user so the mounted `workspace/` has correct permissions. On macOS with Docker Desktop the defaults (1000:1000) usually work.
-
-To update to a new source version:
-
-```bash
-git pull
-docker compose up -d --build
-```
-
-### docker run (manual)
-
-IPv6 is required for the container to reach services tunneled through ngrok or cloudflared, which expose IPv6 addresses.
-
-```bash
-docker build -t felix-agent .
-
-docker network create --ipv6 --subnet fd00:cafe::/64 felix-net
-
-docker run -d \
-  --add-host host.docker.internal:host-gateway \
-  --network felix-net \
-  --name felix-agent \
-  --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \              # omit --user on Windows
-  -p 53318:3000 \
-  -v $(pwd)/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/node/workspace \
-  felix-agent:latest
-```
-
-## Agent Runtime Image
-
-The Docker image is a batteries-included Agent runtime image for provider-neutral skill work. The stable contract is expressed as Runtime capabilities; exact Runtime packages are implementation details.
-
-Guaranteed v1 Runtime capabilities:
-
-- Node execution.
-- Python execution with `pip` and `venv` support.
-- Core data stack for reporting and chart generation.
-- Basic image and PDF utility work.
-- Shell, network, archive, and compression utilities.
-- Git/project editing basics.
-- Shared runtime tooling paths under `workspace/runtime/`.
-
-Current Runtime package baseline:
-
-```text
-build-essential ca-certificates curl dumb-init ghostscript git imagemagick jq
-poppler-utils python3 python3-dev python3-pip python3-venv unzip zip
-```
-
-Current Core data stack installed during image build:
-
-```text
-numpy pandas matplotlib seaborn pillow requests openpyxl xlsxwriter python-dateutil
-```
-
-Provider-specific operational CLIs are intentionally not included in the image. Examples: `aws`, `gcloud`, `kubectl`, and `terraform`. Install those through `install-tool` or another explicit skill setup path when needed.
-
-LibreOffice and browser automation runtimes are also excluded from v1.
-
-## Config
-
-Runtime config is loaded from environment variables and `/run/secrets/.env` (mounted read-only).
-
-Start from:
-
-```bash
-npm run setup
-```
-
-Key variables:
-
-| Variable | Required for | Description |
-|---|---|---|
-| `OWNER_UI_SECRET` | owner console | shared secret for login |
-| `OPENAI_API_KEY` | Codex harness | OpenAI API key |
-| `HARNESS` | — | `codex` (default) or `opencode` |
-| `WORKSPACE_DIR` | — | default `/home/node/workspace` |
-| `CODEX_MODEL` | — | default `gpt-5.4-mini` |
-| `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
-| `DISCORD_TOKEN` | Discord | enables the adapter when set |
-| `SLACK_TOKEN` | Slack | enables the adapter when set |
-
-See `.env.example` for the complete list with all defaults.
-
-## Owner Console
-
-The owner console shares port 3000 (mapped to 53318 by docker-compose). Log in with `OWNER_UI_SECRET`.
-
-```text
-http://localhost:53318/
-```
-
-The console exposes sessions, approvals, contacts, skills, and audit history.
-
-## Workspace Layout
-
-```text
-workspace/
-  intake/<source>/raw/
-  records/sessions/<source>/<session-record>/
-  records/approvals/
-  records/audit.jsonl
-  catalog/skills/
-  catalog/contacts/
-  runtime/bin/
-  runtime/tools/
-  runtime/python/
-  runtime/health/
-  index/thread-key/<source>/
-  projects/<provider>/<namespace>/<repo>/
-```
-
-`thread_key` is an opaque stable key produced by each source adapter. Mattermost uses `mattermost:<channel_id>:<root_post_id>`, Discord uses `discord:<channel_id>:<root_message_id>`, Slack uses `slack:<channel_id>:<timestamp>`.
-
-`projects/` is reserved for checked-out target repositories Felix can edit, commit, branch, review, and open PRs/MRs for through future GitHub or GitLab adapters.
+Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart.

@@ -1,4 +1,5 @@
 ---
+id: general
 name: general
 description: Default skill for ordinary conversation and simple informational help.
 version: 1

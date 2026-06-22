@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -153,14 +153,26 @@ function parseTemplate(path) {
 
 function writeEnv(templatePath, outputPath, answers) {
   const template = parseTemplate(templatePath);
+  const templateKeys = new Set();
   const lines = template.map((entry) => {
     if (entry.type !== "setting") return entry.raw;
+    templateKeys.add(entry.key);
     if (entry.key in answers) {
       const eqIdx = entry.raw.indexOf("=");
       return entry.raw.slice(0, eqIdx + 1) + (answers[entry.key] ?? "");
     }
     return entry.raw;
   });
+
+  const extra = Object.keys(answers)
+    .filter((k) => !templateKeys.has(k) && answers[k])
+    .sort();
+  if (extra.length > 0) {
+    lines.push("");
+    lines.push("# ── Skill environment ───────────────────────────");
+    for (const key of extra) lines.push(`${key}=${answers[key]}`);
+  }
+
   writeFileSync(outputPath, lines.join("\n") + "\n");
 }
 
@@ -200,6 +212,70 @@ async function promptRequired(passwordFn, key, src, existing) {
 
 function pad(key, width) {
   return key.length >= width ? key : key + " ".repeat(width - key.length);
+}
+
+function extractFrontmatter(content) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return null;
+  try {
+    if (typeof parse === "undefined") return null;
+    const obj = parse(match[1]);
+    return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : null;
+  } catch {
+    return null;
+  }
+}
+
+let parse; // set lazily when yaml is available
+
+async function scanSkillEnv(dirs) {
+  try {
+    parse = (await import("yaml")).parse;
+  } catch {
+    return [];
+  }
+
+  const seen = new Set();
+  const vars = [];
+
+  for (const dir of dirs) {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const d of entries) {
+      if (!d.isDirectory()) continue;
+      const md = join(dir, d.name, "SKILL.md");
+      if (!existsSync(md)) continue;
+
+      let raw;
+      try {
+        raw = readFileSync(md, "utf8");
+      } catch {
+        continue;
+      }
+
+      const fm = extractFrontmatter(raw);
+      if (!fm || fm.enabled === false) continue;
+      if (!Array.isArray(fm.env)) continue;
+
+      for (const entry of fm.env) {
+        if (!entry || !entry.key || seen.has(entry.key)) continue;
+        seen.add(entry.key);
+        vars.push({
+          key: entry.key,
+          description: entry.description || "",
+          required: entry.required === true,
+          default: entry.default || "",
+          skill: fm.id || d.name,
+        });
+      }
+    }
+  }
+  return vars;
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
@@ -380,20 +456,51 @@ async function main() {
       }
     }
 
+    // ── Skill environment variables ─────────────────────────────────────
+
+    const skillDirs = [join(ROOT, "skills")];
+    const catalogDir = join(ROOT, "workspace", "catalog", "skills");
+    if (existsSync(catalogDir)) skillDirs.push(catalogDir);
+
+    const skillVars = await scanSkillEnv(skillDirs);
+    for (const v of skillVars) {
+      if (v.key in existing || v.key in wizard) continue;
+      const val = await input({
+        message: `${v.key} — ${v.description} (${v.skill}):`,
+        default: v.default || "",
+        validate: (val) => {
+          if (v.required && !val) return `${v.key} is required by ${v.skill}`;
+          return true;
+        },
+      });
+      if (val) wizard[v.key] = val;
+    }
+
     // ═══ Step 5: Review ═════════════════════════════════════════════════════
 
     step(5, 5, "Review");
 
     const template = parseTemplate(EXAMPLE_PATH);
+    const templateKeys = new Set();
     const final = {};
     for (const entry of template) {
       if (entry.type !== "setting") continue;
+      templateKeys.add(entry.key);
       if (entry.key in wizard) {
         final[entry.key] = wizard[entry.key];
       } else if (entry.key in existing) {
         final[entry.key] = existing[entry.key];
       } else {
         final[entry.key] = entry.value;
+      }
+    }
+
+    // Merge skill env vars not in template
+    const skillExtras = [];
+    for (const [key, value] of Object.entries(wizard)) {
+      if (!templateKeys.has(key) && value) {
+        final[key] = value;
+        skillExtras.push(key);
       }
     }
 
@@ -408,6 +515,13 @@ async function main() {
           ? c.dim + mask(final[entry.key]) + c.reset
           : final[entry.key] || `${c.dim}<not set>${c.reset}`;
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
+      }
+    }
+
+    if (skillExtras.length > 0) {
+      console.log(`\n  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
+      for (const key of skillExtras.sort()) {
+        console.log(`  ${c.bold}${pad(key, maxKey)}${c.reset}  ${final[key]}`);
       }
     }
 

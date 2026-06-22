@@ -112,6 +112,7 @@ export async function syncBundledSkills(
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (entry.name === "memory") continue;
+    if (entry.name === "template-skill") continue;
     const source = path.join(bundledSkillsDir, entry.name);
     const destination = path.join(paths.skills, entry.name);
     await fs.rm(destination, { recursive: true, force: true });
