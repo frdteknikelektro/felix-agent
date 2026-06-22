@@ -212,12 +212,16 @@ function existingHint(existing, key) {
 }
 
 async function promptRequired(key, src, existing) {
+  const hasExisting = existing && existing[key];
+  const hint = hasExisting
+    ? ` ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`
+    : "";
   const val = await input({
-    message: `${key} [required]:`,
+    message: `${key} [required]:${hint}`,
     transformer: secretTransformer,
     validate: (v) => {
       if (v.length > 0) return true;
-      if (existing && existing[key]) return true;
+      if (hasExisting) return true;
       return `${key} is required for ${src}`;
     },
   });
