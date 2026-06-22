@@ -381,7 +381,7 @@ async function main() {
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
       } else {
         // OAuth: use CODEX_HOME to isolate auth from host's ~/.codex/
-        const tmpHome = join(os.homedir(), `.felix-oauth-${randomUUID().slice(0, 8)}`);
+        const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
         mkdirSync(tmpHome, { recursive: true });
 
         info("\n  Launching device auth...");
