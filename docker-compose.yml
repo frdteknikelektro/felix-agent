@@ -40,7 +40,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid
-      - /home/node/.codex:rw,noexec,nosuid,uid=1000,gid=1000
     networks:
       - felix-net
 

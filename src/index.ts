@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
@@ -123,7 +122,7 @@ async function main(): Promise<void> {
     case "codex":
     default:
       if (cfg.OPENAI_CODEX_AUTH_JSON) {
-        const codexHome = path.join(os.homedir(), ".codex");
+        const codexHome = path.join(cfg.paths.runtime, ".codex");
         const authPath = path.join(codexHome, "auth.json");
         try {
           await fs.access(authPath);
