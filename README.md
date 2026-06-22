@@ -11,9 +11,8 @@ source thread -> Felix session -> Codex turn -> skill-gated response or permissi
 ## Quick Start
 
 ```bash
-./setup.sh              # creates .env and workspace/ (one-time)
-# edit .env with your secrets
-docker compose up -d    # builds & starts the agent
+npm install && npm run setup   # interactive .env setup
+docker compose up -d           # builds & starts the agent
 curl http://localhost:53318/healthz
 ```
 
@@ -25,12 +24,13 @@ curl http://localhost:53318/healthz
 mkdir felix-agent && cd felix-agent
 curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/docker-compose.image.yml
 curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/.env.example
-curl -O https://raw.githubusercontent.com/frdteknikelektro/felix-agent/main/setup.sh
-chmod +x setup.sh
 cp docker-compose.image.yml docker-compose.yml
-./setup.sh
+cp .env.example .env
 # edit .env with your secrets, then:
+# Unix / WSL:
 UID=$(id -u) GID=$(id -g) docker compose up -d
+# Windows (PowerShell / CMD):
+docker compose up -d
 ```
 
 ### docker pull + run (manual)
@@ -47,7 +47,7 @@ docker run -d \
   --network felix-net \
   --name felix-agent \
   --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \
+  --user "$(id -u):$(id -g)" \              # omit --user on Windows
   -p 53318:3000 \
   -v $(pwd)/.env:/run/secrets/.env:ro \
   -v $(pwd)/workspace:/home/node/workspace \
@@ -79,6 +79,7 @@ workspace/       runtime data, copied skills, sessions, approvals, contacts
 
 ```bash
 npm install
+npm run setup
 npm run dev
 npm run lint
 npm test
@@ -91,9 +92,12 @@ npm start
 ### docker-compose (recommended)
 
 ```bash
-./setup.sh                                # one-time bootstrap
+npm run setup                              # one-time bootstrap
+# Unix / WSL:
 UID=$(id -u) GID=$(id -g) \
   docker compose up -d                    # build & start
+# Windows (PowerShell / CMD):
+docker compose up -d                       # build & start
 docker compose logs -f                    # follow logs
 docker compose ps                         # check status
 curl http://localhost:53318/healthz       # verify
@@ -104,7 +108,10 @@ To use the pre-built Docker Hub image instead of building locally, swap the comp
 ```bash
 cp docker-compose.image.yml docker-compose.yml
 # edit the image: field with your Docker Hub repo
+# Unix / WSL:
 UID=$(id -u) GID=$(id -g) docker compose up -d
+# Windows (PowerShell / CMD):
+docker compose up -d
 ```
 
 Set `UID` / `GID` to match your host user so the mounted `workspace/` has correct permissions. On macOS with Docker Desktop the defaults (1000:1000) usually work.
@@ -130,7 +137,7 @@ docker run -d \
   --network felix-net \
   --name felix-agent \
   --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \
+  --user "$(id -u):$(id -g)" \              # omit --user on Windows
   -p 53318:3000 \
   -v $(pwd)/.env:/run/secrets/.env:ro \
   -v $(pwd)/workspace:/home/node/workspace \
@@ -175,7 +182,7 @@ Runtime config is loaded from environment variables and `/run/secrets/.env` (mou
 Start from:
 
 ```bash
-cp .env.example .env
+npm run setup
 ```
 
 Key variables:

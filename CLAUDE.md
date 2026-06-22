@@ -24,7 +24,8 @@ skills/          bundled skills shipped in the image
 
 ```bash
 npm install
-npm run dev          # tsx watch — no build step needed
+npm run setup          # interactive .env setup
+npm run dev            # tsx watch — no build step needed
 npm run lint         # tsc --noEmit
 npm test             # vitest run (104 tests, ~1 s)
 npm run build        # tsc → dist/
@@ -35,11 +36,12 @@ npm start            # node dist/index.js
 
 ```bash
 # First-time setup
-./setup.sh
-# edit .env with your secrets
+npm run setup
 
-# Build & start
+# Build & start (Unix / WSL):
 UID=$(id -u) GID=$(id -g) docker compose up -d
+# Build & start (Windows PowerShell / CMD):
+docker compose up -d
 
 # Manage
 docker compose ps
@@ -50,7 +52,7 @@ curl http://localhost:53318/healthz   # → {"ok":true}
 docker compose up -d --build
 ```
 
-Set `UID` / `GID` to match the host user that owns the bind-mounted `workspace/` directory. On macOS Docker Desktop the defaults (1000:1000) usually work.
+Set `UID` / `GID` to match the host user that owns the bind-mounted `workspace/` directory. On macOS and Windows Docker Desktop the defaults (1000:1000) usually work.
 
 ### docker run (manual)
 
@@ -60,7 +62,7 @@ docker build -t felix-agent .
 docker run -d \
   --name felix-agent \
   --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \
+  --user "$(id -u):$(id -g)" \    # omit --user on Windows
   -p 53318:3000 \
   -v $(pwd)/.env:/run/secrets/.env:ro \
   -v $(pwd)/workspace:/home/node/workspace \

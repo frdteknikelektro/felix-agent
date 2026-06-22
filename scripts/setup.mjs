@@ -1,0 +1,437 @@
+#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
+const EXAMPLE_PATH = join(ROOT, ".env.example");
+const ENV_PATH = join(ROOT, ".env");
+const WORKSPACE_PATH = join(ROOT, "workspace");
+
+// ── ANSI colors ────────────────────────────────────────────────────────────
+
+const c = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  black: "\x1b[30m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  white: "\x1b[37m",
+};
+
+function clear() {
+  process.stdout.write("\x1b[2J\x1b[H");
+}
+
+function stripAnsi(str) {
+  return str.replace(/\x1b\[\d+(;\d+)*m/g, "");
+}
+
+function box(text, color = c.cyan) {
+  const lines = text.split("\n");
+  const maxW = Math.max(...lines.map((l) => stripAnsi(l).length));
+  const top = `${color}${c.bold}╔${"═".repeat(maxW + 4)}╗${c.reset}`;
+  const bottom = `${color}${c.bold}╚${"═".repeat(maxW + 4)}╝${c.reset}`;
+  console.log(top);
+  for (const line of lines) {
+    const vis = stripAnsi(line).length;
+    const left = Math.floor((maxW - vis) / 2);
+    const right = maxW - vis - left;
+    console.log(`${color}${c.bold}║${c.reset}  ${" ".repeat(left)}${line}${" ".repeat(right)}  ${color}${c.bold}║${c.reset}`);
+  }
+  console.log(bottom);
+}
+
+function step(n, total, label) {
+  console.log(`\n${c.cyan}${c.bold}▌${c.reset} ${c.bold}Step ${n}/${total}${c.reset} ${c.dim}·${c.reset} ${c.yellow}${label}${c.reset}\n`);
+}
+
+function succeed(msg) {
+  console.log(`\n${c.green}${c.bold}✓${c.reset}  ${msg}`);
+}
+
+function warn(msg) {
+  console.log(`${c.yellow}${c.bold}⚠${c.reset}  ${msg}`);
+}
+
+function info(msg) {
+  console.log(`${c.dim}${msg}${c.reset}`);
+}
+
+// ── Constants ──────────────────────────────────────────────────────────────
+
+const SECRET_KEYS = new Set([
+  "OWNER_UI_SECRET",
+  "OPENAI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "OPENCODE_API_KEY",
+  "OPENROUTER_API_KEY",
+  "MATTERMOST_TOKEN",
+  "DISCORD_TOKEN",
+  "SLACK_TOKEN",
+  "SLACK_APP_TOKEN",
+]);
+
+const SOURCE_DEFS = {
+  mattermost: {
+    label: "Mattermost",
+    required: ["MATTERMOST_URL", "MATTERMOST_TOKEN"],
+    optional: {
+      MATTERMOST_BOT_USER_ID: "",
+      MATTERMOST_BOT_USERNAME: "",
+      MATTERMOST_BOT_DISPLAY: "Felix",
+    },
+    ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_DISPLAY"],
+    ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
+  },
+  discord: {
+    label: "Discord",
+    required: ["DISCORD_TOKEN"],
+    optional: {
+      DISCORD_BOT_USER_ID: "",
+    },
+    ownerKeys: ["DISCORD_OWNER_USER_ID", "DISCORD_OWNER_DISPLAY"],
+    ownerDefaults: { DISCORD_OWNER_DISPLAY: "Owner" },
+  },
+  slack: {
+    label: "Slack",
+    required: ["SLACK_TOKEN", "SLACK_APP_TOKEN"],
+    optional: {
+      SLACK_BOT_USER_ID: "",
+    },
+    ownerKeys: ["SLACK_OWNER_USER_ID", "SLACK_OWNER_DISPLAY"],
+    ownerDefaults: { SLACK_OWNER_DISPLAY: "Owner" },
+  },
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function mask(value) {
+  if (!value) return "<not set>";
+  if (value.length <= 6) return "*".repeat(value.length);
+  return "****" + value.slice(-4);
+}
+
+function readEnv(path) {
+  if (!existsSync(path)) return {};
+  const out = {};
+  const raw = readFileSync(path, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx < 1) continue;
+    out[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+  }
+  return out;
+}
+
+function parseTemplate(path) {
+  const raw = readFileSync(path, "utf8");
+  return raw.split(/\r?\n/).map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return { type: "blank", raw: line };
+    if (trimmed.startsWith("#")) return { type: "comment", raw: line };
+    const eq = trimmed.indexOf("=");
+    if (eq < 1) return { type: "comment", raw: line };
+    return {
+      type: "setting",
+      raw: line,
+      key: trimmed.slice(0, eq).trim(),
+      value: trimmed.slice(eq + 1).trim(),
+    };
+  });
+}
+
+function writeEnv(templatePath, outputPath, answers) {
+  const template = parseTemplate(templatePath);
+  const lines = template.map((entry) => {
+    if (entry.type !== "setting") return entry.raw;
+    if (entry.key in answers) {
+      const eqIdx = entry.raw.indexOf("=");
+      return entry.raw.slice(0, eqIdx + 1) + (answers[entry.key] ?? "");
+    }
+    return entry.raw;
+  });
+  writeFileSync(outputPath, lines.join("\n") + "\n");
+}
+
+async function ensureDeps() {
+  if (!existsSync(join(ROOT, "node_modules", "@inquirer"))) {
+    process.stdout.write(`${c.dim}Installing dependencies...${c.reset} `);
+    const code = await new Promise((resolve, reject) => {
+      const child = spawn("npm", ["install"], { cwd: ROOT, stdio: "inherit" });
+      child.on("exit", (code) => resolve(code ?? -1));
+      child.on("error", reject);
+    });
+    if (code !== 0) {
+      console.error(`${c.red}ERROR:${c.reset} npm install exited with code ${code}`);
+      process.exit(1);
+    }
+  }
+}
+
+function existingHint(existing, key) {
+  if (existing && key in existing && existing[key]) {
+    return ` ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`;
+  }
+  return "";
+}
+
+async function promptRequired(passwordFn, key, src, existing) {
+  const val = await passwordFn({
+    message: `${key}:${existingHint(existing, key)}`,
+    validate: (v) => {
+      if (v.length > 0) return true;
+      if (existing && existing[key]) return true;
+      return `${key} is required for ${src}`;
+    },
+  });
+  return val;
+}
+
+function pad(key, width) {
+  return key.length >= width ? key : key + " ".repeat(width - key.length);
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
+
+async function main() {
+  try {
+    await ensureDeps();
+
+    const { select, input, password, checkbox, confirm } = await import("@inquirer/prompts");
+
+    if (!existsSync(EXAMPLE_PATH)) {
+      console.error(`${c.red}ERROR:${c.reset} .env.example not found. Cannot generate .env template.`);
+      process.exit(1);
+    }
+
+    const existing = readEnv(ENV_PATH);
+    const existingExists = Object.keys(existing).length > 0;
+    const wizard = {};
+
+    clear();
+
+    box(
+      [
+        "",
+        `⚡  ${c.bold}Felix Agent Setup${c.reset}`,
+        "",
+        `Configure your environment interactively.`,
+        `Press ${c.bold}Ctrl+C${c.reset} to cancel at any time.`,
+        "",
+      ].join("\n"),
+    );
+
+    if (existingExists) {
+      info("\n  Existing .env found — values are pre-filled.");
+      info("  Press Enter to keep, type to change.");
+    }
+
+    // ═══ Step 1: Harness ═══════════════════════════════════════════════════
+
+    step(1, 5, "Harness");
+
+    const harness = await select({
+      message: "Select LLM backend:",
+      choices: [
+        { value: "codex", name: "codex — OpenAI Codex CLI" },
+        { value: "opencode", name: "opencode — OpenCode CLI" },
+      ],
+      default: existing.HARNESS || "codex",
+    });
+    wizard.HARNESS = harness;
+
+    // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
+
+    step(2, 5, "API Keys");
+
+    if (harness === "codex") {
+      const codexModel = await input({
+        message: "CODEX_MODEL:",
+        default: existing.CODEX_MODEL || "gpt-5.4-mini",
+      });
+      wizard.CODEX_MODEL = codexModel;
+
+      const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
+      if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+    }
+
+    if (harness === "opencode") {
+      const ocKey = await promptRequired(password, "OPENCODE_API_KEY", "opencode", existing);
+      if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
+
+      const orKey = await password({
+        message: `OPENROUTER_API_KEY (optional):${existingHint(existing, "OPENROUTER_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+      });
+      if (orKey) wizard.OPENROUTER_API_KEY = orKey;
+
+      const ocModel = await input({
+        message:
+          "OPENCODE_MODEL (provider/model format):\n  Browse: https://models.dev\n  Docs:   https://opencode.ai/docs/providers",
+        default: existing.OPENCODE_MODEL || "deepseek/deepseek-v4-flash",
+      });
+      wizard.OPENCODE_MODEL = ocModel;
+    }
+
+    // ═══ Step 3: Owner Console ══════════════════════════════════════════════
+
+    step(3, 5, "Owner Console");
+
+    info("  Enter a secret for the owner web console.");
+    info("  Press Enter to auto-generate one.\n");
+
+    const secret = await input({
+      message: "OWNER_UI_SECRET:",
+      default: existing.OWNER_UI_SECRET || randomUUID(),
+    });
+    wizard.OWNER_UI_SECRET = secret;
+
+    // ═══ Step 4: Sources ════════════════════════════════════════════════════
+
+    step(4, 5, "Sources");
+
+    info("  Select chat sources Felix will listen to.\n");
+
+    const listenSources = await checkbox({
+      message: "Listening sources:",
+      choices: [
+        { value: "mattermost", name: "Mattermost", checked: !!existing.MATTERMOST_TOKEN },
+        { value: "discord", name: "Discord", checked: !!existing.DISCORD_TOKEN },
+        { value: "slack", name: "Slack", checked: !!existing.SLACK_TOKEN },
+      ],
+    });
+
+    let ownerSource = null;
+    if (listenSources.length === 1) {
+      ownerSource = listenSources[0];
+      info(`  Owner channel: ${SOURCE_DEFS[ownerSource].label} (auto-selected)\n`);
+    } else if (listenSources.length > 1) {
+      info("  Select which source the owner will use.\n");
+      ownerSource = await select({
+        message: "Owner channel:",
+        choices: listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
+      });
+    }
+
+    // ── Clear deselected sources ───────────────────────────────────────────
+
+    for (const src of Object.keys(SOURCE_DEFS)) {
+      if (!listenSources.includes(src)) {
+        const def = SOURCE_DEFS[src];
+        for (const key of [...def.required, ...Object.keys(def.optional), ...def.ownerKeys]) {
+          wizard[key] = "";
+        }
+      }
+    }
+
+    // ── Cascading prompts per source ───────────────────────────────────────
+
+    for (const src of listenSources) {
+      const def = SOURCE_DEFS[src];
+      const ownerBadge = src === ownerSource ? ` ${c.yellow}(owner)${c.reset}` : "";
+      console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}${ownerBadge}`);
+
+      for (const reqKey of def.required) {
+        const val = await promptRequired(password, reqKey, src, existing);
+        if (val) wizard[reqKey] = val;
+      }
+
+      for (const [optKey, fallback] of Object.entries(def.optional)) {
+        const val = await input({
+          message: `${optKey}:`,
+          default: existing[optKey] || fallback,
+        });
+        wizard[optKey] = val;
+      }
+
+      if (src === ownerSource) {
+        for (const ownerKey of def.ownerKeys) {
+          const val = await input({
+            message: `${ownerKey}:`,
+            default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
+          });
+          wizard[ownerKey] = val;
+        }
+      }
+    }
+
+    if (listenSources.length === 0) {
+      warn("No sources selected. You can re-run setup later.\n");
+    }
+
+    // ── Clear owner keys on non-owner listening sources ────────────────────
+
+    for (const src of listenSources) {
+      if (src !== ownerSource) {
+        const def = SOURCE_DEFS[src];
+        for (const key of def.ownerKeys) {
+          wizard[key] = "";
+        }
+      }
+    }
+
+    // ═══ Step 5: Review ═════════════════════════════════════════════════════
+
+    step(5, 5, "Review");
+
+    const template = parseTemplate(EXAMPLE_PATH);
+    const final = {};
+    for (const entry of template) {
+      if (entry.type !== "setting") continue;
+      if (entry.key in wizard) {
+        final[entry.key] = wizard[entry.key];
+      } else if (entry.key in existing) {
+        final[entry.key] = existing[entry.key];
+      } else {
+        final[entry.key] = entry.value;
+      }
+    }
+
+    const keyLens = Object.keys(final).map((k) => k.length);
+    const maxKey = keyLens.length > 0 ? Math.min(32, Math.max(...keyLens) + 2) : 16;
+
+    for (const entry of template) {
+      if (entry.type === "comment" && /^# ──/.test(entry.raw)) {
+        console.log(`\n  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
+      } else if (entry.type === "setting" && entry.key in final) {
+        const display = SECRET_KEYS.has(entry.key)
+          ? c.dim + mask(final[entry.key]) + c.reset
+          : final[entry.key] || `${c.dim}<not set>${c.reset}`;
+        console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
+      }
+    }
+
+    const ok = await confirm({ message: "\nWrite .env?", default: true });
+    if (!ok) {
+      console.log(`\n${c.yellow}Aborted.${c.reset}`);
+      return;
+    }
+
+    writeEnv(EXAMPLE_PATH, ENV_PATH, final);
+    if (!existsSync(WORKSPACE_PATH)) {
+      mkdirSync(WORKSPACE_PATH);
+    }
+    const cmd = process.platform === "win32"
+      ? "docker compose up -d"
+      : "UID=$(id -u) GID=$(id -g) docker compose up -d";
+    succeed(`Done. Run \`${cmd}\` to start the agent.`);
+  } catch (err) {
+    if (err && err.name === "ExitPromptError") {
+      console.log(`\n${c.yellow}Setup cancelled.${c.reset}\n`);
+      process.exit(0);
+    }
+    throw err;
+  }
+}
+
+main();

@@ -117,6 +117,7 @@ export class OpencodeHarness implements Harness {
       WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
       OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
       OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
+      OPENROUTER_API_KEY: this.cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
       DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
       XDG_DATA_HOME: `${this.cfg.paths.runtime}/.local`,
       XDG_CONFIG_HOME: `${this.cfg.paths.runtime}/.config`,
