@@ -548,18 +548,22 @@ async function main() {
     if (existsSync(catalogDir)) skillDirs.push(catalogDir);
 
     const skillVars = await scanSkillEnv(skillDirs);
-    const pendingSkillVars = skillVars.filter((v) => !(v.key in existing) && !(v.key in wizard));
+    const pendingSkillVars = skillVars.filter((v) => !(v.key in wizard));
 
     if (pendingSkillVars.length === 0) {
       info("  No skill environment variables to configure.\n");
     } else {
       info("  Bundled skills request these environment variables.\n");
       for (const v of pendingSkillVars) {
+        const hasExisting = existing && existing[v.key];
+        const hint = hasExisting
+          ? ` ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
+          : "";
         const val = await input({
-          message: `${v.key} — ${v.description} (${v.skill}):`,
+          message: `${v.key} — ${v.description} (${v.skill}):${hint}`,
           default: v.default || "",
           validate: (val) => {
-            if (v.required && !val) return `${v.key} is required by ${v.skill}`;
+            if (v.required && !val && !hasExisting) return `${v.key} is required by ${v.skill}`;
             return true;
           },
         });
