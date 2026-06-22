@@ -162,6 +162,7 @@ export class FelixEngine {
     await setThreadBusy(thread, true);
     const controller = new AbortController();
     this.abortControllers.set(thread.state.thread_key, controller);
+    const retryCounts = new Map<string, number>();
     try {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
@@ -199,6 +200,13 @@ export class FelixEngine {
               this.stopRequested.delete(thread.state.thread_key);
               break;
             }
+            const retryCount = retryCounts.get(item.source_event_id) ?? 0;
+            if (retryCount >= 2) {
+              const detail = error instanceof Error ? `${error.message}. ` : "";
+              await this.postThreadError(thread, event, detail);
+              break;
+            }
+            retryCounts.set(item.source_event_id, retryCount + 1);
             await requeueEvent(thread, item);
             const detail = error instanceof Error ? `${error.message}. ` : "";
             await this.postThreadError(thread, event, detail);
@@ -266,6 +274,13 @@ export class FelixEngine {
                 this.stopRequested.delete(thread.state.thread_key);
                 break;
               }
+              const retryCount = retryCounts.get(item.source_event_id) ?? 0;
+              if (retryCount >= 2) {
+                const detail = error instanceof Error ? `${error.message}. ` : "";
+                await this.postThreadError(thread, event, detail);
+                break;
+              }
+              retryCounts.set(item.source_event_id, retryCount + 1);
               await requeueEvent(thread, item);
               const detail = error instanceof Error ? `${error.message}. ` : "";
               await this.postThreadError(thread, event, detail);
