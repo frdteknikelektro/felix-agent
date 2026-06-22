@@ -18,6 +18,7 @@ services:
   felix:
     build:
       context: .
+      target: runtime
     image: felix-agent:latest
     container_name: felix-agent
     restart: unless-stopped
