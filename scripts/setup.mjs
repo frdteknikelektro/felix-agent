@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,6 +72,7 @@ function info(msg) {
 const SECRET_KEYS = new Set([
   "OWNER_UI_SECRET",
   "OPENAI_API_KEY",
+  "OPENAI_CODEX_AUTH_JSON",
   "DEEPSEEK_API_KEY",
   "OPENCODE_API_KEY",
   "OPENROUTER_API_KEY",
@@ -346,8 +348,49 @@ async function main() {
       });
       wizard.CODEX_MODEL = codexModel;
 
-      const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
-      if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+      const authMethod = await select({
+        message: "Codex authentication method:",
+        choices: [
+          { value: "api-key", name: "api-key — Use OpenAI API key" },
+          { value: "oauth", name: "oauth — Login with ChatGPT Plus account (device auth)" },
+        ],
+        default: existing.OPENAI_CODEX_AUTH_JSON ? "oauth" : "api-key",
+      });
+
+      if (authMethod === "api-key") {
+        const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
+        if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+      } else {
+        // OAuth: use CODEX_HOME to isolate auth from host's ~/.codex/
+        const tmpHome = join(os.tmpdir(), `felix-oauth-${randomUUID().slice(0, 8)}`);
+        mkdirSync(tmpHome, { recursive: true });
+
+        info("\n  Launching device auth...");
+        info("  A browser window will open. Enter the code shown below.\n");
+
+        const child = spawn("codex", ["login", "--device-auth"], {
+          env: { ...process.env, CODEX_HOME: tmpHome },
+          stdio: "inherit",
+        });
+        const exitCode = await new Promise((resolve) => {
+          child.on("close", (code) => resolve(code ?? -1));
+        });
+
+        if (exitCode !== 0) {
+          warn("codex login failed. Falling back to API key method.");
+          const oaiKey = await promptRequired(password, "OPENAI_API_KEY", "codex", existing);
+          if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+        } else {
+          const authPath = join(tmpHome, "auth.json");
+          const authContent = readFileSync(authPath, "utf8");
+          wizard.OPENAI_CODEX_AUTH_JSON = authContent;
+          wizard.OPENAI_API_KEY = "";
+          succeed("Logged in via ChatGPT OAuth");
+        }
+
+        // Clean up temp dir
+        try { rmSync(tmpHome, { recursive: true }); } catch {}
+      }
     }
 
     if (harness === "opencode") {

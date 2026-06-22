@@ -23,6 +23,7 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     CLAUDE_CODE_BIN: "claude",
     CLAUDE_CODE_MODEL: "sonnet",
     CLAUDE_CODE_TIMEOUT_MS: 600000,
+    OPENAI_CODEX_AUTH_JSON: undefined,
     MATTERMOST_BOT_DISPLAY: "Felix",
     MATTERMOST_OWNER_DISPLAY: "Owner",
     DISCORD_OWNER_DISPLAY: "Owner",

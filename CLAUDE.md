@@ -108,7 +108,8 @@ Key variables:
 | Variable | Required for | Description |
 |---|---|---|
 | `OWNER_UI_SECRET` | owner console | shared secret for login |
-| `OPENAI_API_KEY` | Codex harness | OpenAI API key |
+| `OPENAI_API_KEY` | Codex harness | OpenAI API key (or use OAuth) |
+| `OPENAI_CODEX_AUTH_JSON` | Codex harness (OAuth) | ChatGPT Plus auth JSON (populated by setup) |
 | `ANTHROPIC_API_KEY` | Claude Code harness | Anthropic API key |
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node/workspace` |

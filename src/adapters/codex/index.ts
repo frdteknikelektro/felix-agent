@@ -63,7 +63,7 @@ export class CodexHarness implements Harness {
       env: {
         ...process.env,
         WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-        OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+        ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
         OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
         OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
         OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
@@ -148,7 +148,7 @@ export class CodexHarness implements Harness {
         env: {
           ...process.env,
           WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-          OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+          ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
           OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
           OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
           OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
@@ -173,6 +173,11 @@ export class CodexHarness implements Harness {
 }
 
 export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
+  // OAuth: auth.json already written at startup, skip API key login
+  if (cfg.OPENAI_CODEX_AUTH_JSON) {
+    return;
+  }
+
   if (!cfg.OPENAI_API_KEY) {
     return;
   }

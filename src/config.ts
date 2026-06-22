@@ -24,6 +24,7 @@ const Env = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   OWNER_UI_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_CODEX_AUTH_JSON: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
   OPENAI_ORGANIZATION: z.string().optional(),
   OPENAI_PROJECT: z.string().optional(),
