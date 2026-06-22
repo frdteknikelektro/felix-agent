@@ -540,7 +540,7 @@ async function main() {
           const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
 
           const display = await input({
-            message: `MATTERMOST_OWNER_DISPLAY [optional]:`,
+            message: `MATTERMOST_OWNER_DISPLAY [optional] (your display name shown in channels):`,
             default: existingDisplay,
           });
           wizard.MATTERMOST_OWNER_DISPLAY = display;
@@ -552,26 +552,38 @@ async function main() {
               default: existingUserId,
             });
             wizard.MATTERMOST_OWNER_USER_ID = val || existingUserId;
-          } else if (mmUrl && mmToken && display) {
-            info("  Attempting to look up your User ID via Mattermost API...\n");
-            try {
-              const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(display)}`, {
-                headers: { Authorization: `Bearer ${mmToken}` },
-              });
-              if (res.ok) {
-                const user = await res.json();
-                wizard.MATTERMOST_OWNER_USER_ID = user.id;
-                succeed(`Found User ID: ${user.id}`);
-              } else {
-                warn(`API lookup failed (${res.status}). Please enter manually.`);
+          } else if (mmUrl && mmToken) {
+            const username = await input({
+              message: `MATTERMOST_OWNER_USERNAME [optional] (your login username, e.g. farid):`,
+              default: "",
+            });
+            if (username) {
+              info("  Looking up your User ID via Mattermost API...\n");
+              try {
+                const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(username)}`, {
+                  headers: { Authorization: `Bearer ${mmToken}` },
+                });
+                if (res.ok) {
+                  const user = await res.json();
+                  wizard.MATTERMOST_OWNER_USER_ID = user.id;
+                  succeed(`Found User ID: ${user.id}`);
+                } else {
+                  warn(`API lookup failed (${res.status}). Please enter manually.`);
+                  const val = await input({
+                    message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+                    default: "",
+                  });
+                  wizard.MATTERMOST_OWNER_USER_ID = val;
+                }
+              } catch (err) {
+                warn(`API lookup failed: ${err.message}. Please enter manually.`);
                 const val = await input({
                   message: `MATTERMOST_OWNER_USER_ID [optional]:`,
                   default: "",
                 });
                 wizard.MATTERMOST_OWNER_USER_ID = val;
               }
-            } catch (err) {
-              warn(`API lookup failed: ${err.message}. Please enter manually.`);
+            } else {
               const val = await input({
                 message: `MATTERMOST_OWNER_USER_ID [optional]:`,
                 default: "",
