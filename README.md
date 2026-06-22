@@ -94,7 +94,7 @@ Provider-specific operational CLIs are **not** bundled — install them on deman
 
 Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart. You can also create or remove skills from the owner console.
 
-> 🦊 Extra skills (GitHub, GitLab, Vercel, PostHog, and more) live in **[felix-custom-skills](https://github.com/frdteknikelektro/felix-custom-skills)** — copy them into `workspace/catalog/skills/` to deploy.
+> 🦊 Extra skills (GitHub, GitLab, Vercel, PostHog, and more) live in **[felix-agent-custom-skills](https://github.com/frdteknikelektro/felix-agent-custom-skills)** — copy them into `workspace/catalog/skills/` to deploy.
 
 ## 🛠️ Development
 
@@ -127,4 +127,4 @@ workspace/       # 💾 runtime data (git-ignored)
 
 ## 🔗 Related
 
-- 🦊 **[felix-custom-skills](https://github.com/frdteknikelektro/felix-custom-skills)** — extra skills for Felix Agent
+- 🦊 **[felix-agent-custom-skills](https://github.com/frdteknikelektro/felix-agent-custom-skills)** — extra skills for Felix Agent
