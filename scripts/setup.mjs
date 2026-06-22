@@ -104,7 +104,7 @@ const SOURCE_DEFS = {
     optional: {},
     ownerKeys: ["DISCORD_OWNER_USER_ID", "DISCORD_OWNER_DISPLAY"],
     ownerDefaults: { DISCORD_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID",
+    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID (or: curl -s -H 'Authorization: Bot BOT_TOKEN' https://discord.com/api/users/@me | jq .id)",
   },
   slack: {
     label: "Slack",
