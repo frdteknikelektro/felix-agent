@@ -69,8 +69,8 @@ ENV NODE_ENV=production \
     PYTHONUSERBASE=/home/node/workspace/runtime/python \
     PATH="/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
 
-# Install Claude Code CLI (native install recommended by Anthropic)
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Install harness CLIs
+RUN npm install -g @openai/codex@^0.133.0 opencode-ai@^1.17.3 @anthropic-ai/claude-code@^2.1.161
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
