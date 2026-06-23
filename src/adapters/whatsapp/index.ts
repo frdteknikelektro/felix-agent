@@ -96,9 +96,7 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  const chatJid = payload.Chat?.User
-    ? `${payload.Chat.User}@${payload.Chat.Server}`
-    : "";
+  const chatJid = payload.Chat || "";
   if (!chatJid || !payload.ID) {
     sendJson(res, 200, { ignored: "missing_fields" });
     return;
@@ -176,7 +174,7 @@ export async function handleWhatsAppWebhook(
 // ─── ParsedMessage (webhook payload) ──────────────────────────────────────────
 
 interface ParsedMessage {
-  Chat?: { User?: string; Server?: string };
+  Chat?: string;
   ID?: string;
   SenderJID?: string;
   Timestamp?: string;
@@ -190,6 +188,8 @@ interface ParsedMessage {
   ReactionEmoji?: string;
   IsForwarded?: boolean;
   ForwardingScore?: number;
+  Edited?: boolean;
+  Revoked?: boolean;
   Media?: {
     Type?: string;
     Caption?: string;
@@ -579,9 +579,7 @@ function normalizeParsedMessage(
   pm: ParsedMessage,
   botName: string,
 ): UniversalEvent | null {
-  const chatJid = pm.Chat?.User && pm.Chat.Server
-    ? `${pm.Chat.User}@${pm.Chat.Server}`
-    : "";
+  const chatJid = pm.Chat || "";
   if (!chatJid) return null;
 
   const text = pm.Text ?? "";
