@@ -10,26 +10,38 @@ A persistent AI agent that wraps an LLM backend (Codex, OpenCode, or Claude Code
 
 ## 🚀 Quick Start
 
+You only need **Docker** — no Node.js, Python, or anything else.
+
 ```bash
-# 📥 Clone
+# Step 1 — Clone the repo
 git clone https://github.com/frdteknikelektro/felix-agent.git
 cd felix-agent
 
-# ⚙️ One-time setup (no Node.js required — just Docker)
-docker compose run --rm setup
+# Step 2 — First-time setup: builds the image, then runs the interactive config wizard
+docker compose run --rm --build setup
 
-# 🐳 Start
+# Step 3 — Start Felix in the background
 docker compose up -d
 
-# ❤️ Check health
-curl http://localhost:53318/healthz
+# Step 4 — Verify it's running
+curl http://localhost:53318/healthz   # → {"ok":true}
 ```
 
-> 🖥️ Open the owner console at **http://localhost:53318** and log in with `OWNER_UI_SECRET`.
+> 🖥️ Open **http://localhost:53318** — log in with the `OWNER_UI_SECRET` you set during setup.
+
+### ⚠️ Re-running setup after source changes
+
+`docker compose run --rm setup` reuses the **cached image**. If you've pulled new code or modified the Dockerfile, add `--build` to rebuild first:
+
+```bash
+docker compose run --rm --build setup
+```
+
+Without `--build` you'll silently get the old setup script. Same applies to `docker compose up` — use `docker compose up -d --build` after source changes.
 
 ## ⚙️ Configure
 
-Run `docker compose run --rm setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
+Run `docker compose run --rm --build setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
 
 | Variable | Purpose |
 |---|---|
@@ -47,21 +59,37 @@ Run `docker compose run --rm setup` to configure your `.env` interactively. Re-r
 ## 🐳 Docker
 
 ```bash
-# 🔧 Set UID/GID to match the host user that owns workspace/ (defaults 1000:1000)
+# First run (builds the image, then starts):
+docker compose up -d --build
+
+# Subsequent starts (reuses cached image):
 UID=$(id -u) GID=$(id -g) docker compose up -d   # Unix / WSL
 docker compose up -d                              # Windows Docker Desktop
 
-# 📜 Manage
-docker compose logs -f
-docker compose ps
-docker compose up -d --build   # 🔁 rebuild on source changes
+# Rebuild after source changes or git pull:
+docker compose up -d --build
+
+# Day-to-day commands:
+docker compose logs -f        # tail logs
+docker compose ps             # check status
+docker compose restart felix  # restart the agent
+docker compose down           # stop everything
+```
+
+### 🖼️ Cached image pitfall
+
+Docker caches the image tag `felix-agent:latest`. When you `git pull` new code or edit the Dockerfile, **Docker won't rebuild unless you tell it to**. Always use `--build` after source changes:
+
+```bash
+docker compose run --rm --build setup   # re-run setup with fresh code
+docker compose up -d --build            # restart with fresh code
 ```
 
 > 🔒 **Security:** Secrets are injected via Docker secrets (not bind mounts). Container runs with `cap_drop: ALL` and read-only rootfs.
 
-> 📦 Prefer a pre-built image? Skip the local build:
+> 📦 Prefer a pre-built image? Swap in the published image:
 > ```bash
-> cp docker-compose.image.yml docker-compose.yml   # uses frdinawan/felix-agent:latest
+> cp docker-compose.image.yml docker-compose.yml   # uses frdinawan/felix-agent:latest from Docker Hub
 > docker compose up -d
 > ```
 
@@ -76,6 +104,7 @@ A live React monitoring dashboard — 🌙 dark by default with a 🌞 light tog
 - 📊 **Dashboard** — real-time stat tiles, pending approvals, live activity feed, and active sessions (streamed over Server-Sent Events)
 - 💬 **Sessions** — threads grouped by source, opened as a WhatsApp-style chat view
 - 🛡️ **Approvals** — approve or reject skill permission requests inline
+- ⚡ **Approval shortcuts** — use `👌` for once, `👍` for always, or `🙏` to reject; Felix keeps the legacy `OK once` / `OK always` / `REJECT` grammar too
 - ✨ **Skills** — create, edit, and delete skills
 - 👥 **Contacts** — manage per-user permissions
 - 📋 **Audit** — full owner action history
@@ -122,3 +151,13 @@ workspace/       # 💾 runtime data (git-ignored)
 ## 🔗 Related
 
 - 🦊 **[felix-agent-custom-skills](https://github.com/frdteknikelektro/felix-agent-custom-skills)** — extra skills for Felix Agent
+
+## 🩺 Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Setup wizard looks old or missing options after `git pull` | You're on the cached image — run `docker compose run --rm --build setup` |
+| `docker compose up` doesn't pick up changes | Rebuild: `docker compose up -d --build` |
+| Container can't write to `workspace/` | Set `UID`/`GID` to match your host user: `UID=$(id -u) GID=$(id -g) docker compose up -d` |
+| Port 53318 already in use | Another copy is running — `docker compose down` first |
+| "No such file" errors on `.env` | Run the setup wizard: `docker compose run --rm --build setup` |
