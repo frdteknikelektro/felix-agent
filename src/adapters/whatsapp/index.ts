@@ -244,7 +244,7 @@ class WhatsAppAdapter implements SourceAdapter {
     const port = 3000;
     const args = [
       "sync", "--follow",
-      "--webhook", `http://localhost:${port}/webhooks/whatsapp`,
+      "--webhook", `http://127.0.0.1:${port}/webhooks/whatsapp`,
       "--webhook-secret", secret,
       "--max-reconnect", "0",
       "--store", storeDir,

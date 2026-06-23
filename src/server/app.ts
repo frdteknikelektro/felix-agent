@@ -114,6 +114,7 @@ async function routeRequest(
 
   // WhatsApp webhook — internal endpoint, no owner auth
   if (pathname === "/webhooks/whatsapp" && req.method === "POST") {
+    log.info("whatsapp.webhook_request", { content_length: req.headers["content-length"] });
     await handleWhatsAppWebhook(cfg, engine, req, res);
     return;
   }
