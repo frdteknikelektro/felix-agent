@@ -475,10 +475,11 @@ export class FelixEngine {
     event: UniversalEvent,
     request: SessionPermissionRequest,
   ): Promise<SourceMessageAnchor | null> {
-    const adapter = this.requireAdapter(event.source);
+    const targetSource = this.cfg.OWNER_CHANNEL ?? event.source;
+    const adapter = this.requireAdapter(targetSource);
     const ownerId = adapter.ownerUserId;
     if (!ownerId) {
-      log.warn("owner.missing", { source: event.source, thread_key: thread.state.thread_key });
+      log.warn("owner.missing", { source: targetSource, thread_key: thread.state.thread_key });
       return null;
     }
     const threadLink = await adapter.getThreadLink(event.thread_key);
