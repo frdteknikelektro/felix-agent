@@ -10,7 +10,7 @@ const Env = z.object({
   CODEX_MODEL: z.string().default("gpt-5.4-mini"),
   CODEX_BYPASS_SANDBOX: z.coerce.boolean().default(true),
   CODEX_REASONING_EFFORT: z.string().default("high"),
-  CODEX_TIMEOUT_SECONDS: z.coerce.number().default(300),
+  CODEX_TIMEOUT_SECONDS: z.coerce.number().min(1).default(300),
   HARNESS: z.enum(["codex", "opencode", "claude-code"]).default("codex"),
   OPENCODE_BIN: z.string().default("opencode"),
   OPENCODE_MODEL: z.string().default("opencode/deepseek-v4-flash-free"),
@@ -22,13 +22,13 @@ const Env = z.object({
   CLAUDE_CODE_MODEL: z.string().default("sonnet"),
   CLAUDE_CODE_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),
   ANTHROPIC_API_KEY: z.string().optional(),
-  OWNER_UI_SECRET: z.string().optional(),
+  OWNER_UI_SECRET: z.string().min(8).optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_CODEX_AUTH_JSON: z.string().optional(),
-  OPENAI_BASE_URL: z.string().optional(),
+  OPENAI_BASE_URL: z.string().url().optional().or(z.literal("")),
   OPENAI_ORGANIZATION: z.string().optional(),
   OPENAI_PROJECT: z.string().optional(),
-  MATTERMOST_URL: z.string().optional(),
+  MATTERMOST_URL: z.string().url().optional().or(z.literal("")),
   MATTERMOST_BOT_TOKEN: z.string().optional(),
   MATTERMOST_BOT_USER_ID: z.string().optional(),
   MATTERMOST_BOT_USERNAME: z.string().optional(),
@@ -55,12 +55,13 @@ const Env = z.object({
   WHATSAPP_STORE_DIR: z.string().default(""),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
   WHATSAPP_MAX_MESSAGES: z.coerce.number().int().positive().default(5000),
-  WHATSAPP_MAX_DB_SIZE: z.string().default("100MB"),
+  WHATSAPP_MAX_DB_SIZE: z.string()
+    .regex(/^\d+(B|KB|MB|GB)$/i, "WHATSAPP_MAX_DB_SIZE must be like 100MB or 1GB")
+    .default("100MB"),
   SOURCE: z.string().default("mattermost"),
   OWNER_CHANNEL: z.enum(["mattermost", "discord", "slack", "whatsapp"])
     .optional()
     .transform((v) => v || undefined),
-  THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
 });
 

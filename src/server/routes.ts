@@ -109,7 +109,9 @@ export const API_ROUTES: Route[] = [
     method: "GET",
     pattern: "/api/sessions/:threadKey",
     async handler({ cfg, params, send }) {
-      const detail = await loadSessionDetail(cfg, params["threadKey"]!);
+      const threadKey = params["threadKey"];
+      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      const detail = await loadSessionDetail(cfg, threadKey);
       if (!detail) {
         send(404, { error: "not_found" });
         return;
@@ -121,7 +123,9 @@ export const API_ROUTES: Route[] = [
     method: "GET",
     pattern: "/api/sessions/:threadKey/messages",
     async handler({ cfg, params, send }) {
-      const messages = await loadChatTimeline(cfg, params["threadKey"]!);
+      const threadKey = params["threadKey"];
+      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      const messages = await loadChatTimeline(cfg, threadKey);
       if (!messages) {
         send(404, { error: "not_found" });
         return;
@@ -142,7 +146,9 @@ export const API_ROUTES: Route[] = [
     method: "GET",
     pattern: "/api/skills/:skillId",
     async handler({ cfg, params, send }) {
-      const skill = await loadSkillForUi(cfg, params["skillId"]!);
+      const skillId = validateId(params["skillId"] ?? "");
+      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
+      const skill = await loadSkillForUi(cfg, skillId);
       if (!skill) {
         send(404, { error: "not_found" });
         return;
@@ -175,11 +181,8 @@ export const API_ROUTES: Route[] = [
     method: "PUT",
     pattern: "/api/skills/:skillId",
     async handler({ cfg, engine, params, readBody, send }) {
-      const skillId = validateId(params["skillId"]!);
-      if (!skillId) {
-        send(400, { error: "invalid_skill_id" });
-        return;
-      }
+      const skillId = validateId(params["skillId"] ?? "");
+      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
       const existing = await loadSkillForUi(cfg, skillId);
       if (!existing) {
         send(404, { error: "not_found" });
@@ -196,11 +199,8 @@ export const API_ROUTES: Route[] = [
     method: "DELETE",
     pattern: "/api/skills/:skillId",
     async handler({ cfg, engine, params, send }) {
-      const skillId = validateId(params["skillId"]!);
-      if (!skillId) {
-        send(400, { error: "invalid_skill_id" });
-        return;
-      }
+      const skillId = validateId(params["skillId"] ?? "");
+      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
       const existing = await loadSkillForUi(cfg, skillId);
       if (!existing) {
         send(404, { error: "not_found" });
@@ -298,7 +298,8 @@ export const API_ROUTES: Route[] = [
     method: "POST",
     pattern: "/api/approvals/:approvalId/:action",
     async handler({ cfg, engine, params, readBody, searchParams, send }) {
-      const approvalId = decodeURIComponent(params["approvalId"]!);
+      const approvalId = decodeURIComponent(params["approvalId"] ?? "");
+      if (!approvalId) { send(400, { error: "missing_approval_id" }); return; }
       const action = params["action"];
       const body = await readBody();
       const scope = String(body["scope"] ?? searchParams.get("scope") ?? "once");

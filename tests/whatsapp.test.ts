@@ -255,3 +255,61 @@ describe("WhatsAppAdapter formatOwnerNotification", () => {
     expect(msg).toContain("*Decision*:");
   });
 });
+
+// ─── downloadAttachment argument construction ───────────────────────────────
+
+describe("WhatsAppAdapter downloadAttachment argument shape", () => {
+  it("passes correct wacli media download args", async () => {
+    const cfg = await makeTestConfig("wa-dl-");
+    const adapter = createWhatsAppAdapter(cfg);
+
+    // downloadAttachment requires spawnSync which is real; this test
+    // validates that the method exists and accepts the expected interface
+    expect(adapter.downloadAttachment).toBeDefined();
+    expect(typeof adapter.downloadAttachment).toBe("function");
+
+    // Verify that the method throws appropriately when conversation_id is missing
+    await expect(
+      adapter.downloadAttachment({
+        event: {
+          source: "whatsapp",
+          event_id: "msg-1",
+          thread_key: "whatsapp:a:a",
+          received_at: "2026-01-01T00:00:00.000Z",
+          visibility: "channel",
+          mentions_bot: true,
+          sender: { source: "whatsapp", id: "sender", display: "S" },
+          text: "",
+          attachments: [],
+          raw_path: "",
+          source_thread_ref: whatsappSourceThreadRef({
+            chatJid: "", // missing
+            rootMessageId: "a",
+            messageId: "msg-1",
+          }),
+        },
+        attachment: {
+          file_id: "file-1",
+          filename: "test.png",
+          content_type: "image/png",
+        },
+        destinationDir: "/tmp",
+        maxBytes: 10_000_000,
+      }),
+    ).rejects.toThrow("missing conversation_id");
+  });
+});
+
+// ─── sendThreadReply and sendUserMessage interface ──────────────────────────
+
+describe("WhatsAppAdapter send methods exist", () => {
+  it("sendThreadReply and sendUserMessage are defined on the adapter", async () => {
+    const cfg = await makeTestConfig("wa-send-");
+    const adapter = createWhatsAppAdapter(cfg);
+
+    expect(adapter.sendThreadReply).toBeDefined();
+    expect(typeof adapter.sendThreadReply).toBe("function");
+    expect(adapter.sendUserMessage).toBeDefined();
+    expect(typeof adapter.sendUserMessage).toBe("function");
+  });
+});

@@ -33,7 +33,6 @@ async function makeTestCfg(): Promise<AppConfig> {
     DISCORD_OWNER_DISPLAY: "Owner",
     SLACK_OWNER_DISPLAY: "Owner",
     SOURCE: "mattermost",
-    THREAD_SCAN_INTERVAL_MS: 1000,
     paths: buildWorkspacePaths(workspace),
   } as AppConfig;
 }

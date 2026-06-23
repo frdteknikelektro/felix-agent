@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "../../config.js";
 import { ensureDir, pathExists, readJsonParsed, writeJsonAtomic } from "../../lib/fs.js";
+import { log } from "../../lib/log.js";
 import { appendFelixReply, appendPermissionEvent, appendPermissionRequest, setPendingPermission, type ThreadHandle } from "../sessions/index.js";
 import { ApprovalRecordSchema } from "../../core/schemas.js";
 import type { ApprovalRecord, SourceSender } from "../../core/schemas.js";
@@ -54,7 +55,10 @@ export async function listApprovalRecords(cfg: AppConfig): Promise<ApprovalRecor
         ApprovalRecordSchema,
         null as unknown as ApprovalRecord,
       );
-      if (!record) continue;
+      if (!record) {
+        log.warn("approvals.schema_invalid", { file: path.join(threadDir, file.name) });
+        continue;
+      }
       out.push(record);
     }
   }

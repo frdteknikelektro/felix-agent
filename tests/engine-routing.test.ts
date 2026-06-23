@@ -491,4 +491,16 @@ describe("FelixEngine Mattermost routing", () => {
     expect(harnessInputs).toHaveLength(1);
   });
 
+  it("picks up OWNER_CHANNEL config for cross-source routing", async () => {
+    const cfg = await makeTestConfig("felix-owner-channel-", {
+      OWNER_CHANNEL: "discord",
+    });
+    expect(cfg.OWNER_CHANNEL).toBe("discord");
+  });
+
+  it("defaults OWNER_CHANNEL to undefined when not set", async () => {
+    const cfg = await makeTestConfig("felix-owner-channel-off-");
+    expect(cfg.OWNER_CHANNEL).toBeUndefined();
+  });
+
 });

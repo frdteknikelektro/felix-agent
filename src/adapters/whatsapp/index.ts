@@ -9,6 +9,7 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
 import { decisionEmoji, decisionLabel, parseDecisionToken } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
@@ -138,20 +139,24 @@ export async function handleWhatsAppWebhook(
         const decision = parseDecisionToken(emoji);
         if (decision) {
           sendJson(res, 200, { ok: true });
-          void engine.handleOwnerDecision({
-            mode: decision,
-            decidedBy: payload.SenderJID ?? "unknown",
-            target: {
-              kind: "owner_message" as const,
-              anchor: {
-                source: "whatsapp",
-                conversation_id: chatJid,
-                message_id: botMsg.msgId,
-                thread_id: botMsg.msgId,
-              },
+          const target = {
+            kind: "owner_message" as const,
+            anchor: {
+              source: "whatsapp",
+              conversation_id: chatJid,
+              message_id: botMsg.msgId,
+              thread_id: botMsg.msgId,
             },
+          };
+          void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
+            if (!found) return;
+            return engine.handleOwnerDecision({
+              mode: decision,
+              decidedBy: payload.SenderJID ?? "unknown",
+              target,
+            });
           }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
-            log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+            log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
           });
           return;
         }
@@ -169,36 +174,44 @@ export async function handleWhatsAppWebhook(
         return;
       }
       sendJson(res, 200, { ok: true });
+      const target = {
+        kind: "owner_message" as const,
+        anchor: {
+          source: "whatsapp",
+          conversation_id: chatJid,
+          message_id: botMsg.msgId,
+          thread_id: botMsg.msgId,
+        },
+      };
       void writeRawWhatsAppEvent(cfg, event).then(() => {
-        return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
-          if (ownerDecision) {
-            const target = {
-              kind: "owner_message" as const,
-              anchor: {
-                source: "whatsapp",
-                conversation_id: chatJid,
-                message_id: botMsg.msgId,
-                thread_id: botMsg.msgId,
-              },
-            };
-            return engine.handleOwnerDecision({
-              mode: ownerDecision.mode,
-              decidedBy: payload.SenderJID ?? "unknown",
-              target,
-            }).then(() => undefined);
-          }
-          return engine.ingest(event);
+        return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
+          if (!found) return;
+          return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
+            if (ownerDecision) {
+              return engine.handleOwnerDecision({
+                mode: ownerDecision.mode,
+                decidedBy: payload.SenderJID ?? "unknown",
+                target,
+              }).then(() => undefined);
+            }
+            return engine.ingest(event);
+          });
         });
       }).then(() => {
         untrackBotMessage(payload.ReplyToID!);
       }).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
       return;
     }
 
     // ── Owner using the same number ──────────────────────────────────
     if (ownerSharesNumber) {
+      // Media-only self-message (no text/caption) — bot's own outgoing file
+      if (payload.Media && !(payload.Text ?? "").trim()) {
+        sendJson(res, 200, { ignored: "self_media" });
+        return;
+      }
       const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
@@ -206,7 +219,7 @@ export async function handleWhatsAppWebhook(
       }
       sendJson(res, 200, { ok: true });
       void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
       return;
     }
@@ -226,31 +239,34 @@ export async function handleWhatsAppWebhook(
       return;
     }
     sendJson(res, 200, { ok: true });
+    const botMsg = botMessageIds.get(payload.ReplyToID!)!;
+    const target = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "whatsapp",
+        conversation_id: chatJid,
+        message_id: botMsg.msgId,
+        thread_id: botMsg.msgId,
+      },
+    };
     void writeRawWhatsAppEvent(cfg, event).then(() => {
-      return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
-        if (ownerDecision) {
-          const botMsg = botMessageIds.get(payload.ReplyToID!)!;
-          const target = {
-            kind: "owner_message" as const,
-            anchor: {
-              source: "whatsapp",
-              conversation_id: chatJid,
-              message_id: botMsg.msgId,
-              thread_id: botMsg.msgId,
-            },
-          };
-          return engine.handleOwnerDecision({
-            mode: ownerDecision.mode,
-            decidedBy: payload.SenderJID ?? "unknown",
-            target,
-          }).then(() => undefined);
-        }
-        return engine.ingest(event);
+      return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
+        if (!found) return;
+        return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
+          if (ownerDecision) {
+            return engine.handleOwnerDecision({
+              mode: ownerDecision.mode,
+              decidedBy: payload.SenderJID ?? "unknown",
+              target,
+            }).then(() => undefined);
+          }
+          return engine.ingest(event);
+        });
       });
     }).then(() => {
       untrackBotMessage(payload.ReplyToID!);
     }).catch((error) => {
-      log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+      log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
     });
     return;
   }
@@ -264,20 +280,24 @@ export async function handleWhatsAppWebhook(
     if (decision) {
       const botMsg = botMessageIds.get(reactionTarget)!;
       sendJson(res, 200, { ok: true });
-      void engine.handleOwnerDecision({
-        mode: decision,
-        decidedBy: payload.SenderJID ?? "unknown",
-        target: {
-          kind: "owner_message" as const,
-          anchor: {
-            source: "whatsapp",
-            conversation_id: chatJid,
-            message_id: botMsg.msgId,
-            thread_id: botMsg.msgId,
-          },
+      const target = {
+        kind: "owner_message" as const,
+        anchor: {
+          source: "whatsapp",
+          conversation_id: chatJid,
+          message_id: botMsg.msgId,
+          thread_id: botMsg.msgId,
         },
+      };
+      void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
+        if (!found) return;
+        return engine.handleOwnerDecision({
+          mode: decision,
+          decidedBy: payload.SenderJID ?? "unknown",
+          target,
+        });
       }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
     }
     return;
@@ -291,7 +311,7 @@ export async function handleWhatsAppWebhook(
 
   sendJson(res, 200, { ok: true });
   void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
-    log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+    log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
   });
 }
 
@@ -446,10 +466,12 @@ class WhatsAppAdapter implements SourceAdapter {
         "```bash",
         `wacli send file --to "${chatJid}" --store "${storeDir}" \\`,
         '  --file "<path under session artifact directory>" \\',
-        '  --caption "<optional caption>"',
+        `  --caption "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <optional caption>"`,
         "```",
-        "13. FELIX_REPLY and direct WhatsApp posts must not contain duplicated content. If you posted results or details via WhatsApp, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
-        "14. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+        `Always include the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix in file captions.`,
+        "13. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. Use `file <path>` to identify the media type, `identify <path>` for image metadata, `exiftool <path>` for detailed EXIF, and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
+        "14. FELIX_REPLY and direct WhatsApp posts must not contain duplicated content. If you posted results or details via WhatsApp, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
+        "15. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
       ],
     };
   }
@@ -515,7 +537,7 @@ class WhatsAppAdapter implements SourceAdapter {
         try {
           JSON.parse(result.stdout.trim());
         } catch {
-          // no JSON output — message may still have been sent
+          log.warn("whatsapp.send_reply_parse", { chat_jid: chatJid, stdout: result.stdout?.slice(0, 200) });
         }
       } else {
         const err = result.stderr || `exit ${result.status}`;
@@ -566,7 +588,7 @@ class WhatsAppAdapter implements SourceAdapter {
             return anchor;
           }
         } catch {
-          // no JSON output
+          log.warn("whatsapp.send_user_parse", { chat_jid: input.userId, stdout: result.stdout?.slice(0, 200) });
         }
       }
       return null;

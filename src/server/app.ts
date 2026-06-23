@@ -62,8 +62,15 @@ export async function startAppServer(
       try {
         await routeRequest(cfg, engine, sessions, req, res);
       } catch (error: any) {
-        log.error("owner.server_error", { error: error?.message || String(error) });
-        sendJson(res, 500, { error: "internal_error" });
+        log.error("owner.server_error", {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          method: req.method,
+          url: req.url,
+        });
+        if (!res.writableEnded) {
+          sendJson(res, 500, { error: "internal_error" });
+        }
       }
     });
     server.on("close", () => closeDashboardClients());

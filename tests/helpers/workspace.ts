@@ -38,7 +38,6 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     WHATSAPP_MAX_MESSAGES: 5000,
     WHATSAPP_MAX_DB_SIZE: "100MB",
     SOURCE: "mattermost",
-    THREAD_SCAN_INTERVAL_MS: 1000,
     paths: buildWorkspacePaths(workspace),
     ...extras,
   } as AppConfig;

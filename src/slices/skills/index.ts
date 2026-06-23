@@ -3,6 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import type { AppConfig } from "../../config.js";
 import { ensureDir, pathExists, readText, writeTextAtomic } from "../../lib/fs.js";
+import { log } from "../../lib/log.js";
 import type { SkillRecord } from "../../types.js";
 
 interface SkillFrontmatter {
@@ -70,7 +71,8 @@ function parseSkill(raw: string): { frontmatter: SkillFrontmatter; body: string 
       frontmatter: (YAML.parse(yaml) ?? {}) as SkillFrontmatter,
       body: raw.slice(end + 5),
     };
-  } catch {
+  } catch (error) {
+    log.warn("skills.yaml_parse_failed", { error: error instanceof Error ? error.message : String(error) });
     return { frontmatter: {}, body: raw };
   }
 }
