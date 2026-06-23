@@ -89,7 +89,44 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("wacli messages list");
     expect(joined).toContain("wacli send text");
     expect(joined).toContain("--json");
-    expect(joined).toContain("[Felix]");
+    // Default (no shared number): no name prefix in instructions
+    expect(joined).not.toContain("[Felix]");
+    expect(joined).toContain("dedicated WhatsApp number");
+    expect(joined).toContain('--message "<your message>"');
+  });
+
+  it("instructs the name prefix only when the bot shares the owner's number", async () => {
+    const cfg = await makeTestConfig("wa-turnctx-shared-", {
+      WHATSAPP_BOT_NAME: "Felix",
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+    // Simulate the shared-number detection that start() performs from wacli auth.
+    (adapter as unknown as { sameNumber: boolean }).sameNumber = true;
+
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "whatsapp",
+        event_id: "evt-1",
+        thread_key: "whatsapp:1234567890@s.whatsapp.net:1234567890@s.whatsapp.net",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "dm",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "15551234567@s.whatsapp.net" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "1234567890@s.whatsapp.net",
+          rootMessageId: "1234567890@s.whatsapp.net",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).toContain("shares a WhatsApp number");
+    expect(joined).toContain('--message "*[Felix]* <your message>"');
+    expect(joined).toContain("prefix in file captions");
   });
 });
 

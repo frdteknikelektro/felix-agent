@@ -437,6 +437,14 @@ class WhatsAppAdapter implements SourceAdapter {
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
     const storeDir = this.wacliStoreDir();
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    // Only prefix messages when the bot shares a number with its owner — on a
+    // dedicated number the sender already identifies the bot. Mirrors the
+    // adapter's own send paths (sendThreadReply / sendUserMessage).
+    const prefix = this.sameNumber ? `*[${botName}]* ` : "";
+    const w4 = this.sameNumber
+      ? `W4. This bot shares a WhatsApp number with its owner, so every outgoing message MUST start with the *[${botName}]* prefix — on every send, including any intermediate or supplementary message — to distinguish the bot's messages from the owner's. Send intermediate/progress messages as needed per the output contract.`
+      : `W4. This bot has its own dedicated WhatsApp number — do NOT add any name prefix to messages. Send intermediate/progress messages as needed per the output contract.`;
 
     return {
       behaviorInstructions: [
@@ -448,10 +456,10 @@ class WhatsAppAdapter implements SourceAdapter {
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
-        `W4. Every outgoing WhatsApp message MUST start with the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix — on every send, including any intermediate or supplementary message. Send intermediate/progress messages as needed per the output contract.`,
+        w4,
         "```bash",
         `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
-        `  --message "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <your message>" \\`,
+        `  --message "${prefix}<your message>" \\`,
         '  --json',
         "```",
         "The `--json` flag returns `{\"sent\":true,\"id\":\"<msg_id>\"}`.",
@@ -460,9 +468,9 @@ class WhatsAppAdapter implements SourceAdapter {
         "```bash",
         `wacli send file --to "${chatJid}" --store "${storeDir}" \\`,
         '  --file "<path under session artifact directory>" \\',
-        `  --caption "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <optional caption>"`,
+        `  --caption "${prefix}<optional caption>"`,
         "```",
-        `Always include the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix in file captions.`,
+        ...(this.sameNumber ? [`Always include the *[${botName}]* prefix in file captions.`] : []),
         "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. Use `file <path>` to identify the media type, `identify <path>` for image metadata, `exiftool <path>` for detailed EXIF, and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
         "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
       ],
