@@ -9,7 +9,7 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { decisionEmoji, decisionLabel } from "../../core/decision.js";
+import { decisionEmoji, decisionLabel, parseDecisionToken } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
 import {
@@ -124,8 +124,33 @@ export async function handleWhatsAppWebhook(
       return;
     }
 
-    // ── Self-sent reaction (our ⏳ / remove) ──────────────────────────
+    // ── Self-sent reaction — unless it's on a bot permission message ──
     if (payload.ReactionToID) {
+      const reactionTarget = payload.ReactionToID;
+      if (botMessageIds.has(reactionTarget)) {
+        const botMsg = botMessageIds.get(reactionTarget)!;
+        const emoji = payload.ReactionEmoji ?? "";
+        const decision = parseDecisionToken(emoji);
+        if (decision) {
+          sendJson(res, 200, { ok: true });
+          void engine.handleOwnerDecision({
+            mode: decision,
+            decidedBy: payload.SenderJID ?? "unknown",
+            target: {
+              kind: "owner_message" as const,
+              anchor: {
+                source: "whatsapp",
+                conversation_id: chatJid,
+                message_id: botMsg.msgId,
+                thread_id: botMsg.msgId,
+              },
+            },
+          }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
+            log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+          });
+          return;
+        }
+      }
       sendJson(res, 200, { ignored: "self_reaction" });
       return;
     }
@@ -540,7 +565,11 @@ class WhatsAppAdapter implements SourceAdapter {
       lines.push(`*Thread*: ${input.threadLink}`);
     }
     if (status === "pending") {
-      lines.push("", "Reply `yes` to approve once, `always` to always allow, or `no` to reject.");
+      lines.push(
+        "",
+        "Reply `yes` to approve once, `always` to always allow, or `no` to reject.",
+        "You can also react with 👌 (once), 👍 (always), or 🙏 (reject).",
+      );
     }
     return lines.join("\n");
   }

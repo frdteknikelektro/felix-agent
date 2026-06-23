@@ -12,6 +12,9 @@ export function parseOwnerDecision(text: string): PermissionDecision | null {
   const trimmed = text.trim();
   const symbol = parseDecisionToken(trimmed);
   if (symbol) return { mode: symbol };
+  if (/^yes$/i.test(trimmed)) return { mode: "once" };
+  if (/^always$/i.test(trimmed)) return { mode: "always" };
+  if (/^no$/i.test(trimmed)) return { mode: "reject" };
   if (/^OK once$/i.test(trimmed)) return { mode: "once" };
   if (/^OK always$/i.test(trimmed)) return { mode: "always" };
   if (/^REJECT$/i.test(trimmed)) return { mode: "reject" };

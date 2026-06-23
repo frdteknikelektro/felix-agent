@@ -8,6 +8,9 @@ describe("parseOwnerDecision", () => {
     expect(parseOwnerDecision("  ok ONCE  ")).toEqual({ mode: "once" });
     expect(parseOwnerDecision("OK always")).toEqual({ mode: "always" });
     expect(parseOwnerDecision("reject")).toEqual({ mode: "reject" });
+    expect(parseOwnerDecision("yes")).toEqual({ mode: "once" });
+    expect(parseOwnerDecision("always")).toEqual({ mode: "always" });
+    expect(parseOwnerDecision("no")).toEqual({ mode: "reject" });
     expect(parseOwnerDecision("👌")).toEqual({ mode: "once" });
     expect(parseOwnerDecision("👌 once")).toEqual({ mode: "once" });
     expect(parseOwnerDecision("👍")).toEqual({ mode: "always" });
@@ -20,6 +23,8 @@ describe("parseOwnerDecision", () => {
     expect(parseOwnerDecision("OK once please")).toBeNull();
     expect(parseOwnerDecision("approve")).toBeNull();
     expect(parseOwnerDecision("")).toBeNull();
+    expect(parseOwnerDecision("y")).toBeNull();
+    expect(parseOwnerDecision("n")).toBeNull();
   });
 });
 
@@ -30,6 +35,8 @@ describe("parseOwnerDecisionAsync", () => {
     expect(await parseOwnerDecisionAsync("OK once", cfg)).toEqual({ mode: "once" });
     expect(await parseOwnerDecisionAsync("  reject  ", cfg)).toEqual({ mode: "reject" });
     expect(await parseOwnerDecisionAsync("OK always", cfg)).toEqual({ mode: "always" });
+    expect(await parseOwnerDecisionAsync("yes", cfg)).toEqual({ mode: "once" });
+    expect(await parseOwnerDecisionAsync("no", cfg)).toEqual({ mode: "reject" });
     expect(await parseOwnerDecisionAsync("👌", cfg)).toEqual({ mode: "once" });
   });
 
