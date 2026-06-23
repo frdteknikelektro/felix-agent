@@ -35,6 +35,9 @@ describe.each(["mattermost", "discord", "slack"] as const)("%s formatOwnerNotifi
     expect(text).toContain("`yes`");
     expect(text).toContain("`always`");
     expect(text).toContain("`no`");
+    expect(text).toContain("👌");
+    expect(text).toContain("👍");
+    expect(text).toContain("🙏");
   });
 
   it("omits Thread row when threadLink is undefined", async () => {

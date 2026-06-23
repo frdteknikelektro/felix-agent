@@ -359,7 +359,10 @@ export function buildOwnerPermissionNotification(input: OwnerPermissionNotificat
 
   const footer =
     status === "pending"
-      ? ["Reply `yes` to approve once, `always` to always allow, or `no` to reject."]
+      ? [
+          "Reply `yes` to approve once, `always` to always allow, or `no` to reject.",
+          "You can also react with 👌 (once), 👍 (always), or 🙏 (reject).",
+        ]
       : [
           `This request is resolved as **${status}**.`,
           "No further action is needed.",
