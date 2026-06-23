@@ -210,7 +210,7 @@ export class FelixEngine {
             await requeueEvent(thread, item);
             const detail = error instanceof Error ? `${error.message}. ` : "";
             await this.postThreadError(thread, event, detail);
-            throw error;
+            break;
           }
           clearInterval(typingInterval);
           if (this.stopRequested.has(thread.state.thread_key)) break;
@@ -228,7 +228,9 @@ export class FelixEngine {
             continue;
           }
           if (decision.kind === "fail") {
-            await requeueEvent(thread, item, { clearHarnessSession: resumed });
+            if (resumed) {
+              await clearHarnessSession(thread);
+            }
             const detail = result.exitCode !== 0
               ? exitCodeMessage(result.exitCode)
               : "The agent produced no usable output. ";
@@ -284,7 +286,7 @@ export class FelixEngine {
               await requeueEvent(thread, item);
               const detail = error instanceof Error ? `${error.message}. ` : "";
               await this.postThreadError(thread, event, detail);
-              throw error;
+              break;
             }
             if (this.stopRequested.has(thread.state.thread_key)) break;
             const retriedDecision = decideTurnResult(result, true, retriedFreshStart);
@@ -295,7 +297,9 @@ export class FelixEngine {
               continue;
             }
             if (retriedDecision.kind === "fail" || retriedDecision.kind === "format_retry") {
-              await requeueEvent(thread, item, { clearHarnessSession: resumed });
+              if (resumed) {
+                await clearHarnessSession(thread);
+              }
               await this.postThreadError(thread, event, "The agent produced no usable output. ");
               break;
             }
