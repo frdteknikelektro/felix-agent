@@ -498,17 +498,7 @@ async function main() {
       ],
     });
 
-    let ownerSource = null;
-    if (listenSources.length === 1) {
-      ownerSource = listenSources[0];
-      info(`  Owner channel: ${SOURCE_DEFS[ownerSource].label} (auto-selected)\n`);
-    } else if (listenSources.length > 1) {
-      info("  Select which source the owner will use.\n");
-      ownerSource = await select({
-        message: "Owner channel:",
-        choices: listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
-      });
-
+    if (listenSources.length > 1) {
       info("  Where should permission notifications go?\n");
       const notifyChannel = await select({
         message: "Permission notification channel:",
@@ -516,7 +506,6 @@ async function main() {
           { value: "", name: "Same as event source (each event notifies its own source)" },
           ...listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
         ],
-        default: ownerSource,
       });
       if (notifyChannel) wizard.OWNER_CHANNEL = notifyChannel;
     }
@@ -536,8 +525,7 @@ async function main() {
 
     for (const src of listenSources) {
       const def = SOURCE_DEFS[src];
-      const ownerBadge = src === ownerSource ? ` ${c.yellow}(owner)${c.reset}` : "";
-      console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}${ownerBadge}`);
+      console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}`);
 
       for (const reqKey of def.required) {
         const val = await promptRequired(reqKey, src, existing);
@@ -552,8 +540,7 @@ async function main() {
         wizard[optKey] = val;
       }
 
-      if (src === ownerSource) {
-        if (src === "mattermost") {
+      if (src === "mattermost") {
           const mmUrl = wizard.MATTERMOST_URL || existing.MATTERMOST_URL;
           const mmToken = wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN;
           const existingUserId = existing.MATTERMOST_OWNER_USER_ID || wizard.MATTERMOST_OWNER_USER_ID;
@@ -664,53 +651,10 @@ async function main() {
             wizard[ownerKey] = val;
           }
         }
-      }
-
-      // WhatsApp: make sure wacli is paired (non-owner sources)
-      if (src === "whatsapp" && src !== ownerSource) {
-        const storeDir = join(WORKSPACE_PATH, "runtime", "wacli");
-        const sessionDb = join(storeDir, "session.db");
-        if (!existsSync(sessionDb)) {
-          info("\n  Pairing wacli with WhatsApp...");
-          info("  A QR code will appear. Scan it with WhatsApp on your phone.");
-          info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
-
-          mkdirSync(storeDir, { recursive: true });
-          const authChild = spawn("wacli", ["auth", "--store", storeDir], {
-            stdio: "inherit",
-            env: {
-              ...process.env,
-              WACLI_SYNC_MAX_MESSAGES: "0",
-              WACLI_SYNC_MAX_DB_SIZE: "1B",
-            },
-          });
-          const exitCode = await new Promise((resolve) => {
-            authChild.on("close", (code) => resolve(code ?? -1));
-          });
-          if (exitCode !== 0) {
-            warn("wacli auth failed. Run `wacli auth --store <workspace>/runtime/wacli` manually.");
-          } else {
-            succeed("WhatsApp paired successfully.");
-          }
-        } else {
-          info("  wacli session already exists — skipping pairing.\n");
-        }
-      }
     }
 
     if (listenSources.length === 0) {
       warn("No sources selected. You can re-run setup later.\n");
-    }
-
-    // ── Clear owner keys on non-owner listening sources ────────────────────
-
-    for (const src of listenSources) {
-      if (src !== ownerSource) {
-        const def = SOURCE_DEFS[src];
-        for (const key of def.ownerKeys) {
-          wizard[key] = "";
-        }
-      }
     }
 
     // ═══ Step 5: Skill Environment ══════════════════════════════════════════
