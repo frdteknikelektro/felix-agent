@@ -629,6 +629,7 @@ async function main() {
                 ...process.env,
                 WACLI_SYNC_MAX_MESSAGES: "1",
               },
+            });
             const exitCode = await new Promise((resolve) => {
               authChild.on("close", (code) => resolve(code ?? -1));
             });
