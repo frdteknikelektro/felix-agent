@@ -360,6 +360,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
     // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
     const reaction = input.status === "processing" ? "⏳" : "";
+    await waitForSendSlot();
     try {
       spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
         "send", "react",
