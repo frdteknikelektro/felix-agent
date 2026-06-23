@@ -175,7 +175,7 @@ describe("WhatsApp mention detection (via getTurnContext)", () => {
     });
 
     const joined = ctx.behaviorInstructions.join("\n");
-    expect(joined).toContain("DMs are always answered");
+    expect(joined).toContain("@mentioned by name");
     expect(joined).toContain("@mentioned");
   });
 });

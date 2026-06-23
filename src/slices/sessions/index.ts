@@ -206,6 +206,8 @@ export async function saveThreadState(handle: ThreadHandle, state: ThreadState):
   handle.state = state;
 }
 
+const MAX_QUEUE_SIZE = 16;
+
 export async function queueThreadEvent(
   handle: ThreadHandle,
   item: SessionQueueItem,
@@ -215,6 +217,9 @@ export async function queueThreadEvent(
     return session;
   }
   session.queue.push(item);
+  if (session.queue.length > MAX_QUEUE_SIZE) {
+    session.queue = session.queue.slice(-MAX_QUEUE_SIZE);
+  }
   session.last_event_at = item.received_at;
   await saveSessionState(handle, session);
   return session;

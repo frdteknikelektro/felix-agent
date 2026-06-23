@@ -108,6 +108,11 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  if (chatJid.includes("@broadcast")) {
+    sendJson(res, 200, { ignored: "broadcast_chat" });
+    return;
+  }
+
   if (wacliStartedAt !== null && payload.Timestamp) {
     const msgTs = Date.parse(payload.Timestamp);
     if (!Number.isNaN(msgTs) && msgTs < wacliStartedAt) {
@@ -421,8 +426,8 @@ class WhatsAppAdapter implements SourceAdapter {
           }
         : undefined,
       behaviorInstructions: [
-        "9. WhatsApp DMs are always answered. WhatsApp groups: only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
-        "10. Fetch WhatsApp chat context before answering:",
+        "9. Only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
+        "10. Fetch WhatsApp chat context if needed before answering:",
         "```bash",
         `wacli messages list --chat "${chatJid}" --limit 100 --store "${storeDir}" --json`,
         "```",
@@ -729,10 +734,9 @@ function normalizeParsedMessage(
   const hasReaction = Boolean(pm.ReactionToID);
   if (!hasText && !hasMedia && !hasReaction) return null;
 
-  const isGroup = chatJid.includes("@g.us");
-  const visibility = isGroup ? "channel" : "dm";
+  const visibility = "channel"; // all WhatsApp chats require @mention; no auto-answer DMs
   const senderJid = pm.SenderJID ?? "unknown";
-  const mentionsBot = isGroup ? detectsWhatsappMention(text, botName) : true;
+  const mentionsBot = detectsWhatsappMention(text, botName);
 
   const displayText = hasReaction
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
