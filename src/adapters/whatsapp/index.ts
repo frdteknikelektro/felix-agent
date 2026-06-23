@@ -668,8 +668,9 @@ function checkWacliAuth(storeDir: string): WacliAuthInfo | null {
     });
     if (result.status !== 0) return null;
     const parsed = JSON.parse(result.stdout.trim());
-    const jid = (parsed as any)?.jid ?? (parsed as any)?.data?.jid ?? "";
-    const connected = (parsed as any)?.connected ?? (parsed as any)?.data?.connected ?? false;
+    const data = (parsed as any)?.data ?? {};
+    const jid: string = (data as any)?.linked_jid ?? "";
+    const connected: boolean = (data as any)?.connected ?? false;
     if (!jid) return null;
     return { jid, connected };
   } catch {

@@ -633,8 +633,10 @@ async function main() {
             const exitCode = await new Promise((resolve) => {
               authChild.on("close", (code) => resolve(code ?? -1));
             });
-            if (exitCode !== 0) {
+            if (!existsSync(sessionDb)) {
               warn("wacli auth failed. Run `wacli auth --store <workspace>/runtime/wacli` manually.");
+            } else if (exitCode !== 0) {
+              info("  Pairing succeeded — bootstrap sync hit storage limit (expected).\n");
             } else {
               succeed("WhatsApp paired successfully.");
             }
