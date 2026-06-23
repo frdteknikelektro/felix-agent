@@ -118,7 +118,7 @@ export async function handleWhatsAppWebhook(
 
   if (payload.FromMe) {
     // ── Self-sent message (Felix prefixes its own messages) ───────────
-    const botPrefix = `[${cfg.WHATSAPP_BOT_NAME ?? "Felix"}] `;
+    const botPrefix = `*[${cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* `;
     if ((payload.Text ?? "").startsWith(botPrefix)) {
       sendJson(res, 200, { ignored: "self_message" });
       return;
@@ -335,7 +335,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "12. Sending WhatsApp messages:",
         "```bash",
         `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
-        `  --message "[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] <your message>" \\`,
+        `  --message "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <your message>" \\`,
         '  --json',
         "```",
         "The `--json` flag returns `{\"sent\":true,\"id\":\"<msg_id>\"}`. Always include the executor bot name prefix in square brackets.",
@@ -386,7 +386,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", rootMessageId]
       : [];
 
-    const prefix = this.sameNumber ? `[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] ` : "";
+    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
     const storeDir = this.wacliStoreDir();
 
     const args = [
@@ -428,7 +428,7 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const prefix = this.sameNumber ? `[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] ` : "";
+    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
     const storeDir = this.wacliStoreDir();
 
     const args = [
