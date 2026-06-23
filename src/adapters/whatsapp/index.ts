@@ -239,6 +239,8 @@ class WhatsAppAdapter implements SourceAdapter {
       "--webhook", `http://localhost:${port}/webhooks/whatsapp`,
       "--webhook-secret", secret,
       "--max-reconnect", "0",
+      "--max-messages", String(this.cfg.WHATSAPP_MAX_MESSAGES),
+      "--max-db-size", this.cfg.WHATSAPP_MAX_DB_SIZE,
       "--store", storeDir,
     ];
 

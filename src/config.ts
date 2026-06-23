@@ -53,6 +53,8 @@ const Env = z.object({
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),
   WHATSAPP_STORE_DIR: z.string().default(""),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
+  WHATSAPP_MAX_MESSAGES: z.coerce.number().int().positive().default(5000),
+  WHATSAPP_MAX_DB_SIZE: z.string().default("100MB"),
   SOURCE: z.string().default("mattermost"),
   THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
