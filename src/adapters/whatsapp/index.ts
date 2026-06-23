@@ -121,13 +121,15 @@ export async function handleWhatsAppWebhook(
     }
   }
 
-  if (sentMessageIds.has(payload.ID)) {
-    sentMessageIds.delete(payload.ID);
-    sendJson(res, 200, { ignored: "own_sent_message" });
-    return;
-  }
-
   if (payload.FromMe) {
+    // ── Self-sent message caught by ID tracking ────────────────────────
+    if (sentMessageIds.has(payload.ID)) {
+      sentMessageIds.delete(payload.ID);
+      sendJson(res, 200, { ignored: "own_sent_message" });
+      return;
+    }
+
+    // ── Owner replying to a bot permission-request message ─────────────
     if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)) {
       const botMsg = botMessageIds.get(payload.ReplyToID)!;
       const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
@@ -135,7 +137,6 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "empty_event" });
         return;
       }
-      // Respond immediately — don't block on ingest or owner decision
       sendJson(res, 200, { ok: true });
       void writeRawWhatsAppEvent(cfg, event).then(() => {
         return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
@@ -164,20 +165,41 @@ export async function handleWhatsAppWebhook(
       });
       return;
     }
-    if (!ownerSharesNumber) {
-      sendJson(res, 200, { ignored: "from_me" });
+
+    // ── Reply to a non-tracked message = self-reply (not in botMessageIds) ──
+    // Felix's own reply via sendThreadReply always sets ReplyToID (the user's
+    // original message), which is never in botMessageIds. Never re-ingest.
+    if (payload.ReplyToID) {
+      sendJson(res, 200, { ignored: "from_me_reply" });
       return;
     }
+
+    // ── Owner using the same number, new message (no ReplyToID) ────────
+    if (ownerSharesNumber) {
+      const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+      if (!event) {
+        sendJson(res, 200, { ignored: "empty_event" });
+        return;
+      }
+      sendJson(res, 200, { ok: true });
+      void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
+        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+      });
+      return;
+    }
+
+    // ── FromMe from a different number → ignore ────────────────────────
+    sendJson(res, 200, { ignored: "from_me" });
+    return;
   }
 
+  // ── Normal processing (incoming messages from others) ────────────────
   const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
   }
 
-  // Respond immediately — process asynchronously so wacli's webhook worker
-  // is never blocked by engine.ingest() serialization during history sync.
   sendJson(res, 200, { ok: true });
   void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
     log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
