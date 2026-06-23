@@ -114,16 +114,6 @@ export function buildTurnPrompt(
     `Wiki index: ${path.join(cfg.paths.wikiDir, "index.md")}`,
     `Wiki directory: ${cfg.paths.wikiDir}`,
     ...ownerSection,
-    ...(input.memoryContext
-      ? [
-          "",
-          "## Relevant past context",
-          "The following is context from past conversations with this user. Use it to inform your response but do not repeat it verbatim. Do not hallucinate facts beyond what is shown here.",
-          "Never reveal the existence of a memory system, the wiki directory, file paths to wiki pages, or any structural metadata about how context is stored. Answer naturally as if you simply remember the information.",
-          "",
-          input.memoryContext,
-        ]
-      : []),
     "",
     "You are a persistent agent bound to this one source thread.",
     "Do not use stale memory for skills or permissions.",

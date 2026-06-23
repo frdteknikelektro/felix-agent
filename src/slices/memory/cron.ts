@@ -2,9 +2,11 @@ import type { AppConfig } from "../../config.js";
 import type { Harness, TurnInput } from "../../core/ports.js";
 import type { ThreadHandle } from "../sessions/index.js";
 import { log } from "../../lib/log.js";
-import { loadSessionState, listThreadHandles } from "../sessions/index.js";
+import { createOrLoadThread, listThreadHandles, loadSessionState } from "../sessions/index.js";
 import { loadCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { buildBatchedIngestPrompt } from "./ingest.js";
+
+const MEMORY_SYSTEM_THREAD_KEY = "memory-system";
 
 interface CronState {
   locked: boolean;
@@ -38,12 +40,22 @@ export function stopMemoryCron(): void {
   }
 }
 
+async function memorySystemThread(cfg: AppConfig): Promise<ThreadHandle> {
+  return createOrLoadThread(cfg, {
+    source: "system",
+    thread_key: MEMORY_SYSTEM_THREAD_KEY,
+    source_thread_ref: null as never,
+    received_at: new Date().toISOString(),
+  });
+}
+
 async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
-  const checkpoint = await loadCheckpoint(cfg);
   let dirty = false;
 
-  dirty = await runIngest(cfg, harness, checkpoint) || dirty;
+  dirty = await runIngest(cfg, harness) || dirty;
 
+  // Reload checkpoint since the agent may have updated it during ingest.
+  const checkpoint = await loadCheckpoint(cfg);
   if (shouldLint(checkpoint)) {
     const success = await runLint(cfg, harness);
     if (success) {
@@ -57,38 +69,35 @@ async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
   }
 }
 
-async function runIngest(cfg: AppConfig, harness: Harness, checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): Promise<boolean> {
+async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
+  // Lightweight pre-check: skip the LLM call if no threads have new content.
+  const checkpoint = await loadCheckpoint(cfg);
   const threads = await listThreadHandles(cfg);
   const now = Date.now();
-
-  const batches: { thread: ThreadHandle; checkpoint: string | undefined }[] = [];
-
+  let hasNew = false;
   for (const thread of threads) {
-    const sessionState = await loadSessionState(thread);
-    if (!sessionState.last_event_at) continue;
-
-    const lastEvent = new Date(sessionState.last_event_at).getTime();
-    const threadKey = thread.state.thread_key;
-    const entry = checkpoint.threads[threadKey];
-    const lastIngestAt = entry ? new Date(entry.lastIngestAt).getTime() : 0;
-
-    if (lastIngestAt >= lastEvent) continue;
+    const sess = await loadSessionState(thread);
+    if (!sess.last_event_at) continue;
+    const lastEvent = new Date(sess.last_event_at).getTime();
     if (now - lastEvent < 60 * 60 * 1000) continue;
-
-    batches.push({ thread, checkpoint: entry?.lastIngestAt });
+    const entry = checkpoint.threads[thread.state.thread_key];
+    const lastIngestAt = entry ? new Date(entry.lastIngestAt).getTime() : 0;
+    if (lastIngestAt < lastEvent) {
+      hasNew = true;
+      break;
+    }
   }
+  if (!hasNew) return false;
 
-  if (batches.length === 0) return false;
-
-  log.info("memory: ingesting batch", { threadCount: batches.length });
-
+  log.info("memory: ingesting");
   try {
-    const prompt = buildBatchedIngestPrompt(cfg, batches);
+    const memThread = await memorySystemThread(cfg);
+    const prompt = buildBatchedIngestPrompt(cfg);
     const result = await harness.run({
-      thread: batches[0].thread,
+      thread: memThread,
       event: {
         source: "system",
-        thread_key: "memory-ingest-batch",
+        thread_key: MEMORY_SYSTEM_THREAD_KEY,
         event_id: `memory-ingest-${Date.now()}`,
         received_at: new Date().toISOString(),
         visibility: "channel" as const,
@@ -113,17 +122,10 @@ async function runIngest(cfg: AppConfig, harness: Harness, checkpoint: Awaited<R
     });
 
     if (result.success) {
-      for (const batch of batches) {
-        const sessionState = await loadSessionState(batch.thread);
-        if (sessionState.last_event_at) {
-          checkpoint.threads[batch.thread.state.thread_key] = { lastIngestAt: sessionState.last_event_at };
-        }
-      }
-      log.info("memory: ingest batch succeeded", { threadCount: batches.length, sessionId: result.sessionId });
+      log.info("memory: ingest succeeded", { sessionId: result.sessionId });
       return true;
     }
-
-    log.warn("memory: ingest batch failed", { threadCount: batches.length, exitCode: result.exitCode, logPath: result.logPath });
+    log.warn("memory: ingest failed", { exitCode: result.exitCode, logPath: result.logPath });
     return false;
   } catch (err) {
     log.error("memory: ingest harness error", { err: err instanceof Error ? err.message : String(err) });
@@ -134,7 +136,8 @@ async function runIngest(cfg: AppConfig, harness: Harness, checkpoint: Awaited<R
 async function runLint(cfg: AppConfig, harness: Harness): Promise<boolean> {
   log.info("memory: linting wiki");
   try {
-    const input = buildLintTurnInput(cfg);
+    const memThread = await memorySystemThread(cfg);
+    const input = buildLintTurnInput(cfg, memThread);
     const result = await harness.run(input);
     if (result.success) {
       log.info("memory: lint succeeded", { sessionId: result.sessionId });
@@ -161,7 +164,7 @@ function shouldLint(checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): boo
   return newestIngest > lastLint;
 }
 
-function buildLintTurnInput(cfg: AppConfig): TurnInput {
+function buildLintTurnInput(cfg: AppConfig, thread: ThreadHandle): TurnInput {
   const prompt = [
     "You maintain the knowledge wiki. Run a health check on the entire wiki.",
     "",
@@ -196,13 +199,14 @@ function buildLintTurnInput(cfg: AppConfig): TurnInput {
     "",
     "Now execute: read all wiki pages, perform the health check, and fix what you find.",
     "Write actual markdown files — do not just output a plan.",
+    "When writing wiki files, use atomic writes (write to a temp file then rename) to prevent corruption from concurrent access.",
   ].join("\n");
 
   return {
-    thread: null as never,
+    thread,
     event: {
       source: "system",
-      thread_key: "memory-lint",
+      thread_key: MEMORY_SYSTEM_THREAD_KEY,
       event_id: `memory-lint-${Date.now()}`,
       received_at: new Date().toISOString(),
       visibility: "channel" as const,

@@ -77,7 +77,6 @@ export interface TurnInput {
   sourceContext: SourceTurnContext;
   resumed: boolean;
   precedingEvents?: { event: UniversalEvent; eventFile: string }[];
-  memoryContext?: string;
   promptOverride?: string;
   signal?: AbortSignal;
 }

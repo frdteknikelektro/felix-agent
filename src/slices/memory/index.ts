@@ -1,5 +1,4 @@
 export { startMemoryCron, stopMemoryCron } from "./cron.js";
-export { queryMemory } from "./query.js";
 export { buildIngestPrompt, buildIngestTurnInput } from "./ingest.js";
 export { loadCheckpoint, saveCheckpoint } from "./checkpoint.js";
 export type { Checkpoint, CheckpointEntry } from "./checkpoint.js";

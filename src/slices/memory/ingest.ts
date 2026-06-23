@@ -1,36 +1,15 @@
-import fs from "node:fs";
 import path from "node:path";
 import type { AppConfig } from "../../config.js";
-import type { Harness, TurnInput } from "../../core/ports.js";
+import type { TurnInput } from "../../core/ports.js";
 import type { ThreadHandle } from "../sessions/index.js";
-import { readText } from "../../lib/fs.js";
 
-function readIfExists(file: string): string {
-  try {
-    return fs.readFileSync(file, "utf8");
-  } catch {
-    return "(file does not exist yet)";
-  }
-}
-
-function threadKeySlug(key: string): string {
-  return key.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-}
-
-function sessionFileName(thread: ThreadHandle): string {
-  const date = thread.state.created_at.slice(0, 10);
-  return `${date}_${thread.state.source}_${threadKeySlug(thread.state.thread_key)}.md`;
-}
+const ATOMIC_WRITE_NOTE = "When writing wiki or checkpoint files, use atomic writes (write to a temp file then rename) to prevent corruption from concurrent access.";
 
 export function buildIngestPrompt(cfg: AppConfig, thread: ThreadHandle, checkpoint: string | undefined): string {
   const wikiDir = cfg.paths.wikiDir;
   const schemaPath = path.join(wikiDir, ".schema.md");
   const indexPath = path.join(wikiDir, "index.md");
 
-  const schema = readIfExists(schemaPath);
-  const index = readIfExists(indexPath);
-  const transcript = readIfExists(thread.transcriptFile);
-
   const newAfter = checkpoint
     ? `\n(Only process events newer than ${checkpoint}. Do not re-ingest older content.)\n`
     : "";
@@ -40,147 +19,83 @@ export function buildIngestPrompt(cfg: AppConfig, thread: ThreadHandle, checkpoi
     "",
     `Wiki directory: ${wikiDir}`,
     "",
-    `## Wiki conventions (.schema.md)`,
-    "Read and follow these conventions for every page you create or update:",
+    "## Preparation",
+    `1. Read ${schemaPath} — wiki conventions: page format, YAML frontmatter, directory structure, cross-linking rules.`,
+    `2. Read ${indexPath} — catalog of everything already in the wiki. Use it to avoid duplicate pages.`,
     "",
-    schema,
-    "",
-    "## Current wiki state (index.md)",
-    "This is the catalog of everything currently in the wiki. Read it to avoid duplication.",
-    "Update existing pages when new facts emerge — never create duplicate pages for the same entity or concept.",
-    "",
-    index,
-    "",
-    "## Conversation transcript to ingest",
+    `## Conversation to ingest`,
     `Source: ${thread.state.source}`,
     `Thread key: ${thread.state.thread_key}`,
-    `Session file: ${sessionFileName(thread)}`,
+    `Transcript: ${thread.transcriptFile}`,
     newAfter,
-    "---",
-    transcript,
-    "---",
     "",
     "## Your task",
     "",
     "1. Read the transcript and extract structured knowledge:",
-    "   - Entities (people, projects, tools, services) — who and what is mentioned",
+    "   - Entities (people, projects, tools, services)",
     "   - Concepts (ideas, patterns, architectural decisions, trade-offs)",
     "   - Decisions (what was decided, by whom, with what reasoning)",
     "   - Preferences (what someone likes, dislikes, or always does)",
     "   - Facts (anything asserted as true about a system, process, or domain)",
     "",
-    "2. Create or update wiki pages:",
-    `   - Entity pages go in ${wikiDir}/entities/ — one per person, project, tool, service`,
-    `   - Concept pages go in ${wikiDir}/concepts/ — ideas, patterns, architectural decisions`,
-    `   - Session summaries go in ${wikiDir}/sessions/${thread.state.source}/ — one per ingested transcript`,
-    `   - Comparisons go in ${wikiDir}/comparisons/ — side-by-side analyses (only when two things are explicitly compared)`,
+    "2. Create or update wiki pages following .schema.md conventions:",
+    "   - Entity pages → entities/ (one per person, project, tool, service)",
+    "   - Concept pages → concepts/ (ideas, patterns, architectural decisions)",
+    `   - Session summary → sessions/${thread.state.source}/ (one per ingested transcript)`,
+    "   - Comparisons → comparisons/ (only when two things are explicitly compared)",
     "   - Every page starts with YAML frontmatter: title, type, tags, updated_at, sources",
     "   - Cross-link pages with [[../entities/page-name]] or [[page-name]] wikilinks",
-    "   - Update existing pages rather than creating duplicates — add new facts, update summaries, add links",
+    "   - Update existing pages rather than creating duplicates",
     "",
-    "3. Update the index and log:",
-    "   - Update index.md: add new page entries, update summaries of changed pages",
-    "   - Append to log.md: timestamped entry listing what was created, updated, and linked",
-    "",
-    "4. Update overview.md and synthesis.md if new information shifts the big picture:",
-    "   - overview.md pulls threads together — major themes, active projects, open questions",
-    "   - synthesis.md is the evolving thesis — your best understanding of the domain so far",
+    "3. Update index.md and append to log.md.",
+    "4. Update overview.md and synthesis.md if new information shifts the big picture.",
     "",
     "5. Be thorough. A single conversation can contain many entities, concepts, and decisions.",
-    "   Create pages even for things mentioned briefly — future conversations will fill them in.",
     "   A thin page with frontmatter and one sentence is better than no page.",
-    "   Never silently discard information — if it was said, it belongs in the wiki.",
     "",
-    "Now execute: read the existing wiki pages you need, then write all new and updated files.",
+    "Now execute: read the wiki files you need, then write all new and updated files.",
     "Write actual markdown files — do not just output a plan.",
+    ATOMIC_WRITE_NOTE,
   ].join("\n");
 }
 
-function buildThreadSection(thread: ThreadHandle, checkpoint: string | undefined): string {
-  const transcript = readIfExists(thread.transcriptFile);
-  const newAfter = checkpoint
-    ? `\n(Only process events newer than ${checkpoint}. Do not re-ingest older content.)\n`
-    : "";
-
-  return [
-    `## Conversation: ${thread.state.source} — ${thread.state.thread_key}`,
-    `Session: ${sessionFileName(thread)}`,
-    newAfter,
-    "---",
-    transcript,
-    "---",
-  ].join("\n");
-}
-
-export function buildBatchedIngestPrompt(
-  cfg: AppConfig,
-  batches: { thread: ThreadHandle; checkpoint: string | undefined }[],
-): string {
+export function buildBatchedIngestPrompt(cfg: AppConfig): string {
   const wikiDir = cfg.paths.wikiDir;
   const schemaPath = path.join(wikiDir, ".schema.md");
   const indexPath = path.join(wikiDir, "index.md");
-
-  const schema = readIfExists(schemaPath);
-  const index = readIfExists(indexPath);
-
-  const transcripts = batches
-    .map((b) => buildThreadSection(b.thread, b.checkpoint))
-    .join("\n\n");
+  const checkpointPath = path.join(cfg.paths.memoryDir, "checkpoint.json");
+  const sessionsRoot = cfg.paths.sessions;
 
   return [
     "You maintain a personal, interlinked knowledge wiki.",
     "",
     `Wiki directory: ${wikiDir}`,
+    `Thread directory: ${sessionsRoot}`,
+    `Checkpoint file: ${checkpointPath}`,
     "",
-    `## Wiki conventions (.schema.md)`,
-    "Read and follow these conventions for every page you create or update:",
+    "## Preparation",
+    `1. Read ${schemaPath} — wiki conventions: page format, YAML frontmatter, directory structure, cross-linking rules.`,
+    `2. Read ${indexPath} — catalog of everything already in the wiki. Use it to avoid duplicate pages.`,
     "",
-    schema,
+    "## Your task — ingest new conversations into the wiki",
     "",
-    "## Current wiki state (index.md)",
-    "This is the catalog of everything currently in the wiki. Read it to avoid duplication.",
-    "Update existing pages when new facts emerge — never create duplicate pages for the same entity or concept.",
+    "1. Read the checkpoint file to see which threads have already been ingested.",
+    "2. Browse the thread directory recursively — find all source folders and thread subdirectories.",
+    "3. For each thread, read session.json to check last_event_at.",
+    "4. A thread needs ingesting when BOTH conditions are met:",
+    "   - Its last_event_at is newer than its checkpoint entry (checkpoint.threads[thread_key].lastIngestAt)",
+    "   - Its last_event_at is more than 1 hour old (skip active conversations)",
+    "5. For each qualifying thread:",
+    "   - Read the full transcript",
+    "   - Extract: entities, concepts, decisions, preferences, facts",
+    "   - Create or update wiki pages following the conventions you read in .schema.md",
+    "   - Update index.md and log.md",
+    "6. Update overview.md and synthesis.md if new information shifts the big picture.",
+    "7. Update checkpoint.json — set each ingested thread's lastIngestAt to its last_event_at.",
     "",
-    index,
-    "",
-    "## Conversation transcripts to ingest",
-    `(${batches.length} thread${batches.length > 1 ? "s" : ""} to process)`,
-    "",
-    transcripts,
-    "",
-    "## Your task",
-    "",
-    "1. Read all transcripts and extract structured knowledge:",
-    "   - Entities (people, projects, tools, services) — who and what is mentioned",
-    "   - Concepts (ideas, patterns, architectural decisions, trade-offs)",
-    "   - Decisions (what was decided, by whom, with what reasoning)",
-    "   - Preferences (what someone likes, dislikes, or always does)",
-    "   - Facts (anything asserted as true about a system, process, or domain)",
-    "",
-    "2. Create or update wiki pages:",
-    `   - Entity pages go in ${wikiDir}/entities/ — one per person, project, tool, service`,
-    `   - Concept pages go in ${wikiDir}/concepts/ — ideas, patterns, architectural decisions`,
-    `   - Session summaries go in ${wikiDir}/sessions/<source>/ — one per ingested transcript`,
-    `   - Comparisons go in ${wikiDir}/comparisons/ — side-by-side analyses (only when two things are explicitly compared)`,
-    "   - Every page starts with YAML frontmatter: title, type, tags, updated_at, sources",
-    "   - Cross-link pages with [[../entities/page-name]] or [[page-name]] wikilinks",
-    "   - Update existing pages rather than creating duplicates — add new facts, update summaries, add links",
-    "",
-    "3. Update the index and log:",
-    "   - Update index.md: add new page entries, update summaries of changed pages",
-    "   - Append to log.md: timestamped entry listing what was created, updated, and linked",
-    "",
-    "4. Update overview.md and synthesis.md if new information shifts the big picture:",
-    "   - overview.md pulls threads together — major themes, active projects, open questions",
-    "   - synthesis.md is the evolving thesis — your best understanding of the domain so far",
-    "",
-    "5. Be thorough. A single conversation can contain many entities, concepts, and decisions.",
-    "   Create pages even for things mentioned briefly — future conversations will fill them in.",
-    "   A thin page with frontmatter and one sentence is better than no page.",
-    "   Never silently discard information — if it was said, it belongs in the wiki.",
-    "",
-    "Now execute: read the existing wiki pages you need, then write all new and updated files.",
+    "Be thorough. A thin page with frontmatter and one sentence is better than no page.",
     "Write actual markdown files — do not just output a plan.",
+    ATOMIC_WRITE_NOTE,
   ].join("\n");
 }
 

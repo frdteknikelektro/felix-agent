@@ -48,7 +48,7 @@ function makeThreadHandle(overrides: Partial<ThreadState> = {}): ThreadHandle {
 }
 
 describe("memory ingest prompt", () => {
-  it("includes wiki directory path in the prompt", () => {
+  it("includes wiki directory path and page locations in the prompt", () => {
     const cfg = makeConfig();
     const thread = makeThreadHandle();
     const prompt = buildIngestPrompt(cfg, thread, undefined);
@@ -59,12 +59,12 @@ describe("memory ingest prompt", () => {
     expect(prompt).toContain("comparisons/");
   });
 
-  it("includes thread metadata in the prompt", () => {
+  it("includes thread key and transcript file path (self-guided)", () => {
     const cfg = makeConfig("/workspace");
     const thread = makeThreadHandle();
     const prompt = buildIngestPrompt(cfg, thread, undefined);
-    expect(prompt).toContain("mattermost");
     expect(prompt).toContain("mattermost:channel:msg");
+    expect(prompt).toContain("transcript.md");
     expect(prompt).toContain("overview.md");
     expect(prompt).toContain("synthesis.md");
     expect(prompt).toContain("YAML frontmatter");
