@@ -40,6 +40,7 @@ const sentMessageIds = new Set<string>();
 const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
+let ownerSharesNumber = true;
 
 function setWebhookSecret(secret: string): void {
   webhookSecret = secret;
@@ -153,8 +154,10 @@ export async function handleWhatsAppWebhook(
       });
       return;
     }
-    sendJson(res, 200, { ignored: "from_me" });
-    return;
+    if (!ownerSharesNumber) {
+      sendJson(res, 200, { ignored: "from_me" });
+      return;
+    }
   }
 
   const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
@@ -236,6 +239,7 @@ class WhatsAppAdapter implements SourceAdapter {
     this.sameNumber = this.cfg.WHATSAPP_OWNER_JID
       ? this.cfg.WHATSAPP_OWNER_JID.startsWith(authOk.jid.split("@")[0])
       : true;
+    ownerSharesNumber = this.sameNumber;
 
     const secret = this.cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomUUID();
     setWebhookSecret(secret);
