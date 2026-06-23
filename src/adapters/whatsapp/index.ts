@@ -9,7 +9,7 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
 import {
@@ -522,11 +522,27 @@ class WhatsAppAdapter implements SourceAdapter {
     decisionMode?: "once" | "always" | "reject";
     decidedAt?: string;
   }): Promise<string> {
-    let text = buildOwnerPermissionNotification(input);
-    if (input.status === "pending") {
-      text += "\n\nReply with `yes`, `no`, or `always` to decide.";
+    const status = input.status ?? "pending";
+    const lines = [
+      `*Requester*: ${input.requesterName} (\`${input.requesterId}\`)`,
+      `*Skill*: \`${input.skillId}\``,
+      `*Permissions*: ${input.permissions.map((p) => `\`${p}\``).join(", ")}`,
+      `*Reason*: ${input.reason}`,
+      `*Status*: \`${status}\``,
+    ];
+    if (status !== "pending" && input.decisionMode) {
+      lines.push(`*Decision*: ${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`);
     }
-    return text;
+    if (input.decidedAt) {
+      lines.push(`*Resolved*: ${input.decidedAt}`);
+    }
+    if (input.threadLink) {
+      lines.push(`*Thread*: ${input.threadLink}`);
+    }
+    if (status === "pending") {
+      lines.push("", "Reply `yes` to approve once, `always` to always allow, or `no` to reject.");
+    }
+    return lines.join("\n");
   }
 
   async downloadAttachment(input: {

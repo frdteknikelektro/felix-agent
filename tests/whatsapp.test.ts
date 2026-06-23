@@ -230,10 +230,11 @@ describe("WhatsAppAdapter formatOwnerNotification", () => {
       status: "pending",
     });
 
-    expect(msg).toContain("**Permission Request**");
+    expect(msg).toContain("*Requester*: Alice");
     expect(msg).toContain("`test-skill`");
-    expect(msg).toContain("Alice");
     expect(msg).toContain("`yes`");
+    expect(msg).toContain("`always`");
+    expect(msg).toContain("`no`");
   });
 
   it("handles resolved requests", async () => {
@@ -250,6 +251,7 @@ describe("WhatsAppAdapter formatOwnerNotification", () => {
       decidedAt: "2026-06-01T00:00:00Z",
     });
 
-    expect(msg).toContain("approved");
+    expect(msg).toContain("*Status*: `approved`");
+    expect(msg).toContain("*Decision*:");
   });
 });

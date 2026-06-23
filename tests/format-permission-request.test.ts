@@ -32,12 +32,9 @@ describe.each(["mattermost", "discord", "slack"] as const)("%s formatOwnerNotifi
     expect(text).toContain("User asked to run a shell command");
     expect(text).toContain("| **Status** | `pending` |");
     expect(text).toContain("[Open Thread](https://example.com/thread/1)");
-    expect(text).toContain("👌");
-    expect(text).toContain("👍");
-    expect(text).toContain("🙏");
-    expect(text).toContain("`OK once`");
-    expect(text).toContain("`OK always`");
-    expect(text).toContain("`REJECT`");
+    expect(text).toContain("`yes`");
+    expect(text).toContain("`always`");
+    expect(text).toContain("`no`");
   });
 
   it("omits Thread row when threadLink is undefined", async () => {

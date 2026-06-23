@@ -359,13 +359,10 @@ export function buildOwnerPermissionNotification(input: OwnerPermissionNotificat
 
   const footer =
     status === "pending"
-      ? [
-          "React with `👌` for once, `👍` for always, or `🙏` to reject.",
-          "You can also reply with `OK once`, `OK always`, or `REJECT`.",
-        ]
+      ? ["Reply `yes` to approve once, `always` to always allow, or `no` to reject."]
       : [
           `This request is resolved as **${status}**.`,
-          "No further action is needed unless you want to reopen the thread manually.",
+          "No further action is needed.",
         ];
 
   return [
