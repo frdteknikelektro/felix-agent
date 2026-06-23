@@ -627,10 +627,8 @@ async function main() {
               stdio: "inherit",
               env: {
                 ...process.env,
-                WACLI_SYNC_MAX_MESSAGES: String(existing.WHATSAPP_MAX_MESSAGES ?? 5000),
-                WACLI_SYNC_MAX_DB_SIZE: existing.WHATSAPP_MAX_DB_SIZE ?? "100MB",
+                WACLI_SYNC_MAX_MESSAGES: "1",
               },
-            });
             const exitCode = await new Promise((resolve) => {
               authChild.on("close", (code) => resolve(code ?? -1));
             });
@@ -668,8 +666,8 @@ async function main() {
             stdio: "inherit",
             env: {
               ...process.env,
-              WACLI_SYNC_MAX_MESSAGES: String(existing.WHATSAPP_MAX_MESSAGES ?? 5000),
-              WACLI_SYNC_MAX_DB_SIZE: existing.WHATSAPP_MAX_DB_SIZE ?? "100MB",
+              WACLI_SYNC_MAX_MESSAGES: "0",
+              WACLI_SYNC_MAX_DB_SIZE: "1B",
             },
           });
           const exitCode = await new Promise((resolve) => {

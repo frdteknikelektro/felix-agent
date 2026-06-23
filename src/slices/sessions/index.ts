@@ -344,6 +344,7 @@ function buildThreadDirName(threadKey: string, createdAt: string): string {
 }
 
 async function repairThreadState(cfg: AppConfig, dir: string, state: ThreadState): Promise<ThreadState> {
+  if (!state || !state.source_thread_ref) return state;
   const repaired = await repairThreadStateByDir(dir, state);
   if (repaired !== state) {
     await writeThreadKeyIndex(cfg, await loadThreadHandle(dir, repaired));
