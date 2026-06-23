@@ -45,6 +45,14 @@ const Env = z.object({
   SLACK_BOT_USER_ID: z.string().optional(),
   SLACK_OWNER_USER_ID: z.string().optional(),
   SLACK_OWNER_DISPLAY: z.string().default("Owner"),
+  WHATSAPP_BOT_NAME: z.string()
+    .regex(/^[A-Za-z0-9_]+$/, "WHATSAPP_BOT_NAME must only contain letters, digits, and underscores")
+    .optional(),
+  WHATSAPP_OWNER_JID: z.string().optional(),
+  WHATSAPP_OWNER_DISPLAY: z.string().default("Owner"),
+  WHATSAPP_WACLI_BIN: z.string().default("wacli"),
+  WHATSAPP_STORE_DIR: z.string().default(""),
+  WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
   SOURCE: z.string().default("mattermost"),
   THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),

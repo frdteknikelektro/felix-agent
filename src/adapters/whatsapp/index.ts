@@ -1,0 +1,733 @@
+import crypto from "node:crypto";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import type http from "node:http";
+import type { AppConfig } from "../../config.js";
+import { writeTextAtomic, ensureDir, safeFileName } from "../../lib/fs.js";
+import { fsTimestamp } from "../../lib/time.js";
+import { log } from "../../lib/log.js";
+import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
+import type { FelixEngine } from "../../engine.js";
+import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
+import { sourceRawDir } from "../../workspace.js";
+import {
+  AttachmentRejectedError,
+  formatBytes,
+  storedAttachmentPath,
+} from "../../core/attachments.js";
+
+// ─── Public constructors ──────────────────────────────────────────────────────
+
+export function createWhatsAppAdapter(cfg: AppConfig): SourceAdapter {
+  return new WhatsAppAdapter(cfg);
+}
+
+export function startWhatsAppSource(
+  cfg: AppConfig,
+  engine: FelixEngine,
+  adapter?: SourceAdapter,
+): Promise<{ stop(): void; done: Promise<void> }> {
+  const a = (adapter ?? createWhatsAppAdapter(cfg)) as WhatsAppAdapter;
+  return a.start(engine);
+}
+
+// ─── Webhook handler (module-level, imported by app.ts) ───────────────────────
+
+const botMessageIds = new Map<string, { msgId: string; threadKey: string; trackedAt: number }>();
+const sentMessageIds = new Set<string>();
+const BOT_MSG_TTL_MS = 60 * 60 * 1000;
+let wacliStartedAt: number | null = null;
+let webhookSecret: string | null = null;
+
+function setWebhookSecret(secret: string): void {
+  webhookSecret = secret;
+}
+
+function clearWebhookSecret(): void {
+  webhookSecret = null;
+}
+
+export function trackSentMessage(msgId: string): void {
+  sentMessageIds.add(msgId);
+}
+
+export function trackBotMessage(msgId: string, threadKey: string): void {
+  botMessageIds.set(msgId, { msgId, threadKey, trackedAt: Date.now() });
+}
+
+function evictExpiredBotMessages(): void {
+  const cutoff = Date.now() - BOT_MSG_TTL_MS;
+  for (const [id, entry] of botMessageIds) {
+    if (entry.trackedAt < cutoff) botMessageIds.delete(id);
+  }
+}
+
+export function untrackBotMessage(msgId: string): void {
+  botMessageIds.delete(msgId);
+}
+
+export async function handleWhatsAppWebhook(
+  cfg: AppConfig,
+  engine: FelixEngine,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const body = await readBody(req);
+
+  evictExpiredBotMessages();
+
+  if (webhookSecret) {
+    const signature = req.headers["x-wacli-signature"] as string | undefined;
+    if (!signature || !verifyWebhookSignature(body, webhookSecret, signature)) {
+      log.warn("whatsapp.webhook_invalid_signature");
+      sendJson(res, 401, { error: "invalid_signature" });
+      return;
+    }
+  }
+
+  let payload: ParsedMessage;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    log.warn("whatsapp.webhook_invalid_json");
+    sendJson(res, 400, { error: "invalid_json" });
+    return;
+  }
+
+  const chatJid = payload.Chat?.User
+    ? `${payload.Chat.User}@${payload.Chat.Server}`
+    : "";
+  if (!chatJid || !payload.ID) {
+    log.warn("whatsapp.webhook_missing_fields");
+    sendJson(res, 400, { error: "missing_fields" });
+    return;
+  }
+
+  if (wacliStartedAt !== null && payload.Timestamp) {
+    const msgTs = Date.parse(payload.Timestamp);
+    if (!Number.isNaN(msgTs) && msgTs < wacliStartedAt) {
+      sendJson(res, 200, { ignored: "pre_connect_history" });
+      return;
+    }
+  }
+
+  if (sentMessageIds.has(payload.ID)) {
+    sentMessageIds.delete(payload.ID);
+    sendJson(res, 200, { ignored: "own_sent_message" });
+    return;
+  }
+
+  if (payload.FromMe) {
+    if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)) {
+      const botMsg = botMessageIds.get(payload.ReplyToID)!;
+      const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+      if (!event) {
+        sendJson(res, 200, { ignored: "empty_event" });
+        return;
+      }
+      await writeRawWhatsAppEvent(cfg, event);
+      const ownerDecision = await parseOwnerDecisionAsync(event.text, cfg);
+      if (ownerDecision) {
+        const target = {
+          kind: "owner_message" as const,
+          anchor: {
+            source: "whatsapp",
+            conversation_id: chatJid,
+            message_id: botMsg.msgId,
+            thread_id: botMsg.msgId,
+          },
+        };
+        await engine.handleOwnerDecision({
+          mode: ownerDecision.mode,
+          decidedBy: payload.SenderJID ?? "unknown",
+          target,
+        });
+        untrackBotMessage(payload.ReplyToID);
+      } else {
+        await engine.ingest(event);
+      }
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    sendJson(res, 200, { ignored: "from_me" });
+    return;
+  }
+
+  const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+  if (!event) {
+    sendJson(res, 200, { ignored: "empty_event" });
+    return;
+  }
+
+  await writeRawWhatsAppEvent(cfg, event);
+  await engine.ingest(event);
+  sendJson(res, 200, { ok: true });
+}
+
+// ─── ParsedMessage (webhook payload) ──────────────────────────────────────────
+
+interface ParsedMessage {
+  Chat?: { User?: string; Server?: string };
+  ID?: string;
+  SenderJID?: string;
+  Timestamp?: string;
+  FromMe?: boolean;
+  Text?: string;
+  PushName?: string;
+  ReplyToID?: string;
+  ReplyToSenderJID?: string;
+  ReplyToDisplay?: string;
+  ReactionToID?: string;
+  ReactionEmoji?: string;
+  IsForwarded?: boolean;
+  ForwardingScore?: number;
+  Media?: {
+    Type?: string;
+    Caption?: string;
+    Filename?: string;
+    MimeType?: string;
+    DirectPath?: string;
+    FileLength?: number;
+    MediaKey?: string;
+    FileSHA256?: string;
+    FileEncSHA256?: string;
+  };
+}
+
+// ─── WhatsAppAdapter ──────────────────────────────────────────────────────────
+
+class WhatsAppAdapter implements SourceAdapter {
+  source = "whatsapp";
+  get botUserId(): string | undefined {
+    return undefined;
+  }
+  get ownerUserId(): string | undefined {
+    return this.cfg.WHATSAPP_OWNER_JID;
+  }
+  private process?: ReturnType<typeof spawn>;
+  private sameNumber = false;
+
+  constructor(private readonly cfg: AppConfig) {}
+
+  // ── start (supervisor contract) ──────────────────────────────────────────
+
+  async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
+    if (!this.cfg.WHATSAPP_BOT_NAME) {
+      log.warn("whatsapp.disabled", { reason: "missing_bot_name" });
+      return { stop: () => undefined, done: Promise.resolve() };
+    }
+
+    const storeDir = this.wacliStoreDir();
+    const authOk = checkWacliAuth(storeDir);
+    if (!authOk) {
+      log.warn("whatsapp.disabled", { reason: "unauthenticated", store_dir: storeDir });
+      return { stop: () => undefined, done: Promise.resolve() };
+    }
+
+    this.sameNumber = this.cfg.WHATSAPP_OWNER_JID
+      ? this.cfg.WHATSAPP_OWNER_JID.startsWith(authOk.jid.split("@")[0])
+      : true;
+
+    const secret = this.cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomUUID();
+    setWebhookSecret(secret);
+
+    const port = 3000;
+    const args = [
+      "sync", "--follow",
+      "--webhook", `http://localhost:${port}/webhooks/whatsapp`,
+      "--webhook-secret", secret,
+      "--max-reconnect", "0",
+      "--store", storeDir,
+    ];
+
+    log.info("whatsapp.starting", { store_dir: storeDir, webhook_port: port });
+    this.process = spawn(this.cfg.WHATSAPP_WACLI_BIN, args, {
+      stdio: ["ignore", "inherit", "inherit"],
+      env: { ...process.env, PATH: process.env.PATH ?? "", HOME: this.cfg.paths.runtime },
+    });
+    wacliStartedAt = Date.now();
+
+    this.process!.on("error", (err) => {
+      log.warn("whatsapp.process_error", { error: err.message });
+    });
+
+    let resolveDone!: () => void;
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    this.process!.on("exit", (code) => {
+      log.info("whatsapp.process_exit", { code });
+      clearWebhookSecret();
+      wacliStartedAt = null;
+      resolveDone();
+    });
+
+    return {
+      stop: () => {
+        clearWebhookSecret();
+        this.process!.kill("SIGTERM");
+        wacliStartedAt = null;
+        resolveDone();
+      },
+      done,
+    };
+  }
+
+  // ── SourceAdapter implementation ─────────────────────────────────────────
+
+  async getThreadLink(_threadKey: string): Promise<string | undefined> {
+    return undefined;
+  }
+
+  async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
+    const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
+    const storeDir = this.wacliStoreDir();
+
+    return {
+      owner: this.cfg.WHATSAPP_OWNER_JID
+        ? {
+            userId: this.cfg.WHATSAPP_OWNER_JID,
+            display: this.cfg.WHATSAPP_OWNER_DISPLAY,
+          }
+        : undefined,
+      behaviorInstructions: [
+        "9. WhatsApp DMs are always answered. WhatsApp groups: only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
+        "10. Fetch WhatsApp chat context before answering:",
+        "```bash",
+        `wacli messages list --chat "${chatJid}" --limit 100 --store "${storeDir}" --json`,
+        "```",
+        "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
+        "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
+        "11. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
+        "12. Sending WhatsApp messages:",
+        "```bash",
+        `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
+        `  --message "[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] <your message>" \\`,
+        '  --json',
+        "```",
+        "The `--json` flag returns `{\"sent\":true,\"id\":\"<msg_id>\"}`. Always include the executor bot name prefix in square brackets.",
+        "To reply to a specific message, add `--reply-to <quoted_msg_id>`. To @mention someone, add `--mention <phone_or_jid>`.",
+        "Upload a file:",
+        "```bash",
+        `wacli send file --to "${chatJid}" --store "${storeDir}" \\`,
+        '  --file "<path under session artifact directory>" \\',
+        '  --caption "<optional caption>"',
+        "```",
+        "13. FELIX_REPLY and direct WhatsApp posts must not contain duplicated content. If you posted results or details via WhatsApp, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
+        "14. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+      ],
+    };
+  }
+
+  async updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void> {
+    const chatJid = input.event.source_thread_ref.conversation_id;
+    if (!chatJid) return;
+    const eventId = input.event.event_id;
+    const reaction = input.status === "processing" ? "⏳" : "✅";
+    const storeDir = this.wacliStoreDir();
+    try {
+      spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
+        "send", "react",
+        "--to", chatJid,
+        "--id", eventId,
+        "--reaction", reaction,
+        "--store", storeDir,
+        "--post-send-wait", "0",
+      ], { stdio: "ignore", timeout: 10_000 });
+    } catch {
+      // best-effort
+    }
+  }
+
+  async sendTyping(_input: { event: UniversalEvent }): Promise<void> {
+    // WhatsApp linked devices have limited presence capabilities
+  }
+
+  async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
+    const chatJid = input.event.source_thread_ref.conversation_id;
+    if (!chatJid) {
+      throw new Error("WhatsApp sendThreadReply: missing conversation_id in source_thread_ref");
+    }
+    const rootMessageId = input.event.source_thread_ref.root_message_id;
+    const replyToArg = rootMessageId && rootMessageId !== input.event.event_id
+      ? ["--reply-to", rootMessageId]
+      : [];
+
+    const prefix = this.sameNumber ? `[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] ` : "";
+    const storeDir = this.wacliStoreDir();
+
+    const args = [
+      "send", "text",
+      "--to", chatJid,
+      "--message", `${prefix}${input.text}`,
+      "--store", storeDir,
+      "--json",
+      "--post-send-wait", "0",
+      ...replyToArg,
+    ];
+
+    try {
+      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (result.status === 0 && result.stdout) {
+        try {
+          const parsed = JSON.parse(result.stdout.trim());
+          if (parsed.id) {
+            trackSentMessage(parsed.id);
+          }
+        } catch {
+          // no JSON output — message may still have been sent
+        }
+      } else {
+        const err = result.stderr || `exit ${result.status}`;
+        log.warn("whatsapp.send_failed", { chat_jid: chatJid, error: err.trim() });
+      }
+    } catch (error) {
+      log.warn("whatsapp.send_error", {
+        chat_jid: chatJid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async sendUserMessage(input: {
+    userId: string;
+    text: string;
+  }): Promise<SourceMessageAnchor | null> {
+    const prefix = this.sameNumber ? `[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}] ` : "";
+    const storeDir = this.wacliStoreDir();
+
+    const args = [
+      "send", "text",
+      "--to", input.userId,
+      "--message", `${prefix}${input.text}`,
+      "--store", storeDir,
+      "--json",
+      "--post-send-wait", "0",
+    ];
+
+    try {
+      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (result.status === 0 && result.stdout) {
+        try {
+          const parsed = JSON.parse(result.stdout.trim());
+          if (parsed.id) {
+            trackSentMessage(parsed.id);
+            const anchor: SourceMessageAnchor = {
+              source: "whatsapp",
+              conversation_id: input.userId,
+              message_id: parsed.id,
+              thread_id: parsed.id,
+            };
+            trackBotMessage(parsed.id, whatsappThreadKey(input.userId));
+            return anchor;
+          }
+        } catch {
+          // no JSON output
+        }
+      }
+      return null;
+    } catch (error) {
+      throw new Error(`Unable to send WhatsApp DM to ${input.userId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+    const chatJid = input.anchor.conversation_id;
+    const msgId = input.anchor.message_id;
+    if (!chatJid || !msgId) {
+      throw new Error("WhatsApp editUserMessage: missing anchor fields");
+    }
+    const storeDir = this.wacliStoreDir();
+
+    const args = [
+      "messages", "edit",
+      "--chat", chatJid,
+      "--id", msgId,
+      "--message", input.text,
+      "--store", storeDir,
+      "--post-send-wait", "0",
+    ];
+
+    try {
+      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+        encoding: "utf8",
+        timeout: 30_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (result.status !== 0) {
+        const err = result.stderr || `exit ${result.status}`;
+        throw new Error(`WhatsApp messages edit failed: ${err.trim()}`);
+      }
+    } catch (error) {
+      throw new Error(`WhatsApp messages edit failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async formatOwnerNotification(input: {
+    skillId: string;
+    permissions: string[];
+    reason: string;
+    requesterName: string;
+    requesterId: string;
+    threadLink?: string;
+    status?: "pending" | "approved" | "rejected";
+    decisionMode?: "once" | "always" | "reject";
+    decidedAt?: string;
+  }): Promise<string> {
+    let text = buildOwnerPermissionNotification(input);
+    if (input.status === "pending") {
+      text += "\n\nReply with `yes`, `no`, or `always` to decide.";
+    }
+    return text;
+  }
+
+  async downloadAttachment(input: {
+    event: UniversalEvent;
+    attachment: UniversalAttachment;
+    destinationDir: string;
+    maxBytes: number;
+  }): Promise<UniversalAttachment> {
+    const chatJid = input.event.source_thread_ref.conversation_id;
+    if (!chatJid) {
+      throw new Error("WhatsApp downloadAttachment: missing conversation_id");
+    }
+    if (typeof input.attachment.size_bytes === "number" && input.attachment.size_bytes > input.maxBytes) {
+      throw new AttachmentRejectedError(
+        `attachment exceeds ${formatBytes(input.maxBytes)}`,
+        `File is ${formatBytes(input.attachment.size_bytes)}, above the ${formatBytes(input.maxBytes)} limit.`,
+      );
+    }
+
+    const filename = input.attachment.filename ?? input.attachment.file_id;
+    const dest = storedAttachmentPath(
+      input.destinationDir,
+      input.event.received_at,
+      filename,
+      input.attachment.file_id,
+    );
+    await ensureDir(path.dirname(dest));
+
+    const storeDir = this.wacliStoreDir();
+    const args = [
+      "media", "download",
+      "--chat", chatJid,
+      "--id", input.attachment.file_id,
+      "--output", dest,
+      "--read-only",
+      "--store", storeDir,
+    ];
+
+    try {
+      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+        encoding: "utf8",
+        timeout: 120_000,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      if (result.status !== 0) {
+        const err = result.stderr || `exit ${result.status}`;
+        throw new Error(`media download failed: ${err.trim()}`);
+      }
+    } catch (error) {
+      log.warn("whatsapp.media_download_failed", {
+        chat_jid: chatJid,
+        msg_id: input.attachment.file_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new AttachmentRejectedError(
+        "Media download failed",
+        error instanceof Error ? error.message : "Unknown error",
+      );
+    }
+
+    return {
+      ...input.attachment,
+      filename,
+      size_bytes: input.attachment.size_bytes,
+      local_path: dest,
+      status: "available",
+    };
+  }
+
+  // ── Internal ─────────────────────────────────────────────────────────────
+
+  private wacliStoreDir(): string {
+    return this.cfg.WHATSAPP_STORE_DIR || this.cfg.paths.wacliStore;
+  }
+}
+
+// ─── Message normalization ────────────────────────────────────────────────────
+
+function normalizeParsedMessage(
+  pm: ParsedMessage,
+  botName: string,
+): UniversalEvent | null {
+  const chatJid = pm.Chat?.User && pm.Chat.Server
+    ? `${pm.Chat.User}@${pm.Chat.Server}`
+    : "";
+  if (!chatJid) return null;
+
+  const text = pm.Text ?? "";
+  const hasText = text.trim().length > 0;
+  const hasMedia = Boolean(pm.Media);
+  const hasReaction = Boolean(pm.ReactionToID);
+  if (!hasText && !hasMedia && !hasReaction) return null;
+
+  const isGroup = chatJid.includes("@g.us");
+  const visibility = isGroup ? "channel" : "dm";
+  const senderJid = pm.SenderJID ?? "unknown";
+  const mentionsBot = isGroup ? detectsWhatsappMention(text, botName) : true;
+
+  const displayText = hasReaction
+    ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
+    : text;
+
+  const sourceThreadRef = whatsappSourceThreadRef({
+    chatJid,
+    rootMessageId: chatJid, // WhatsApp threads are flat — one chat = one thread
+    messageId: pm.ID ?? "",
+    senderJid,
+  });
+
+  const attachments: UniversalAttachment[] = pm.Media
+    ? [{
+        file_id: pm.ID ?? "",
+        filename: pm.Media.Filename ?? pm.Media.Caption ?? pm.ID ?? "media",
+        content_type: pm.Media.MimeType,
+        size_bytes: pm.Media.FileLength,
+        is_image: pm.Media.MimeType?.startsWith("image/") ? true : undefined,
+      }]
+    : [];
+
+  return {
+    source: "whatsapp",
+    event_id: pm.ID ?? "",
+    thread_key: whatsappThreadKey(chatJid),
+    received_at: pm.Timestamp
+      ? new Date(pm.Timestamp).toISOString()
+      : new Date().toISOString(),
+    visibility,
+    mentions_bot: mentionsBot,
+    sender: {
+      source: "whatsapp",
+      id: senderJid,
+      display: pm.PushName,
+    },
+    text: displayText,
+    attachments,
+    raw_path: "",
+    source_thread_ref: sourceThreadRef,
+  };
+}
+
+// ─── Raw event persistence ────────────────────────────────────────────────────
+
+async function writeRawWhatsAppEvent(cfg: AppConfig, event: UniversalEvent): Promise<void> {
+  const dir = sourceRawDir(cfg.paths, "whatsapp");
+  await ensureDir(dir);
+  const file = path.join(
+    dir,
+    `${fsTimestamp(new Date(event.received_at))}_${safeFileName(event.event_id)}.json`,
+  );
+  event.raw_path = file;
+  await writeTextAtomic(file, JSON.stringify(event, null, 2));
+}
+
+// ─── Mention detection ────────────────────────────────────────────────────────
+
+export function detectsWhatsappMention(text: string, botName: string): boolean {
+  const lower = text.toLowerCase();
+  const botLower = botName.toLowerCase();
+  return lower.includes(`@${botLower}`);
+}
+
+// ─── wacli helpers ────────────────────────────────────────────────────────────
+
+interface WacliAuthInfo {
+  jid: string;
+  connected: boolean;
+}
+
+function checkWacliAuth(storeDir: string): WacliAuthInfo | null {
+  try {
+    const result = spawnSync("wacli", ["doctor", "--store", storeDir, "--json"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (result.status !== 0) return null;
+    const parsed = JSON.parse(result.stdout.trim());
+    const jid = (parsed as any)?.jid ?? (parsed as any)?.data?.jid ?? "";
+    const connected = (parsed as any)?.connected ?? (parsed as any)?.data?.connected ?? false;
+    if (!jid) return null;
+    return { jid, connected };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Webhook HMAC verification ────────────────────────────────────────────────
+
+function verifyWebhookSignature(body: string, secret: string, signature: string): boolean {
+  const prefix = "sha256=";
+  if (!signature.startsWith(prefix)) return false;
+  const expected = crypto.createHmac("sha256", secret).update(body).digest("hex");
+  let provided: Buffer;
+  try {
+    provided = Buffer.from(signature.slice(prefix.length), "hex");
+  } catch {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), provided);
+}
+
+// ─── HTTP utils (for webhook handler, avoid coupling to app.ts) ───────────────
+
+async function readBody(req: http.IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("cache-control", "no-store");
+  res.end(JSON.stringify(data));
+}
+
+// ─── Exported helpers ────────────────────────────────────────────────────────
+
+export function whatsappThreadKey(chatJid: string): string {
+  return `whatsapp:${chatJid}:${chatJid}`;
+}
+
+export function whatsappSourceThreadRef(opts: {
+  chatJid: string;
+  rootMessageId: string;
+  messageId: string;
+  senderJid?: string;
+}): SourceThreadRef {
+  return {
+    source: "whatsapp",
+    conversation_id: opts.chatJid,
+    thread_id: opts.rootMessageId,
+    root_message_id: opts.rootMessageId,
+    message_id: opts.messageId,
+    raw: {
+      chat_jid: opts.chatJid,
+      sender_jid: opts.senderJid,
+    },
+  };
+}

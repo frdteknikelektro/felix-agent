@@ -35,6 +35,21 @@ RUN apt-get update \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
+# Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite
+ARG WACLI_VERSION=0.11.1
+RUN arch="$(uname -m)" \
+    && case "$arch" in \
+         aarch64) tarch=arm64 ;; \
+         armv7l)  tarch=arm ;; \
+         *)       tarch=amd64 ;; \
+       esac \
+    && curl -fsSL "https://github.com/openclaw/wacli/releases/download/v${WACLI_VERSION}/wacli_${WACLI_VERSION}_linux_${tarch}.tar.gz" \
+         -o /tmp/wacli.tar.gz \
+    && tar -xzf /tmp/wacli.tar.gz -C /usr/local/bin wacli \
+    && rm /tmp/wacli.tar.gz \
+    && chmod +x /usr/local/bin/wacli \
+    && wacli --version
+
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
         matplotlib \
         numpy \

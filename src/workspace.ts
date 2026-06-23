@@ -23,6 +23,7 @@ export interface WorkspacePaths {
   tasks: string;
   memoryDir: string;
   wikiDir: string;
+  wacliStore: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
@@ -54,6 +55,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     tasks: path.join(root, "tasks"),
     memoryDir,
     wikiDir: path.join(memoryDir, "wiki"),
+    wacliStore: path.join(runtime, "wacli"),
   };
 }
 
@@ -88,6 +90,7 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.wikiDir, "concepts")),
     ensureDir(path.join(paths.wikiDir, "sessions")),
     ensureDir(path.join(paths.wikiDir, "comparisons")),
+    ensureDir(paths.wacliStore),
   ]);
 }
 

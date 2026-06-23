@@ -114,6 +114,14 @@ const SOURCE_DEFS = {
     ownerDefaults: { SLACK_OWNER_DISPLAY: "Owner" },
     ownerHint: "Find your User ID: Click your name → View profile → ⋯ → Copy member ID",
   },
+  whatsapp: {
+    label: "WhatsApp (via wacli)",
+    required: ["WHATSAPP_BOT_NAME"],
+    optional: {},
+    ownerKeys: ["WHATSAPP_OWNER_JID", "WHATSAPP_OWNER_DISPLAY"],
+    ownerDefaults: { WHATSAPP_OWNER_DISPLAY: "Owner" },
+    ownerHint: "Enter your WhatsApp JID (e.g. 1234567890@s.whatsapp.net)",
+  },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -486,6 +494,7 @@ async function main() {
         { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
         { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
         { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
+        { value: "whatsapp", name: "WhatsApp (via wacli)", checked: !!existing.WHATSAPP_BOT_NAME },
       ],
     });
 
@@ -592,6 +601,42 @@ async function main() {
             default: existingDisplay,
           });
           wizard.MATTERMOST_OWNER_DISPLAY = display;
+        } else if (src === "whatsapp") {
+          info(`\n  ${def.ownerHint}`);
+          const ownerJid = await input({
+            message: `WHATSAPP_OWNER_JID [optional] (e.g. 1234567890@s.whatsapp.net):`,
+            default: existing.WHATSAPP_OWNER_JID || "",
+          });
+          wizard.WHATSAPP_OWNER_JID = ownerJid;
+
+          const display = await input({
+            message: `WHATSAPP_OWNER_DISPLAY [optional]:`,
+            default: existing.WHATSAPP_OWNER_DISPLAY || def.ownerDefaults.WHATSAPP_OWNER_DISPLAY,
+          });
+          wizard.WHATSAPP_OWNER_DISPLAY = display;
+
+          const storeDir = join(WORKSPACE_PATH, "runtime", "wacli");
+          const sessionDb = join(storeDir, "session.db");
+          if (!existsSync(sessionDb)) {
+            info("\n  Pairing wacli with WhatsApp...");
+            info("  A QR code will appear. Scan it with WhatsApp on your phone.");
+            info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
+
+            mkdirSync(storeDir, { recursive: true });
+            const authChild = spawn("wacli", ["auth", "--store", storeDir], {
+              stdio: "inherit",
+            });
+            const exitCode = await new Promise((resolve) => {
+              authChild.on("close", (code) => resolve(code ?? -1));
+            });
+            if (exitCode !== 0) {
+              warn("wacli auth failed. Run `wacli auth --store <workspace>/runtime/wacli` manually.");
+            } else {
+              succeed("WhatsApp paired successfully.");
+            }
+          } else {
+            info("  wacli session already exists — skipping pairing.\n");
+          }
         } else {
           info(`\n  ${def.ownerHint}`);
           for (const ownerKey of def.ownerKeys) {
@@ -601,6 +646,32 @@ async function main() {
             });
             wizard[ownerKey] = val;
           }
+        }
+      }
+
+      // WhatsApp: make sure wacli is paired (non-owner sources)
+      if (src === "whatsapp" && src !== ownerSource) {
+        const storeDir = join(WORKSPACE_PATH, "runtime", "wacli");
+        const sessionDb = join(storeDir, "session.db");
+        if (!existsSync(sessionDb)) {
+          info("\n  Pairing wacli with WhatsApp...");
+          info("  A QR code will appear. Scan it with WhatsApp on your phone.");
+          info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
+
+          mkdirSync(storeDir, { recursive: true });
+          const authChild = spawn("wacli", ["auth", "--store", storeDir], {
+            stdio: "inherit",
+          });
+          const exitCode = await new Promise((resolve) => {
+            authChild.on("close", (code) => resolve(code ?? -1));
+          });
+          if (exitCode !== 0) {
+            warn("wacli auth failed. Run `wacli auth --store <workspace>/runtime/wacli` manually.");
+          } else {
+            succeed("WhatsApp paired successfully.");
+          }
+        } else {
+          info("  wacli session already exists — skipping pairing.\n");
         }
       }
     }

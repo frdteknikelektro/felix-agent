@@ -8,6 +8,7 @@ import { log } from "../lib/log.js";
 import { addDashboardClient, closeDashboardClients } from "./sse.js";
 import type { FelixEngine } from "../engine.js";
 import { API_ROUTES, matchRoute } from "./routes.js";
+import { handleWhatsAppWebhook } from "../adapters/whatsapp/index.js";
 
 const COOKIE_NAME = "felix_owner_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -108,6 +109,12 @@ async function routeRequest(
 
   if (pathname === "/api/logout" && req.method === "POST") {
     handleLogout(sessions, req, res);
+    return;
+  }
+
+  // WhatsApp webhook — internal endpoint, no owner auth
+  if (pathname === "/webhooks/whatsapp" && req.method === "POST") {
+    await handleWhatsAppWebhook(cfg, engine, req, res);
     return;
   }
 
