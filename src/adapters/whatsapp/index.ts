@@ -356,8 +356,10 @@ class WhatsAppAdapter implements SourceAdapter {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid) return;
     const eventId = input.event.event_id;
-    const reaction = input.status === "processing" ? "⏳" : "✅";
     const storeDir = this.wacliStoreDir();
+
+    // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
+    const reaction = input.status === "processing" ? "⏳" : "";
     try {
       spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
         "send", "react",
