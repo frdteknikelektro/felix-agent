@@ -124,6 +124,12 @@ export async function handleWhatsAppWebhook(
       return;
     }
 
+    // ── Self-sent reaction (our ⏳ / remove) ──────────────────────────
+    if (payload.ReactionToID) {
+      sendJson(res, 200, { ignored: "self_reaction" });
+      return;
+    }
+
     // ── Owner replying to a bot permission-request message ────────────
     if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)) {
       const botMsg = botMessageIds.get(payload.ReplyToID)!;
