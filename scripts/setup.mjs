@@ -508,6 +508,17 @@ async function main() {
         message: "Owner channel:",
         choices: listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
       });
+
+      info("  Where should permission notifications go?\n");
+      const notifyChannel = await select({
+        message: "Permission notification channel:",
+        choices: [
+          { value: "", name: "Same as event source (each event notifies its own source)" },
+          ...listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
+        ],
+        default: ownerSource,
+      });
+      if (notifyChannel) wizard.OWNER_CHANNEL = notifyChannel;
     }
 
     // ── Clear deselected sources ───────────────────────────────────────────

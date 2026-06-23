@@ -57,7 +57,9 @@ const Env = z.object({
   WHATSAPP_MAX_MESSAGES: z.coerce.number().int().positive().default(5000),
   WHATSAPP_MAX_DB_SIZE: z.string().default("100MB"),
   SOURCE: z.string().default("mattermost"),
-  OWNER_CHANNEL: z.enum(["mattermost", "discord", "slack", "whatsapp"]).optional(),
+  OWNER_CHANNEL: z.enum(["mattermost", "discord", "slack", "whatsapp"])
+    .optional()
+    .transform((v) => v || undefined),
   THREAD_SCAN_INTERVAL_MS: z.coerce.number().default(1000),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
 });
