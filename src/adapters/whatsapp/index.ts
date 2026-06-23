@@ -454,7 +454,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "11. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
-        "12. Sending WhatsApp messages:",
+        `12. Do NOT send intermediate WhatsApp messages like "working on it…" or "let me check…" — keep all thinking internal. Only post the final reply. All outgoing WhatsApp messages MUST start with the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix on every send.`,
         "```bash",
         `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
         `  --message "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <your message>" \\`,
