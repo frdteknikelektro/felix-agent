@@ -250,6 +250,34 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  // If this is a reaction on a tracked bot message from the owner
+  if (payload.ReactionToID && botMessageIds.has(payload.ReactionToID)
+      && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
+    const reactionTarget = payload.ReactionToID;
+    const emoji = payload.ReactionEmoji ?? "";
+    const decision = parseDecisionToken(emoji);
+    if (decision) {
+      const botMsg = botMessageIds.get(reactionTarget)!;
+      sendJson(res, 200, { ok: true });
+      void engine.handleOwnerDecision({
+        mode: decision,
+        decidedBy: payload.SenderJID ?? "unknown",
+        target: {
+          kind: "owner_message" as const,
+          anchor: {
+            source: "whatsapp",
+            conversation_id: chatJid,
+            message_id: botMsg.msgId,
+            thread_id: botMsg.msgId,
+          },
+        },
+      }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
+        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+      });
+    }
+    return;
+  }
+
   const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
