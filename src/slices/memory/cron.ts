@@ -26,7 +26,7 @@ export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
       .finally(() => {
         state.locked = false;
       });
-  }, 60_000);
+  }, 10 * 60 * 1000);
 
   state.interval.unref();
 }
