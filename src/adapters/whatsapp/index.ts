@@ -127,28 +127,33 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "empty_event" });
         return;
       }
-      await writeRawWhatsAppEvent(cfg, event);
-      const ownerDecision = await parseOwnerDecisionAsync(event.text, cfg);
-      if (ownerDecision) {
-        const target = {
-          kind: "owner_message" as const,
-          anchor: {
-            source: "whatsapp",
-            conversation_id: chatJid,
-            message_id: botMsg.msgId,
-            thread_id: botMsg.msgId,
-          },
-        };
-        await engine.handleOwnerDecision({
-          mode: ownerDecision.mode,
-          decidedBy: payload.SenderJID ?? "unknown",
-          target,
-        });
-        untrackBotMessage(payload.ReplyToID);
-      } else {
-        await engine.ingest(event);
-      }
+      // Respond immediately — don't block on ingest or owner decision
       sendJson(res, 200, { ok: true });
+      void writeRawWhatsAppEvent(cfg, event).then(() => {
+        return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
+          if (ownerDecision) {
+            const target = {
+              kind: "owner_message" as const,
+              anchor: {
+                source: "whatsapp",
+                conversation_id: chatJid,
+                message_id: botMsg.msgId,
+                thread_id: botMsg.msgId,
+              },
+            };
+            return engine.handleOwnerDecision({
+              mode: ownerDecision.mode,
+              decidedBy: payload.SenderJID ?? "unknown",
+              target,
+            }).then(() => undefined);
+          }
+          return engine.ingest(event);
+        });
+      }).then(() => {
+        untrackBotMessage(payload.ReplyToID!);
+      }).catch((error) => {
+        log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+      });
       return;
     }
     sendJson(res, 200, { ignored: "from_me" });
@@ -161,9 +166,12 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  await writeRawWhatsAppEvent(cfg, event);
-  await engine.ingest(event);
+  // Respond immediately — process asynchronously so wacli's webhook worker
+  // is never blocked by engine.ingest() serialization during history sync.
   sendJson(res, 200, { ok: true });
+  void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
+    log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+  });
 }
 
 // ─── ParsedMessage (webhook payload) ──────────────────────────────────────────
@@ -239,8 +247,6 @@ class WhatsAppAdapter implements SourceAdapter {
       "--webhook", `http://localhost:${port}/webhooks/whatsapp`,
       "--webhook-secret", secret,
       "--max-reconnect", "0",
-      "--max-messages", String(this.cfg.WHATSAPP_MAX_MESSAGES),
-      "--max-db-size", this.cfg.WHATSAPP_MAX_DB_SIZE,
       "--store", storeDir,
     ];
 
