@@ -368,25 +368,27 @@ class DiscordAdapter implements SourceAdapter {
 
     await this.writeRawEvent(event);
 
-    const ownerDecision = await parseOwnerDecisionAsync(event.text, this.cfg);
-    if (ownerDecision && this.ownerUserId === event.sender.id) {
-      const target = {
-        kind: "owner_message" as const,
-        anchor: {
-          source: "discord",
-          conversation_id: event.source_thread_ref.conversation_id,
-          message_id: event.source_thread_ref.root_message_id ?? event.source_thread_ref.message_id,
-          thread_id: event.source_thread_ref.thread_id,
-        },
-      };
-      if (
-        await engine.handleOwnerDecision({
-          mode: ownerDecision.mode,
-          decidedBy: event.sender.id,
-          target,
-        })
-      ) {
-        return;
+    if (this.ownerUserId && this.ownerUserId === event.sender.id) {
+      const ownerDecision = await parseOwnerDecisionAsync(event.text, this.cfg);
+      if (ownerDecision) {
+        const target = {
+          kind: "owner_message" as const,
+          anchor: {
+            source: "discord",
+            conversation_id: event.source_thread_ref.conversation_id,
+            message_id: event.source_thread_ref.root_message_id ?? event.source_thread_ref.message_id,
+            thread_id: event.source_thread_ref.thread_id,
+          },
+        };
+        if (
+          await engine.handleOwnerDecision({
+            mode: ownerDecision.mode,
+            decidedBy: event.sender.id,
+            target,
+          })
+        ) {
+          return;
+        }
       }
     }
 

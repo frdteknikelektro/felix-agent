@@ -212,6 +212,44 @@ export async function handleWhatsAppWebhook(
   }
 
   // ── Normal processing (incoming messages from others) ────────────────
+  // If this is a reply to a tracked bot message, check for owner decision first
+  if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)
+      && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
+    const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+    if (!event) {
+      sendJson(res, 200, { ignored: "empty_event" });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
+    void writeRawWhatsAppEvent(cfg, event).then(() => {
+      return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
+        if (ownerDecision) {
+          const botMsg = botMessageIds.get(payload.ReplyToID!)!;
+          const target = {
+            kind: "owner_message" as const,
+            anchor: {
+              source: "whatsapp",
+              conversation_id: chatJid,
+              message_id: botMsg.msgId,
+              thread_id: botMsg.msgId,
+            },
+          };
+          return engine.handleOwnerDecision({
+            mode: ownerDecision.mode,
+            decidedBy: payload.SenderJID ?? "unknown",
+            target,
+          }).then(() => undefined);
+        }
+        return engine.ingest(event);
+      });
+    }).then(() => {
+      untrackBotMessage(payload.ReplyToID!);
+    }).catch((error) => {
+      log.warn("whatsapp.webhook_async_error", { error: (error as Error).message });
+    });
+    return;
+  }
+
   const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });

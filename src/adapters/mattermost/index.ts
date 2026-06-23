@@ -544,9 +544,10 @@ class MattermostAdapter implements SourceAdapter {
         if (this.isDuplicate(postId)) return;
         this.remember(postId);
         await this.writeRawEvent(post);
-        const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
-        if (ownerDecision && this.ownerUserId === post.sender.id) {
-          const target = {
+        if (this.ownerUserId && this.ownerUserId === post.sender.id) {
+          const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
+          if (ownerDecision) {
+            const target = {
             kind: "owner_message" as const,
             anchor: {
               source: "mattermost",
@@ -565,6 +566,7 @@ class MattermostAdapter implements SourceAdapter {
             })
           ) {
             return;
+          }
           }
         }
         await engine.ingest(post);

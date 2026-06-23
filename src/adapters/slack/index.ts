@@ -386,25 +386,27 @@ class SlackAdapter implements SourceAdapter {
 
     await this.writeRawEvent(normalized);
 
-    const ownerDecision = await parseOwnerDecisionAsync(normalized.text, this.cfg);
-    if (ownerDecision && this.ownerUserId === normalized.sender.id) {
-      const target = {
-        kind: "owner_message" as const,
-        anchor: {
-          source: "slack",
-          conversation_id: normalized.source_thread_ref.conversation_id,
-          message_id: normalized.source_thread_ref.root_message_id ?? normalized.source_thread_ref.message_id,
-          thread_id: normalized.source_thread_ref.thread_id,
-        },
-      };
-      if (
-        await engine.handleOwnerDecision({
-          mode: ownerDecision.mode,
-          decidedBy: normalized.sender.id,
-          target,
-        })
-      ) {
-        return;
+    if (this.ownerUserId && this.ownerUserId === normalized.sender.id) {
+      const ownerDecision = await parseOwnerDecisionAsync(normalized.text, this.cfg);
+      if (ownerDecision) {
+        const target = {
+          kind: "owner_message" as const,
+          anchor: {
+            source: "slack",
+            conversation_id: normalized.source_thread_ref.conversation_id,
+            message_id: normalized.source_thread_ref.root_message_id ?? normalized.source_thread_ref.message_id,
+            thread_id: normalized.source_thread_ref.thread_id,
+          },
+        };
+        if (
+          await engine.handleOwnerDecision({
+            mode: ownerDecision.mode,
+            decidedBy: normalized.sender.id,
+            target,
+          })
+        ) {
+          return;
+        }
       }
     }
 
