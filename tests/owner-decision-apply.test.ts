@@ -78,6 +78,20 @@ describe("applyOwnerDecision", () => {
     expect(session.pending_permission ?? null).toBeNull();
   });
 
+  it("can resolve a decision by approval id", async () => {
+    const cfg = await makeCfg();
+    await seedPending(cfg);
+
+    const outcome = await applyOwnerDecision(cfg, {
+      mode: "once",
+      decidedBy: "owner",
+      target: { kind: "approval", approvalId: "req-1" },
+    });
+
+    expect(outcome?.thread.state.thread_key).toBe("mattermost:c:r");
+    expect(outcome?.record?.status).toBe("approved");
+  });
+
   it("on 'once' grants nothing to the contact but still decides", async () => {
     const cfg = await makeCfg();
     await seedPending(cfg);

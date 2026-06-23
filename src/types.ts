@@ -69,7 +69,8 @@ export interface PermissionDecision {
 
 export type OwnerDecisionTarget =
   | { kind: "thread"; threadKey: string }
-  | { kind: "owner_message"; anchor: import("./core/schemas.js").SourceMessageAnchor };
+  | { kind: "owner_message"; anchor: import("./core/schemas.js").SourceMessageAnchor }
+  | { kind: "approval"; approvalId: string };
 
 export interface OwnerDecision {
   mode: "once" | "always" | "reject";

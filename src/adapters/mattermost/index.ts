@@ -6,7 +6,10 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { parseOwnerDecision, parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { parseDecisionToken } from "../../core/decision.js";
 import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
 export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
@@ -34,6 +37,12 @@ interface MattermostPost {
   file_ids?: string[];
   create_at?: number;
   update_at?: number;
+}
+
+interface MattermostReaction {
+  user_id?: string;
+  post_id?: string;
+  emoji_name?: string;
 }
 
 interface ChannelInfo {
@@ -274,6 +283,30 @@ class MattermostAdapter implements SourceAdapter {
     };
   }
 
+  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+    const postId = input.anchor.message_id;
+    const channelId = input.anchor.conversation_id;
+    if (!postId || !channelId) {
+      throw new Error("Mattermost editUserMessage: missing anchor fields");
+    }
+    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/posts/${encodeURIComponent(postId)}`;
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        id: postId,
+        message: input.text,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`edit failed: ${res.status} ${body}`);
+    }
+  }
+
   async formatOwnerNotification(input: {
     skillId: string;
     permissions: string[];
@@ -281,28 +314,11 @@ class MattermostAdapter implements SourceAdapter {
     requesterName: string;
     requesterId: string;
     threadLink?: string;
+    status?: "pending" | "approved" | "rejected";
+    decisionMode?: "once" | "always" | "reject";
+    decidedAt?: string;
   }): Promise<string> {
-    const rows: [string, string][] = [
-      ["Requester", `**${input.requesterName}** (\`${input.requesterId}\`)`],
-      ["Skill", `\`${input.skillId}\``],
-      ["Permissions", input.permissions.map((p) => `\`${p}\``).join(", ")],
-      ["Reason", input.reason],
-    ];
-    if (input.threadLink) {
-      rows.push(["Thread", `[Open Thread](${input.threadLink})`]);
-    }
-    return [
-      "**Permission Request**",
-      "",
-      "| Field | Value |",
-      "|---|---|",
-      ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
-      "",
-      "Reply with one of:",
-      "- `OK once` — grant this time only",
-      "- `OK always` — grant permanently",
-      "- `REJECT` — deny",
-    ].join("\n");
+    return buildOwnerPermissionNotification(input);
   }
 
   private async addReaction(input: { event: UniversalEvent; emoji: string }): Promise<void> {
@@ -317,6 +333,57 @@ class MattermostAdapter implements SourceAdapter {
   private async removeReaction(input: { event: UniversalEvent; emoji: string }): Promise<void> {
     const postId = input.event.event_id;
     await this.writeReaction("DELETE", { postId, emoji: input.emoji });
+  }
+
+  private async handleReactionAdded(engine: FelixEngine, payload: WsPayload): Promise<void> {
+    const reaction = this.parseReaction(payload);
+    if (!reaction || !reaction.user_id || !reaction.post_id || !reaction.emoji_name) return;
+    if (this.ownerUserId && reaction.user_id !== this.ownerUserId) return;
+    const mode = parseDecisionToken(reaction.emoji_name);
+    if (!mode) return;
+    const post = await this.fetchPost(reaction.post_id);
+    if (!post?.id || !post.channel_id || !post.user_id) return;
+    if (this.cfg.MATTERMOST_BOT_USER_ID && !isSelfMessage(post.user_id, this.cfg.MATTERMOST_BOT_USER_ID)) {
+      return;
+    }
+    const target = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "mattermost",
+        conversation_id: post.channel_id,
+        message_id: post.id,
+        thread_id: normalizeThreadRootId(post.root_id, post.id),
+      },
+    };
+    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
+    await engine.handleOwnerDecision({
+      mode,
+      decidedBy: reaction.user_id,
+      target,
+    });
+  }
+
+  private parseReaction(payload: WsPayload): MattermostReaction | null {
+    const raw = payload.data?.reaction;
+    if (!raw) return null;
+    if (typeof raw === "string") {
+      return (safeJson(raw) as MattermostReaction | null | undefined) ?? null;
+    }
+    if (typeof raw === "object") {
+      return raw as MattermostReaction;
+    }
+    return null;
+  }
+
+  private async fetchPost(postId: string): Promise<MattermostPost | null> {
+    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/posts/${encodeURIComponent(postId)}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
+      },
+    }).catch(() => null);
+    if (!res?.ok) return null;
+    return (await res.json()) as MattermostPost;
   }
 
   async downloadAttachment(input: {
@@ -466,39 +533,49 @@ class MattermostAdapter implements SourceAdapter {
   private async handleMessage(engine: FelixEngine, chunk: WebSocket.RawData): Promise<void> {
     const raw = rawDataToString(chunk);
     const payload = JSON.parse(raw) as WsPayload;
-    if (payload.event !== "posted") return;
-    const post = await this.normalizePostedEvent(payload);
-    if (!post) return;
-    if (this.cfg.MATTERMOST_BOT_USER_ID && isSelfMessage(post.sender.id, this.cfg.MATTERMOST_BOT_USER_ID)) {
-      return;
-    }
-    const postId = post.event_id;
-    if (this.isDuplicate(postId)) return;
-    this.remember(postId);
-    await this.writeRawEvent(post);
-    const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
-    if (ownerDecision && this.ownerUserId === post.sender.id) {
-      const target = {
-        kind: "owner_message" as const,
-        anchor: {
-          source: "mattermost",
-          conversation_id: post.source_thread_ref.conversation_id,
-          message_id: post.source_thread_ref.root_message_id ?? post.source_thread_ref.message_id,
-          thread_id: post.source_thread_ref.thread_id,
-        },
-      };
-      // Only route as an owner decision if there's a pending permission to decide on.
-      // Otherwise, treat as a normal chat message so it gets ⏳ and LLM processing.
-      if (await engine.hasPendingPermission(target)) {
-        await engine.handleOwnerDecision({
-          mode: ownerDecision.mode,
-          decidedBy: post.sender.id,
-          target,
-        });
+    switch (payload.event) {
+      case "posted": {
+        const post = await this.normalizePostedEvent(payload);
+        if (!post) return;
+        if (this.cfg.MATTERMOST_BOT_USER_ID && isSelfMessage(post.sender.id, this.cfg.MATTERMOST_BOT_USER_ID)) {
+          return;
+        }
+        const postId = post.event_id;
+        if (this.isDuplicate(postId)) return;
+        this.remember(postId);
+        await this.writeRawEvent(post);
+        const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
+        if (ownerDecision && this.ownerUserId === post.sender.id) {
+          const target = {
+            kind: "owner_message" as const,
+            anchor: {
+              source: "mattermost",
+              conversation_id: post.source_thread_ref.conversation_id,
+              message_id: post.source_thread_ref.root_message_id ?? post.source_thread_ref.message_id,
+              thread_id: post.source_thread_ref.thread_id,
+            },
+          };
+          // Only route as an owner decision if the exact pending target resolves.
+          // Otherwise, treat as a normal chat message so it gets ⏳ and LLM processing.
+          if (
+            await engine.handleOwnerDecision({
+              mode: ownerDecision.mode,
+              decidedBy: post.sender.id,
+              target,
+            })
+          ) {
+            return;
+          }
+        }
+        await engine.ingest(post);
         return;
       }
+      case "reaction_added":
+        await this.handleReactionAdded(engine, payload);
+        return;
+      default:
+        return;
     }
-    await engine.ingest(post);
   }
 
   private async writeRawEvent(event: UniversalEvent): Promise<void> {

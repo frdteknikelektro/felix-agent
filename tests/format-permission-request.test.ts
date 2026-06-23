@@ -30,7 +30,11 @@ describe.each(["mattermost", "discord", "slack"] as const)("%s formatOwnerNotifi
     expect(text).toContain("`general`");
     expect(text).toContain("`shell.run`, `general.write`");
     expect(text).toContain("User asked to run a shell command");
+    expect(text).toContain("| **Status** | `pending` |");
     expect(text).toContain("[Open Thread](https://example.com/thread/1)");
+    expect(text).toContain("👌");
+    expect(text).toContain("👍");
+    expect(text).toContain("🙏");
     expect(text).toContain("`OK once`");
     expect(text).toContain("`OK always`");
     expect(text).toContain("`REJECT`");

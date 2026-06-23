@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolvePendingPermissionThread } from "../src/slices/approvals/index.js";
+import { requestApproval, resolvePendingPermissionThread, resolvePendingPermissionThreadExact } from "../src/slices/approvals/index.js";
 import { createOrLoadThread, setPendingPermission, type ThreadHandle } from "../src/slices/sessions/index.js";
 import type { AppConfig } from "../src/config.js";
 import type { SessionPermissionRequest } from "../src/types.js";
@@ -60,25 +60,52 @@ describe("resolvePendingPermissionThread", () => {
     expect(hit?.state.thread_key).toBe("mattermost:c:b");
   });
 
-  it("falls back to a pending request without an owner-message anchor", async () => {
+  it("does not fall back to another pending request when the owner-message anchor is missing", async () => {
     const cfg = await makeCfg();
     await seedPending(cfg, "mattermost:c:a", { postId: "p1" });
     await seedPending(cfg, "mattermost:c:b", {});
 
-    const hit = await resolvePendingPermissionThread(cfg, {
+    const hit = await resolvePendingPermissionThreadExact(cfg, {
       kind: "owner_message",
       anchor: { source: "mattermost", message_id: "unknown-post" },
     });
-    expect(hit?.state.thread_key).toBe("mattermost:c:b");
+    expect(hit).toBeNull();
   });
 
-  it("returns null when no pending thread matches", async () => {
+  it("matches an approval id exactly", async () => {
+    const cfg = await makeCfg();
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:c:approval",
+      source_thread_ref: mattermostThreadRef("c", "approval"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    await requestApproval(cfg, thread, {
+      request_id: "req-approval",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "s",
+      permissions: [],
+      reason: "r",
+      owner_message: "m",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "u" },
+      requester_event_file: path.join(thread.eventsDir, "req-approval.md"),
+    });
+
+    const hit = await resolvePendingPermissionThreadExact(cfg, {
+      kind: "approval",
+      approvalId: "req-approval",
+    });
+    expect(hit?.state.thread_key).toBe("mattermost:c:approval");
+  });
+
+  it("returns null when no exact thread target matches", async () => {
     const cfg = await makeCfg();
     await seedPending(cfg, "mattermost:c:a", { postId: "p1" });
 
-    const hit = await resolvePendingPermissionThread(cfg, {
-      kind: "owner_message",
-      anchor: { source: "mattermost", message_id: "unknown-post" },
+    const hit = await resolvePendingPermissionThreadExact(cfg, {
+      kind: "thread",
+      threadKey: "mattermost:c:missing",
     });
     expect(hit).toBeNull();
   });

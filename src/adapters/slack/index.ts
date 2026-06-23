@@ -7,6 +7,9 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { parseDecisionToken } from "../../core/decision.js";
 export { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
@@ -85,6 +88,14 @@ class SlackAdapter implements SourceAdapter {
         await this.handleMessage(engine, event as any, client);
       } catch (error) {
         log.warn("slack.message_handler_error", { error: (error as Error).message });
+      }
+    });
+
+    app.event("reaction_added", async ({ event }) => {
+      try {
+        await this.handleReactionAdd(engine, event as any);
+      } catch (error) {
+        log.warn("slack.reaction_handler_error", { error: (error as Error).message });
       }
     });
 
@@ -252,6 +263,25 @@ class SlackAdapter implements SourceAdapter {
     }
   }
 
+  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+    if (!this.app) {
+      throw new Error("Slack app not connected");
+    }
+    const channelId = input.anchor.conversation_id;
+    const messageTs = input.anchor.message_id;
+    if (!channelId || !messageTs) {
+      throw new Error("Slack editUserMessage: missing anchor fields");
+    }
+    const result = await this.app.client.chat.update({
+      channel: channelId,
+      ts: messageTs,
+      text: input.text,
+    });
+    if (!result.ok) {
+      throw new Error(`Slack chat.update failed for ${messageTs}`);
+    }
+  }
+
   async formatOwnerNotification(input: {
     skillId: string;
     permissions: string[];
@@ -259,28 +289,35 @@ class SlackAdapter implements SourceAdapter {
     requesterName: string;
     requesterId: string;
     threadLink?: string;
+    status?: "pending" | "approved" | "rejected";
+    decisionMode?: "once" | "always" | "reject";
+    decidedAt?: string;
   }): Promise<string> {
-    const rows: [string, string][] = [
-      ["Requester", `**${input.requesterName}** (\`${input.requesterId}\`)`],
-      ["Skill", `\`${input.skillId}\``],
-      ["Permissions", input.permissions.map((p) => `\`${p}\``).join(", ")],
-      ["Reason", input.reason],
-    ];
-    if (input.threadLink) {
-      rows.push(["Thread", `[Open Thread](${input.threadLink})`]);
-    }
-    return [
-      "**Permission Request**",
-      "",
-      "| Field | Value |",
-      "|---|---|",
-      ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
-      "",
-      "Reply with one of:",
-      "- `OK once` — grant this time only",
-      "- `OK always` — grant permanently",
-      "- `REJECT` — deny",
-    ].join("\n");
+    return buildOwnerPermissionNotification(input);
+  }
+
+  private async handleReactionAdd(engine: FelixEngine, event: Record<string, unknown>): Promise<void> {
+    if (!this.ownerUserId) return;
+    if ((event.user as string | undefined) !== this.ownerUserId) return;
+    const reaction = parseDecisionToken((event.reaction as string | undefined) ?? "");
+    if (!reaction) return;
+    const item = event.item as { type?: string; channel?: string; ts?: string } | undefined;
+    if (!item || item.type !== "message" || !item.channel || !item.ts) return;
+    const target = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "slack",
+        conversation_id: item.channel,
+        message_id: item.ts,
+        thread_id: item.ts,
+      },
+    };
+    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
+    await engine.handleOwnerDecision({
+      mode: reaction,
+      decidedBy: this.ownerUserId,
+      target,
+    });
   }
 
   async downloadAttachment(input: {
@@ -360,12 +397,13 @@ class SlackAdapter implements SourceAdapter {
           thread_id: normalized.source_thread_ref.thread_id,
         },
       };
-      if (await engine.hasPendingPermission(target)) {
+      if (
         await engine.handleOwnerDecision({
           mode: ownerDecision.mode,
           decidedBy: normalized.sender.id,
           target,
-        });
+        })
+      ) {
         return;
       }
     }

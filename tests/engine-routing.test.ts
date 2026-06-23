@@ -3,13 +3,17 @@ import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { FelixEngine } from "../src/engine.js";
 import { appendEventToThread, createOrLoadThread, hasThreadEvent, queueThreadEvent } from "../src/slices/sessions/index.js";
+import { requestApproval } from "../src/slices/approvals/index.js";
 import type { SourceAdapter, TurnInput, TurnResult } from "../src/core/ports.js";
+import type { SessionPermissionRequest } from "../src/types.js";
+import { buildOwnerPermissionNotification } from "../src/core/harness-common.js";
 import { FakeHarness } from "./helpers/fake-harness.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
 function makeAdapter(calls: {
   sendThreadReply: ReturnType<typeof vi.fn>;
   sendUserMessage: ReturnType<typeof vi.fn>;
+  editUserMessage: ReturnType<typeof vi.fn>;
   updateEventStatus: ReturnType<typeof vi.fn>;
   downloadAttachment: ReturnType<typeof vi.fn>;
 }): SourceAdapter {
@@ -22,9 +26,10 @@ function makeAdapter(calls: {
     updateEventStatus: async (input) => { calls.updateEventStatus(input); },
     sendTyping: async () => {},
     sendThreadReply: async (input) => { calls.sendThreadReply(input); },
+    editUserMessage: async (input) => { calls.editUserMessage(input); },
     sendUserMessage: async (input) => { calls.sendUserMessage(input); return null; },
     downloadAttachment: async (input) => { calls.downloadAttachment(input); return input.attachment; },
-    formatOwnerNotification: async () => "mock notification",
+    formatOwnerNotification: async (input) => buildOwnerPermissionNotification(input),
   };
 }
 
@@ -44,6 +49,7 @@ describe("FelixEngine Mattermost routing", () => {
     const calls = {
       sendThreadReply: vi.fn(),
       sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
       updateEventStatus: vi.fn(),
       downloadAttachment: vi.fn(),
     };
@@ -86,6 +92,7 @@ describe("FelixEngine Mattermost routing", () => {
     const calls = {
       sendThreadReply: vi.fn(),
       sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
       updateEventStatus: vi.fn(),
       downloadAttachment: vi.fn(),
     };
@@ -176,6 +183,7 @@ describe("FelixEngine Mattermost routing", () => {
     const calls = {
       sendThreadReply: vi.fn(),
       sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
       updateEventStatus: vi.fn(),
       downloadAttachment: vi.fn(),
     };
@@ -226,6 +234,7 @@ describe("FelixEngine Mattermost routing", () => {
     const calls = {
       sendThreadReply: vi.fn(),
       sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
       updateEventStatus: vi.fn(),
       downloadAttachment: vi.fn(),
     };
@@ -254,6 +263,232 @@ describe("FelixEngine Mattermost routing", () => {
       status: "rejected",
     });
     expect(harnessInputs[0].event.attachments[0].rejected_reason).toContain("limit");
+  });
+
+  it("edits the owner notification after a decision is applied", async () => {
+    const cfg = await makeTestConfig("felix-owner-edit-");
+    const harnessInputs: TurnInput[] = [];
+    const harness = {
+      async run(input: TurnInput): Promise<TurnResult> {
+        harnessInputs.push(input);
+        return { sessionId: `s${harnessInputs.length}`, exitCode: 0, success: true, parsed: { kind: "reply", text: "ok" }, logPath: "/dev/null" };
+      },
+      async generateDecisionNotification() {
+        return "decision posted";
+      },
+    };
+
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:channel:owner-edit",
+      source_thread_ref: mattermostThreadRef("channel", "owner-edit-root"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    const request: SessionPermissionRequest = {
+      request_id: "req-edit",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "deploy",
+      permissions: ["shell.run"],
+      reason: "ship it",
+      owner_message: "please approve",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "user-1", display: "User One" },
+      requester_event_file: path.join(thread.eventsDir, "req-edit.md"),
+      owner_message_anchor: {
+        source: "mattermost",
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    };
+    await requestApproval(cfg, thread, request);
+
+    await engine.handleOwnerDecision({
+      mode: "reject",
+      decidedBy: "owner-1",
+      target: {
+        kind: "owner_message",
+        anchor: {
+          source: "mattermost",
+          conversation_id: "owner-dm",
+          message_id: "owner-post",
+          thread_id: "owner-post",
+        },
+      },
+    });
+
+    expect(calls.editUserMessage).toHaveBeenCalledTimes(1);
+    expect(calls.editUserMessage.mock.calls[0][0].text).toContain("| **Status** | `rejected` |");
+    expect(calls.editUserMessage.mock.calls[0][0].text).toContain("🙏 Reject");
+    expect(calls.sendThreadReply).toHaveBeenCalledTimes(1);
+    expect(calls.sendThreadReply.mock.calls[0][0].text).toBe("decision posted");
+  });
+
+  it("ignores repeated decisions after the pending status is cleared", async () => {
+    const cfg = await makeTestConfig("felix-owner-repeat-");
+    const harnessInputs: TurnInput[] = [];
+    const harness = {
+      async run(input: TurnInput): Promise<TurnResult> {
+        harnessInputs.push(input);
+        return { sessionId: `s${harnessInputs.length}`, exitCode: 0, success: true, parsed: { kind: "reply", text: "ok" }, logPath: "/dev/null" };
+      },
+      async generateDecisionNotification() {
+        return "decision posted";
+      },
+    };
+
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:channel:owner-repeat",
+      source_thread_ref: mattermostThreadRef("channel", "owner-repeat-root"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    const request: SessionPermissionRequest = {
+      request_id: "req-repeat",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "deploy",
+      permissions: ["shell.run"],
+      reason: "ship it",
+      owner_message: "please approve",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "user-1", display: "User One" },
+      requester_event_file: path.join(thread.eventsDir, "req-repeat.md"),
+      owner_message_anchor: {
+        source: "mattermost",
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    };
+    await requestApproval(cfg, thread, request);
+
+    const decisionTarget = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "mattermost" as const,
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    };
+
+    await engine.handleOwnerDecision({
+      mode: "once",
+      decidedBy: "owner-1",
+      target: decisionTarget,
+    });
+
+    await engine.handleOwnerDecision({
+      mode: "always",
+      decidedBy: "owner-1",
+      target: decisionTarget,
+    });
+
+    expect(calls.editUserMessage).toHaveBeenCalledTimes(1);
+    expect(calls.sendThreadReply.mock.calls.filter((call) => call[0].text === "decision posted")).toHaveLength(1);
+    expect(harnessInputs).toHaveLength(1);
+  });
+
+  it("serializes concurrent owner decisions so reaction and reply cannot double-apply", async () => {
+    const cfg = await makeTestConfig("felix-owner-concurrent-");
+    const harnessInputs: TurnInput[] = [];
+    let releaseNotification!: () => void;
+    const notificationGate = new Promise<void>((resolve) => {
+      releaseNotification = resolve;
+    });
+    const harness = {
+      async run(input: TurnInput): Promise<TurnResult> {
+        harnessInputs.push(input);
+        return { sessionId: `s${harnessInputs.length}`, exitCode: 0, success: true, parsed: { kind: "reply", text: "ok" }, logPath: "/dev/null" };
+      },
+      async generateDecisionNotification() {
+        await notificationGate;
+        return "decision posted";
+      },
+    };
+
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:channel:owner-concurrent",
+      source_thread_ref: mattermostThreadRef("channel", "owner-concurrent-root"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    const request: SessionPermissionRequest = {
+      request_id: "req-concurrent",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "deploy",
+      permissions: ["shell.run"],
+      reason: "ship it",
+      owner_message: "please approve",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "user-1", display: "User One" },
+      requester_event_file: path.join(thread.eventsDir, "req-concurrent.md"),
+      owner_message_anchor: {
+        source: "mattermost",
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    };
+    await requestApproval(cfg, thread, request);
+
+    const target = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "mattermost" as const,
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    };
+
+    const first = engine.handleOwnerDecision({
+      mode: "once",
+      decidedBy: "owner-1",
+      target,
+    });
+    const second = engine.handleOwnerDecision({
+      mode: "always",
+      decidedBy: "owner-1",
+      target,
+    });
+
+    releaseNotification();
+    await Promise.all([first, second]);
+
+    expect(calls.editUserMessage).toHaveBeenCalledTimes(1);
+    expect(calls.sendThreadReply.mock.calls.filter((call) => call[0].text === "decision posted")).toHaveLength(1);
+    expect(harnessInputs).toHaveLength(1);
   });
 
 });

@@ -14,6 +14,7 @@ export interface SourceAdapter {
   updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void>;
   sendTyping(input: { event: UniversalEvent }): Promise<void>;
   sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void>;
+  editUserMessage?(input: { anchor: SourceMessageAnchor; text: string }): Promise<void>;
   sendUserMessage(input: {
     userId: string;
     text: string;
@@ -31,6 +32,9 @@ export interface SourceAdapter {
     requesterName: string;
     requesterId: string;
     threadLink?: string;
+    status?: "pending" | "approved" | "rejected";
+    decisionMode?: "once" | "always" | "reject";
+    decidedAt?: string;
   }): Promise<string>;
 }
 

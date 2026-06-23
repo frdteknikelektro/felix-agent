@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AppConfig } from "../config.js";
 import type { TurnInput, ParsedAgentOutput, DecisionNotificationInput } from "./ports.js";
 import { skillMatchesPermission } from "../slices/skills/index.js";
+import { decisionEmoji, decisionLabel } from "./decision.js";
 
 export function parseAgentOutput(raw: string): ParsedAgentOutput {
   const text = raw.trim();
@@ -333,4 +334,57 @@ export function buildDecisionNotificationPrompt(input: DecisionNotificationInput
 export function fallbackNotification(mode: "once" | "always" | "reject"): string {
   if (mode === "reject") return "Permission denied.";
   return "Permission granted. Proceeding.";
+}
+
+export interface OwnerPermissionNotificationInput {
+  skillId: string;
+  permissions: string[];
+  reason: string;
+  requesterName: string;
+  requesterId: string;
+  threadLink?: string;
+  status?: "pending" | "approved" | "rejected";
+  decisionMode?: "once" | "always" | "reject";
+  decidedAt?: string;
+}
+
+export function buildOwnerPermissionNotification(input: OwnerPermissionNotificationInput): string {
+  const status = input.status ?? "pending";
+  const rows: [string, string][] = [
+    ["Requester", `**${input.requesterName}** (\`${input.requesterId}\`)`],
+    ["Skill", `\`${input.skillId}\``],
+    ["Permissions", input.permissions.map((p) => `\`${p}\``).join(", ")],
+    ["Reason", input.reason],
+    ["Status", `\`${status}\``],
+  ];
+  if (status !== "pending" && input.decisionMode) {
+    rows.push(["Decision", `${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`]);
+  }
+  if (input.decidedAt) {
+    rows.push(["Resolved at", input.decidedAt]);
+  }
+  if (input.threadLink) {
+    rows.push(["Thread", `[Open Thread](${input.threadLink})`]);
+  }
+
+  const footer =
+    status === "pending"
+      ? [
+          "React with `👌` for once, `👍` for always, or `🙏` to reject.",
+          "You can also reply with `OK once`, `OK always`, or `REJECT`.",
+        ]
+      : [
+          `This request is resolved as **${status}**.`,
+          "No further action is needed unless you want to reopen the thread manually.",
+        ];
+
+  return [
+    "**Permission Request**",
+    "",
+    "| Field | Value |",
+    "|---|---|",
+    ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
+    "",
+    ...footer,
+  ].join("\n");
 }

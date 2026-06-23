@@ -8,6 +8,11 @@ describe("parseOwnerDecision", () => {
     expect(parseOwnerDecision("  ok ONCE  ")).toEqual({ mode: "once" });
     expect(parseOwnerDecision("OK always")).toEqual({ mode: "always" });
     expect(parseOwnerDecision("reject")).toEqual({ mode: "reject" });
+    expect(parseOwnerDecision("👌")).toEqual({ mode: "once" });
+    expect(parseOwnerDecision("👌 once")).toEqual({ mode: "once" });
+    expect(parseOwnerDecision("👍")).toEqual({ mode: "always" });
+    expect(parseOwnerDecision("👍 always")).toEqual({ mode: "always" });
+    expect(parseOwnerDecision("🙏")).toEqual({ mode: "reject" });
   });
 
   it("returns null for anything that is not a decision", () => {
@@ -25,6 +30,7 @@ describe("parseOwnerDecisionAsync", () => {
     expect(await parseOwnerDecisionAsync("OK once", cfg)).toEqual({ mode: "once" });
     expect(await parseOwnerDecisionAsync("  reject  ", cfg)).toEqual({ mode: "reject" });
     expect(await parseOwnerDecisionAsync("OK always", cfg)).toEqual({ mode: "always" });
+    expect(await parseOwnerDecisionAsync("👌", cfg)).toEqual({ mode: "once" });
   });
 
   it("returns null when regex fails and Codex is not configured", async () => {

@@ -1,6 +1,7 @@
 import type { PermissionDecision } from "../../types.js";
 import type { AppConfig } from "../../config.js";
 import { classifyOwnerDecision } from "./classify.js";
+import { parseDecisionToken } from "../../core/decision.js";
 
 /**
  * The owner's reply grammar for a pending permission request. Pure — adapters
@@ -9,6 +10,8 @@ import { classifyOwnerDecision } from "./classify.js";
  */
 export function parseOwnerDecision(text: string): PermissionDecision | null {
   const trimmed = text.trim();
+  const symbol = parseDecisionToken(trimmed);
+  if (symbol) return { mode: symbol };
   if (/^OK once$/i.test(trimmed)) return { mode: "once" };
   if (/^OK always$/i.test(trimmed)) return { mode: "always" };
   if (/^REJECT$/i.test(trimmed)) return { mode: "reject" };

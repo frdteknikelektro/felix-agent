@@ -1,5 +1,4 @@
 import type http from "node:http";
-import path from "node:path";
 import type { AppConfig } from "../config.js";
 import type { FelixEngine } from "../engine.js";
 import {
@@ -321,11 +320,15 @@ export const API_ROUTES: Route[] = [
         send(404, { error: "not_found" });
         return;
       }
-      await engine.handleOwnerDecision({
+      const applied = await engine.handleOwnerDecision({
         mode: decision as "once" | "always" | "reject",
         decidedBy: "owner-ui",
-        target: { kind: "thread", threadKey: approval.threadKey },
+        target: { kind: "approval", approvalId: approval.id },
       });
+      if (!applied) {
+        send(409, { error: "already_decided" });
+        return;
+      }
       await addApprovalAudit(cfg, approval, decision === "reject" ? "reject" : "approve", "owner-ui");
       send(200, { ok: true });
     },
@@ -357,13 +360,8 @@ function extractContactParams(params: Record<string, string>): { source?: string
   return { source, userId: rest };
 }
 
-function matchesApprovalId(record: { id?: string; requestId?: string; requestPath?: string }, id: string): boolean {
-  return (
-    record.id === id ||
-    record.requestId === id ||
-    record.requestPath === id ||
-    path.basename(record.requestPath ?? "") === id
-  );
+function matchesApprovalId(record: { id?: string; requestId?: string }, id: string): boolean {
+  return record.id === id || record.requestId === id;
 }
 
 function normalizeSkillBody(body: Record<string, unknown>): {

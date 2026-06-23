@@ -6,7 +6,7 @@ import { requestApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
-import { applyOwnerDecision, resolvePendingPermissionThread } from "./slices/approvals/index.js";
+import { applyOwnerDecision, resolvePendingPermissionThreadExact, type ApprovalRecord } from "./slices/approvals/index.js";
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
@@ -27,6 +27,7 @@ import {
 export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
   private processing = new Map<string, Promise<void>>();
+  private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly stopRequested = new Set<string>();
@@ -441,9 +442,8 @@ export class FelixEngine {
     request.owner_message_anchor = ownerMessage ?? undefined;
     if (!ownerMessage) {
       // The request is still persisted below so the owner can act on it — an
-      // un-anchored reply resolves via resolvePendingPermissionThread's fallback
-      // — but without a post id we can't match a reply to this thread by post,
-      // so flag it for the operator.
+      // un-anchored reaction/reply cannot be matched directly, so the owner
+      // console / approval list is the only exact decision path.
       log.warn("owner.notify_undelivered", {
         thread_key: thread.state.thread_key,
         request_id: request.request_id,
@@ -489,6 +489,7 @@ export class FelixEngine {
       requesterName: event.sender.display ?? event.sender.id,
       requesterId: event.sender.id,
       threadLink,
+      status: "pending",
     });
     try {
       return await adapter.sendUserMessage({ userId: ownerId, text: message });
@@ -502,31 +503,56 @@ export class FelixEngine {
   }
 
   async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
-    const thread = await resolvePendingPermissionThread(this.cfg, target);
+    const thread = await resolvePendingPermissionThreadExact(this.cfg, target);
     if (!thread) return false;
     const session = await loadSessionState(thread);
     return Boolean(session.pending_permission);
   }
 
-  async handleOwnerDecision(decision: OwnerDecision): Promise<void> {
-    const outcome = await applyOwnerDecision(this.cfg, decision);
-    if (!outcome) {
-      return;
-    }
-    const notification = await this.harness.generateDecisionNotification?.({
-      thread: outcome.thread,
-      mode: decision.mode,
-      skillId: outcome.record?.skillId ?? "(unknown)",
-      reason: outcome.record?.reason ?? "",
-      ownerDisplay: this.ownerDisplayForSource(outcome.thread.state.source),
+  async handleOwnerDecision(decision: OwnerDecision): Promise<boolean> {
+    return this.withOwnerDecisionLock(async () => {
+      const outcome = await applyOwnerDecision(this.cfg, decision);
+      if (!outcome) {
+        return false;
+      }
+      if (outcome.record) {
+        await this.updateOwnerDecisionMessage(outcome.thread, outcome.record, decision.mode);
+      }
+      const notification = await this.harness.generateDecisionNotification?.({
+        thread: outcome.thread,
+        mode: decision.mode,
+        skillId: outcome.record?.skillId ?? "(unknown)",
+        reason: outcome.record?.reason ?? "",
+        ownerDisplay: this.ownerDisplayForSource(outcome.thread.state.source),
+      });
+      if (notification) {
+        await this.postDecisionNotification(outcome.thread, notification);
+      }
+      if (decision.mode !== "reject") {
+        await this.queueProceedEvent(outcome.thread);
+      }
+      await this.processThread(outcome.thread);
+      return true;
     });
-    if (notification) {
-      await this.postDecisionNotification(outcome.thread, notification);
+  }
+
+  private async withOwnerDecisionLock<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.ownerDecisionLock;
+    let release!: () => void;
+    const current = previous.then(() => new Promise<void>((resolve) => {
+      release = resolve;
+    }));
+    this.ownerDecisionLock = current;
+
+    await previous;
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.ownerDecisionLock === current) {
+        this.ownerDecisionLock = Promise.resolve();
+      }
     }
-    if (decision.mode !== "reject") {
-      await this.queueProceedEvent(outcome.thread);
-    }
-    await this.processThread(outcome.thread);
   }
 
   private async postDecisionNotification(thread: ThreadHandle, text: string): Promise<void> {
@@ -563,6 +589,37 @@ export class FelixEngine {
       });
     }
     await appendFelixReply(thread, new Date().toISOString(), text);
+  }
+
+  private async updateOwnerDecisionMessage(
+    thread: ThreadHandle,
+    record: ApprovalRecord,
+    mode: OwnerDecision["mode"],
+  ): Promise<void> {
+    const anchor = record.ownerMessageAnchor;
+    if (!anchor) return;
+    const adapter = this.requireAdapter(thread.state.source);
+    if (!adapter.editUserMessage) return;
+    try {
+      const message = await adapter.formatOwnerNotification({
+        skillId: record.skillId,
+        permissions: record.permissions,
+        reason: record.reason,
+        requesterName: record.requester.display ?? record.requester.username ?? record.requester.id,
+        requesterId: record.requester.id,
+        threadLink: await adapter.getThreadLink(thread.state.thread_key),
+        status: record.status,
+        decisionMode: mode,
+        decidedAt: record.decidedAt,
+      });
+      await adapter.editUserMessage({ anchor, text: message });
+    } catch (error) {
+      log.warn("owner.edit_notification_failed", {
+        thread_key: thread.state.thread_key,
+        source: thread.state.source,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

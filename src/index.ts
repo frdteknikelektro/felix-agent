@@ -45,6 +45,12 @@ async function supervise(
         // supervisor only intervenes when done resolves without stop() (fatal).
         await source.done;
         const ranMs = Date.now() - startedAt;
+        // If the source resolved near-instantly it was intentionally disabled
+        // (e.g. missing token). Do not restart — just log and exit the loop.
+        if (ranMs < 100) {
+          if (!shuttingDown) log.info(`${name}.disabled`, { reason: "exited_immediately" });
+          break;
+        }
         // Reset backoff only if source ran long enough to be considered healthy.
         if (ranMs >= maxDelayMs) delay = baseDelayMs;
         if (!shuttingDown) {

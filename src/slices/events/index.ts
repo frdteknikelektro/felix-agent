@@ -1,6 +1,7 @@
 import path from "node:path";
 import { safeFileName } from "../../lib/fs.js";
 import { parseFrontmatter } from "../../lib/markdown.js";
+import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type {
   SessionPermissionRequest,
   SourceName,
@@ -125,6 +126,7 @@ function buildOwnerPermission(
   decision: "approved" | "rejected",
   details: OwnerPermissionDetails,
 ): EventFileSpec {
+  const mode = decision === "rejected" ? "reject" : details.scope === "always" ? "always" : "once";
   return {
     at,
     slug: `owner_permission_${decision}`,
@@ -140,6 +142,8 @@ function buildOwnerPermission(
     body:
       [
         `${decision === "approved" ? "Approved" : "Rejected"} permission for ${details.skill_id}.`,
+        `Status: ${decision}`,
+        `Decision: ${decisionEmoji(mode)} ${decisionLabel(mode)}`,
         `Scope: ${details.scope}`,
         details.reason ? `Reason: ${details.reason}` : "",
       ]
@@ -147,6 +151,8 @@ function buildOwnerPermission(
         .join("\n") + "\n",
     transcriptLines: [
       `### [${at}] owner_permission:${decision}`,
+      `Status: ${decision}`,
+      `Decision: ${decisionEmoji(mode)} ${decisionLabel(mode)}`,
       `Skill: ${details.skill_id}`,
       `Scope: ${details.scope}`,
       `Permissions: ${details.permissions.join(", ")}`,

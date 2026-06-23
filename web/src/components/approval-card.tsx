@@ -33,7 +33,7 @@ export function ApprovalCard({
         scope ? { scope } : undefined,
       );
       toast({
-        title: action === "reject" ? "Request rejected" : `Approved (${scope})`,
+        title: action === "reject" ? "Request rejected" : scope === "always" ? "Approved (👍 always)" : "Approved (👌 once)",
         description: `${approval.skillId} for ${requester}`,
         variant: action === "reject" ? "default" : "success",
       });
@@ -74,13 +74,13 @@ export function ApprovalCard({
       {approval.status === "pending" && (
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="success" disabled={busy} onClick={() => decide("approve", "once")}>
-            <Check /> Once
+            <Check /> <span>👌 Once</span>
           </Button>
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => decide("approve", "always")}>
-            <Check /> Always
+            <Check /> <span>👍 Always</span>
           </Button>
           <Button size="sm" variant="danger" disabled={busy} onClick={() => decide("reject")}>
-            <X /> Reject
+            <X /> <span>🙏 Reject</span>
           </Button>
         </div>
       )}

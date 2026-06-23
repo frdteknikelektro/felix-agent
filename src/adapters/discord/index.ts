@@ -1,5 +1,5 @@
 import path from "node:path";
-import { Client, GatewayIntentBits, Events, type Message } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, type Message } from "discord.js";
 import type { AppConfig } from "../../config.js";
 import { writeTextAtomic, ensureDir } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
@@ -7,6 +7,9 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
+import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { parseDecisionToken } from "../../core/decision.js";
 export { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
@@ -62,9 +65,12 @@ class DiscordAdapter implements SourceAdapter {
       intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.DirectMessageReactions,
       ],
+      partials: [Partials.Channel, Partials.Message, Partials.Reaction],
     });
 
     let resolveDone!: () => void;
@@ -79,6 +85,12 @@ class DiscordAdapter implements SourceAdapter {
     client.on(Events.MessageCreate, (message) => {
       void this.handleMessage(engine, message).catch((error) => {
         log.warn("discord.message_handler_error", { error: error.message });
+      });
+    });
+
+    client.on(Events.MessageReactionAdd, (reaction, user) => {
+      void this.handleReactionAdd(engine, reaction, user).catch((error) => {
+        log.warn("discord.reaction_handler_error", { error: error.message });
       });
     });
 
@@ -234,6 +246,23 @@ class DiscordAdapter implements SourceAdapter {
     };
   }
 
+  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+    const channelId = input.anchor.conversation_id;
+    const messageId = input.anchor.message_id;
+    if (!channelId || !messageId) {
+      throw new Error("Discord editUserMessage: missing anchor fields");
+    }
+    if (!this.client) {
+      throw new Error("Discord client not connected");
+    }
+    const channel = await this.client.channels.fetch(channelId);
+    if (!channel?.isTextBased()) {
+      throw new Error(`Discord channel ${channelId} not found or not text-based`);
+    }
+    const msg = await (channel as any).messages.fetch(messageId);
+    await msg.edit({ content: input.text });
+  }
+
   async formatOwnerNotification(input: {
     skillId: string;
     permissions: string[];
@@ -241,28 +270,43 @@ class DiscordAdapter implements SourceAdapter {
     requesterName: string;
     requesterId: string;
     threadLink?: string;
+    status?: "pending" | "approved" | "rejected";
+    decisionMode?: "once" | "always" | "reject";
+    decidedAt?: string;
   }): Promise<string> {
-    const rows: [string, string][] = [
-      ["Requester", `**${input.requesterName}** (\`${input.requesterId}\`)`],
-      ["Skill", `\`${input.skillId}\``],
-      ["Permissions", input.permissions.map((p) => `\`${p}\``).join(", ")],
-      ["Reason", input.reason],
-    ];
-    if (input.threadLink) {
-      rows.push(["Thread", `[Open Thread](${input.threadLink})`]);
+    return buildOwnerPermissionNotification(input);
+  }
+
+  private async handleReactionAdd(
+    engine: FelixEngine,
+    reaction: any,
+    user: any,
+  ): Promise<void> {
+    if (!this.ownerUserId || user.id !== this.ownerUserId) return;
+    if (reaction.partial) {
+      await reaction.fetch().catch(() => null);
     }
-    return [
-      "**Permission Request**",
-      "",
-      "| Field | Value |",
-      "|---|---|",
-      ...rows.map((r) => `| **${r[0]}** | ${r[1]} |`),
-      "",
-      "Reply with one of:",
-      "- `OK once` — grant this time only",
-      "- `OK always` — grant permanently",
-      "- `REJECT` — deny",
-    ].join("\n");
+    const message = reaction.message;
+    if (!message?.author?.id || this.cfg.DISCORD_BOT_USER_ID && message.author.id !== this.cfg.DISCORD_BOT_USER_ID) {
+      return;
+    }
+    const mode = parseDecisionToken(reaction.emoji.name ?? reaction.emoji.identifier ?? "");
+    if (!mode) return;
+    const target = {
+      kind: "owner_message" as const,
+      anchor: {
+        source: "discord",
+        conversation_id: message.channel.id,
+        message_id: message.id,
+        thread_id: message.id,
+      },
+    };
+    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
+    await engine.handleOwnerDecision({
+      mode,
+      decidedBy: user.id,
+      target,
+    });
   }
 
   async downloadAttachment(input: {
@@ -335,12 +379,13 @@ class DiscordAdapter implements SourceAdapter {
           thread_id: event.source_thread_ref.thread_id,
         },
       };
-      if (await engine.hasPendingPermission(target)) {
+      if (
         await engine.handleOwnerDecision({
           mode: ownerDecision.mode,
           decidedBy: event.sender.id,
           target,
-        });
+        })
+      ) {
         return;
       }
     }
