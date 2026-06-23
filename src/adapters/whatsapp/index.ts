@@ -100,8 +100,7 @@ export async function handleWhatsAppWebhook(
     ? `${payload.Chat.User}@${payload.Chat.Server}`
     : "";
   if (!chatJid || !payload.ID) {
-    log.warn("whatsapp.webhook_missing_fields");
-    sendJson(res, 400, { error: "missing_fields" });
+    sendJson(res, 200, { ignored: "missing_fields" });
     return;
   }
 
