@@ -41,6 +41,8 @@ const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
 let ownerSharesNumber = true;
+let lastSendAt = 0;
+const SEND_MIN_GAP_MS = 1500;
 
 function setWebhookSecret(secret: string): void {
   webhookSecret = secret;
@@ -48,6 +50,14 @@ function setWebhookSecret(secret: string): void {
 
 function clearWebhookSecret(): void {
   webhookSecret = null;
+}
+
+async function waitForSendSlot(): Promise<void> {
+  const elapsed = Date.now() - lastSendAt;
+  if (elapsed < SEND_MIN_GAP_MS) {
+    await new Promise((r) => setTimeout(r, SEND_MIN_GAP_MS - elapsed));
+  }
+  lastSendAt = Date.now();
 }
 
 export function trackSentMessage(msgId: string): void {
@@ -380,6 +390,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ...replyToArg,
     ];
 
+    await waitForSendSlot();
     try {
       const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
         encoding: "utf8",
@@ -423,6 +434,7 @@ class WhatsAppAdapter implements SourceAdapter {
       "--post-send-wait", "0",
     ];
 
+    await waitForSendSlot();
     try {
       const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
         encoding: "utf8",
