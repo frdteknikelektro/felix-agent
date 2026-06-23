@@ -180,6 +180,7 @@ export class OpencodeHarness implements Harness {
       "run",
       "--dir", this.cfg.paths.root,
       "--model", this.cfg.OPENCODE_MODEL,
+      "--title", input.thread.state.thread_key,
       "--format", "json",
       "--dangerously-skip-permissions",
     ];
@@ -217,6 +218,7 @@ export class OpencodeHarness implements Harness {
       "run",
       "--dir", this.cfg.paths.root,
       "--model", this.cfg.OPENCODE_MODEL,
+      "--title", `decision-notification-${Date.now()}`,
       "--format", "json",
       "--dangerously-skip-permissions",
       prompt,
