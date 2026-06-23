@@ -36,7 +36,6 @@ export function startWhatsAppSource(
 // ─── Webhook handler (module-level, imported by app.ts) ───────────────────────
 
 const botMessageIds = new Map<string, { msgId: string; threadKey: string; trackedAt: number }>();
-const sentMessageIds = new Set<string>();
 const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
@@ -58,10 +57,6 @@ async function waitForSendSlot(): Promise<void> {
     await new Promise((r) => setTimeout(r, SEND_MIN_GAP_MS - elapsed));
   }
   lastSendAt = Date.now();
-}
-
-export function trackSentMessage(msgId: string): void {
-  sentMessageIds.add(msgId);
 }
 
 export function trackBotMessage(msgId: string, threadKey: string): void {
@@ -122,14 +117,14 @@ export async function handleWhatsAppWebhook(
   }
 
   if (payload.FromMe) {
-    // ── Self-sent message caught by ID tracking ────────────────────────
-    if (sentMessageIds.has(payload.ID)) {
-      sentMessageIds.delete(payload.ID);
-      sendJson(res, 200, { ignored: "own_sent_message" });
+    // ── Self-sent message (Felix prefixes its own messages) ───────────
+    const botPrefix = `[${cfg.WHATSAPP_BOT_NAME ?? "Felix"}] `;
+    if ((payload.Text ?? "").startsWith(botPrefix)) {
+      sendJson(res, 200, { ignored: "self_message" });
       return;
     }
 
-    // ── Owner replying to a bot permission-request message ─────────────
+    // ── Owner replying to a bot permission-request message ────────────
     if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)) {
       const botMsg = botMessageIds.get(payload.ReplyToID)!;
       const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
@@ -166,15 +161,7 @@ export async function handleWhatsAppWebhook(
       return;
     }
 
-    // ── Reply to a non-tracked message = self-reply (not in botMessageIds) ──
-    // Felix's own reply via sendThreadReply always sets ReplyToID (the user's
-    // original message), which is never in botMessageIds. Never re-ingest.
-    if (payload.ReplyToID) {
-      sendJson(res, 200, { ignored: "from_me_reply" });
-      return;
-    }
-
-    // ── Owner using the same number, new message (no ReplyToID) ────────
+    // ── Owner using the same number ──────────────────────────────────
     if (ownerSharesNumber) {
       const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
       if (!event) {
@@ -188,7 +175,7 @@ export async function handleWhatsAppWebhook(
       return;
     }
 
-    // ── FromMe from a different number → ignore ────────────────────────
+    // ── FromMe from a different number → ignore ─────────────────────
     sendJson(res, 200, { ignored: "from_me" });
     return;
   }
@@ -421,10 +408,7 @@ class WhatsAppAdapter implements SourceAdapter {
       });
       if (result.status === 0 && result.stdout) {
         try {
-          const parsed = JSON.parse(result.stdout.trim());
-          if (parsed.id) {
-            trackSentMessage(parsed.id);
-          }
+          JSON.parse(result.stdout.trim());
         } catch {
           // no JSON output — message may still have been sent
         }
@@ -467,7 +451,6 @@ class WhatsAppAdapter implements SourceAdapter {
         try {
           const parsed = JSON.parse(result.stdout.trim());
           if (parsed.id) {
-            trackSentMessage(parsed.id);
             const anchor: SourceMessageAnchor = {
               source: "whatsapp",
               conversation_id: input.userId,
