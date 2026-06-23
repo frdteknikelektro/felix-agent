@@ -21,6 +21,17 @@ export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/por
 
 // ─── Shared spawn ─────────────────────────────────────────────────────────
 
+function extractError(event: Record<string, unknown>): string | null {
+  const message = typeof event.message === "string" ? event.message : null;
+  const error = event.error;
+  if (typeof error === "string" && error.length > 0) return error;
+  if (error && typeof error === "object") {
+    const inner = (error as Record<string, unknown>).message;
+    if (typeof inner === "string") return inner;
+  }
+  return message;
+}
+
 export interface RunResult {
   exitCode: number;
   sessionId: string;
@@ -86,6 +97,7 @@ export async function opencodeRun(
   let capturedSessionId = "";
   const textParts: string[] = [];
   let lastEventType: string | null = null;
+  const errors: string[] = [];
 
   for (const line of stdoutLines) {
     try {
@@ -93,6 +105,11 @@ export async function opencodeRun(
       const eventType = typeof event.type === "string" ? event.type : null;
       if (eventType === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
         capturedSessionId = event.sessionID;
+      }
+      if (eventType === "error") {
+        const msg = extractError(event);
+        if (msg) errors.push(msg);
+        continue;
       }
       if (eventType === "text" && typeof event.part === "object" && event.part !== null) {
         const part = event.part as Record<string, unknown>;
@@ -103,12 +120,27 @@ export async function opencodeRun(
           textParts.push(part.text);
         }
       }
+      if (eventType === "tool" && typeof event.part === "object" && event.part !== null) {
+        const part = event.part as Record<string, unknown>;
+        if (part.type === "tool_use" && typeof part.name === "string") {
+          if (lastEventType !== null && lastEventType !== "tool") {
+            textParts.push("\n\n");
+          }
+          textParts.push("Tool: " + part.name);
+        } else if (part.type === "tool_result" && part.result !== undefined && part.result !== null) {
+          textParts.push("\n\n" + String(part.result));
+        }
+      }
       if (eventType) lastEventType = eventType;
     } catch {
     }
   }
 
   const assistantText = textParts.join("");
+
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
+  }
 
   return { exitCode, sessionId: capturedSessionId, assistantText };
 }
