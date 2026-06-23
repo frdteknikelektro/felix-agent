@@ -218,7 +218,7 @@ function buildLintTurnInput(cfg: AppConfig): TurnInput {
       user_id: "memory-lint",
       source: "system",
       display: "Memory Lint",
-      allowed_permissions: [],
+      allowed_permissions: ["memory:write"],
     },
     skills: [],
     sourceContext: { behaviorInstructions: [] },
