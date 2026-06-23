@@ -454,7 +454,7 @@ class WhatsAppAdapter implements SourceAdapter {
         `  --message "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <your message>" \\`,
         '  --json',
         "```",
-        "The `--json` flag returns `{\"sent\":true,\"id\":\"<msg_id>\"}`. Always include the executor bot name prefix in square brackets.",
+        "The `--json` flag returns `{\"sent\":true,\"id\":\"<msg_id>\"}`.",
         "To reply to a specific message, add `--reply-to <quoted_msg_id>`. To @mention someone, add `--mention <phone_or_jid>`.",
         "Upload a file:",
         "```bash",
