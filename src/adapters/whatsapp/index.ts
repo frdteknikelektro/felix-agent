@@ -228,7 +228,7 @@ class WhatsAppAdapter implements SourceAdapter {
     }
 
     const storeDir = this.wacliStoreDir();
-    const authOk = checkWacliAuth(storeDir);
+    const authOk = checkWacliAuth(storeDir, this.cfg.WHATSAPP_WACLI_BIN);
     if (!authOk) {
       log.warn("whatsapp.disabled", { reason: "unauthenticated", store_dir: storeDir });
       return { stop: () => undefined, done: Promise.resolve() };
@@ -246,6 +246,7 @@ class WhatsAppAdapter implements SourceAdapter {
       "sync", "--follow",
       "--webhook", `http://127.0.0.1:${port}/webhooks/whatsapp`,
       "--webhook-secret", secret,
+      "--webhook-allow-private",
       "--max-reconnect", "0",
       "--store", storeDir,
     ];
@@ -665,9 +666,9 @@ interface WacliAuthInfo {
   connected: boolean;
 }
 
-function checkWacliAuth(storeDir: string): WacliAuthInfo | null {
+function checkWacliAuth(storeDir: string, bin: string): WacliAuthInfo | null {
   try {
-    const result = spawnSync("wacli", ["doctor", "--store", storeDir, "--json"], {
+    const result = spawnSync(bin, ["doctor", "--store", storeDir, "--json"], {
       encoding: "utf8",
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
