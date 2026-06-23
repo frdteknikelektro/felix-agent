@@ -599,7 +599,8 @@ export class FelixEngine {
   ): Promise<void> {
     const anchor = record.ownerMessageAnchor;
     if (!anchor) return;
-    const adapter = this.requireAdapter(thread.state.source);
+    const targetSource = this.cfg.OWNER_CHANNEL ?? thread.state.source;
+    const adapter = this.requireAdapter(targetSource);
     if (!adapter.editUserMessage) return;
     try {
       const message = await adapter.formatOwnerNotification({
