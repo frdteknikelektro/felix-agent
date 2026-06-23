@@ -41,7 +41,7 @@ let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
 let ownerSharesNumber = true;
 let lastSendAt = 0;
-const SEND_MIN_GAP_MS = 1500;
+const SEND_MIN_GAP_MS = 5000;
 
 function setWebhookSecret(secret: string): void {
   webhookSecret = secret;
