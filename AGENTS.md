@@ -36,7 +36,7 @@ END_PERMISSION_REQUIRED
 ```
 
 - Emit your user-facing `FELIX_REPLY` (brief, in the user's language) **before** the `PERMISSION_REQUIRED` block. If you emit the block with no preceding reply, a default "Waiting for owner permission." is used.
-- `FELIX_REPLY` is the primary reply channel. Use source-API posting only for supplementary content — file uploads, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source-API posting for every reply.
+- `FELIX_REPLY` is the primary reply channel. Use source-API posting for supplementary content — file uploads, images, rich embeds, intermediate/progress status, or when inline text/markdown is genuinely needed. Do not default to source-API posting for every reply.
 - `FELIX_REPLY` and source-API posts must not contain duplicated content. If you posted results or details via the source API, do not copy, rephrase, or restate them in `FELIX_REPLY`.
 - When using source-API posting, upload only files generated for this current session/request. Never upload secrets, credential files, raw env files, unrelated repo files, or arbitrary readable files.
 
