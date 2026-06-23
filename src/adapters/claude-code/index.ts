@@ -14,7 +14,6 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  collectPermissionEvents,
   buildSpawnPath,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
@@ -155,8 +154,7 @@ export class ClaudeCodeHarness implements Harness {
       `${fsTimestamp(new Date())}_${input.resumed ? "resume" : "start"}.md`,
     );
     const logPath = `${turnPath}.log`;
-    const permissionEvents = input.promptOverride ? [] : await collectPermissionEvents(input.thread);
-    const prompt = input.promptOverride ?? buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
+    const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
 
     await writeTextAtomic(turnPath, prompt);
 

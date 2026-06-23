@@ -13,6 +13,7 @@ RUN npm --prefix web run build
 COPY src ./src
 COPY tests ./tests
 COPY skills ./skills
+COPY AGENTS.md ./
 RUN npm run build:server
 
 FROM node:24-bookworm-slim AS runtime
@@ -91,6 +92,8 @@ RUN npm ci --omit=dev \
 COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
+# Behavior contract — read at boot by dist/index.js (resolves to /app/AGENTS.md)
+COPY --from=build --chown=node:node /app/AGENTS.md ./AGENTS.md
 
 USER node
 

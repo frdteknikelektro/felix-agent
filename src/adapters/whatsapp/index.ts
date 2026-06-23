@@ -439,22 +439,16 @@ class WhatsAppAdapter implements SourceAdapter {
     const storeDir = this.wacliStoreDir();
 
     return {
-      owner: this.cfg.WHATSAPP_OWNER_JID
-        ? {
-            userId: this.cfg.WHATSAPP_OWNER_JID,
-            display: this.cfg.WHATSAPP_OWNER_DISPLAY,
-          }
-        : undefined,
       behaviorInstructions: [
-        "9. Only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
-        "10. Fetch WhatsApp chat context if needed before answering:",
+        "W1. Only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
+        "W2. Fetch WhatsApp chat context if needed before answering:",
         "```bash",
         `wacli messages list --chat "${chatJid}" --limit 100 --store "${storeDir}" --json`,
         "```",
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
-        "11. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
-        `12. Do NOT send intermediate WhatsApp messages like "working on it…" or "let me check…" — keep all thinking internal. Only post the final reply. All outgoing WhatsApp messages MUST start with the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix on every send.`,
+        "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
+        `W4. Do NOT send intermediate WhatsApp messages like "working on it…" or "let me check…" — keep all thinking internal. Only post the final reply. All outgoing WhatsApp messages MUST start with the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix on every send.`,
         "```bash",
         `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
         `  --message "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <your message>" \\`,
@@ -469,9 +463,8 @@ class WhatsAppAdapter implements SourceAdapter {
         `  --caption "*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* <optional caption>"`,
         "```",
         `Always include the *[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* prefix in file captions.`,
-        "13. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. Use `file <path>` to identify the media type, `identify <path>` for image metadata, `exiftool <path>` for detailed EXIF, and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
-        "14. FELIX_REPLY and direct WhatsApp posts must not contain duplicated content. If you posted results or details via WhatsApp, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
-        "15. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+        "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. Use `file <path>` to identify the media type, `identify <path>` for image metadata, `exiftool <path>` for detailed EXIF, and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
+        "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
       ],
     };
   }

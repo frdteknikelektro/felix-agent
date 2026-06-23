@@ -148,15 +148,9 @@ class SlackAdapter implements SourceAdapter {
     const channelId = input.event.source_thread_ref.conversation_id;
 
     return {
-      ...(this.cfg.SLACK_OWNER_USER_ID ? {
-        owner: {
-          userId: this.cfg.SLACK_OWNER_USER_ID,
-          display: this.cfg.SLACK_OWNER_DISPLAY,
-        },
-      } : {}),
       behaviorInstructions: [
-        `9. For Slack channel messages (visibility: channel), only answer when the post explicitly mentions ${botMention}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
-        `10. For Slack threads, fetch the current message history before answering. Use a read-only shell script:`,
+        `S1. For Slack channel messages (visibility: channel), only answer when the post explicitly mentions ${botMention}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
+        `S2. For Slack threads, fetch the current message history before answering. Use a read-only shell script:`,
         "```bash",
         `CHANNEL_ID="${channelId}"`,
         `ROOT_TS="${rootMessageId}"`,
@@ -165,7 +159,7 @@ class SlackAdapter implements SourceAdapter {
         "```",
         "Parse the JSON response: check ok=true, then read .messages[]. Each message has .text, .user, and .ts fields. The response includes the parent message and all thread replies.",
         "If the fetch fails, do not claim you read live Slack history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live Slack history.",
-        "Slack Source API posting: FELIX_REPLY is the primary reply channel. Use the source API for supplementary content — file uploads, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source API for every reply.",
+        "S3. Slack API posting:",
         "Use the bot token for authorization (already in environment):",
         "```bash",
         `export CHANNEL_ID="${channelId}"`,
@@ -187,7 +181,6 @@ class SlackAdapter implements SourceAdapter {
         '  -F "title=<filename>" \\',
         '  "https://slack.com/api/files.upload"',
         "```",
-        "FELIX_REPLY and direct Slack posts must not contain duplicated content. If you posted results or details via Slack, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
       ],
     };
   }

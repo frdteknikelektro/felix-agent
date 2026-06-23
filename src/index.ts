@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
 import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
+import { writeTextAtomic } from "./lib/fs.js";
 import { createMattermostAdapter, startMattermostSource } from "./adapters/mattermost/index.js";
 import { createDiscordAdapter, startDiscordSource } from "./adapters/discord/index.js";
 import { createSlackAdapter, startSlackSource } from "./adapters/slack/index.js";
@@ -116,6 +117,30 @@ async function main(): Promise<void> {
   await ensureWorkspace(cfg.paths);
   await syncBundledSkills(cfg.paths);
   await syncMemorySchema(cfg.paths);
+
+  // Write static L1 rulesets once at boot — never overwritten per-turn.
+  // AGENTS.md carries the entire behavior contract (output format, permission
+  // rules, refusal rules); a Felix without it is unsafe, so boot is fatal if
+  // the file is missing rather than running contract-less.
+  const agentsMdSrc = path.resolve(import.meta.dirname, "..", "AGENTS.md");
+  const agentsMd = await fs.readFile(agentsMdSrc, "utf-8").catch((err) => {
+    throw new Error(
+      `AGENTS.md not found at ${agentsMdSrc} — refusing to boot without the behavior contract (${err instanceof Error ? err.message : String(err)})`,
+    );
+  });
+  // Codex/OpenCode read AGENTS.md from cwd; Claude Code reads CLAUDE.md.
+  const agentsMdDst = path.join(cfg.paths.root, "AGENTS.md");
+  const claudeMdDst = path.join(cfg.paths.root, "CLAUDE.md");
+  await writeTextAtomic(agentsMdDst, agentsMd);
+  await writeTextAtomic(claudeMdDst, agentsMd);
+  // Verify the contract landed where each harness will look for it — a silent
+  // miss here is exactly the failure mode that lets the agent run rule-less.
+  for (const dst of [agentsMdDst, claudeMdDst]) {
+    const ok = await fs.stat(dst).then((s) => s.isFile() && s.size > 0).catch(() => false);
+    if (!ok) throw new Error(`Behavior contract was not written to ${dst} — refusing to start.`);
+  }
+  log.info("contract.written", { agents_md: agentsMdDst, claude_md: claudeMdDst, bytes: agentsMd.length });
+
   let harness: import("./core/ports.js").Harness;
   switch (cfg.HARNESS) {
     case "opencode":

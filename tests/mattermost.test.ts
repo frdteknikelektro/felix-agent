@@ -83,14 +83,11 @@ describe("Mattermost source turn context", () => {
       },
     });
 
-    expect(context.owner).toBeUndefined();
-
     const text = context.behaviorInstructions.join("\n");
     expect(text).toContain("@felix-agent or @Felix Agent");
     expect(text).toContain('THREAD_POST_ID="root-post"');
     expect(text).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
-    expect(text).toContain("Source API posting for Mattermost");
-    expect(text).toContain("FELIX_REPLY is the primary reply channel");
+    expect(text).toContain("M3. Mattermost API posting");
     expect(text).not.toContain("source /run/secrets/.env");
     expect(text).toContain("MATTERMOST_URL");
     expect(text).toContain("MATTERMOST_BOT_TOKEN");
@@ -103,8 +100,5 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("export FILE_ID");
     expect(text).toContain("root_id");
     expect(text).toContain("files=@${ARTIFACT_PATH}");
-    expect(text).toContain("only for files generated for this current session/request");
-    expect(text).toContain("Never upload secrets, credential files, raw env files");
-    expect(text).toContain("FELIX_REPLY and direct Mattermost posts must not contain duplicated content");
   });
 });

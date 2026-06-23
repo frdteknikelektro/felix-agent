@@ -157,15 +157,9 @@ class MattermostAdapter implements SourceAdapter {
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
     return {
-      ...(this.cfg.MATTERMOST_OWNER_USER_ID ? {
-        owner: {
-          userId: this.cfg.MATTERMOST_OWNER_USER_ID,
-          display: this.cfg.MATTERMOST_OWNER_DISPLAY,
-        },
-      } : {}),
       behaviorInstructions: [
-        `9. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
-        `10. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
+        `M1. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
+        `M2. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         "```bash",
         `THREAD_POST_ID="${rootPostId}"`,
         'curl -sS -H "Authorization: Bearer $MATTERMOST_BOT_TOKEN" \\',
@@ -173,8 +167,7 @@ class MattermostAdapter implements SourceAdapter {
         "```",
         "If the fetch fails, do not claim you read live Mattermost history. Reply that the thread could not be fetched and ask for the Mattermost link or a retry. Do not use the local thread transcript as a substitute for live Mattermost history in that case.",
         "Use the fetched thread history only as context for the current turn. Limit the fetch to the current thread only and do not persist the fetched history unless it is required for the current turn.",
-        "Source API posting for Mattermost: FELIX_REPLY is the primary reply channel. Use the source API for supplementary content — files, images, rich embeds, or when inline text/markdown is genuinely needed. Do not default to source API for every reply.",
-        "Use source API posting only for the active Mattermost thread and only for files generated for this current session/request. Never upload secrets, credential files, raw env files, unrelated repo files, or arbitrary readable files.",
+        "M3. Mattermost API posting:",
         "MATTERMOST_URL and MATTERMOST_BOT_TOKEN are already in environment. For every posting shell block, start by setting the thread identifiers first:",
         "```bash",
         `MATTERMOST_CHANNEL_ID="${channelId}"`,
@@ -218,7 +211,6 @@ class MattermostAdapter implements SourceAdapter {
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
         "```",
-        "FELIX_REPLY and direct Mattermost posts must not contain duplicated content. If you posted results or details via Mattermost, do not copy, rephrase, or restate any of it in FELIX_REPLY.",
       ],
     };
   }

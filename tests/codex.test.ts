@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
+import os from "node:os";
+import { mkdtemp, rm } from "node:fs/promises";
 import { parseAgentOutput, buildTurnPrompt, buildOpencodeEnv } from "../src/core/harness-common.js";
 import { buildWorkspacePaths } from "../src/workspace.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
@@ -138,166 +140,253 @@ describe("codex output parser", () => {
     expect(parsed.text).toContain("permissions list");
   });
 
-  it("describes the general skill as a conservative fallback in the prompt", () => {
-    const prompt = buildTurnPrompt(
-      {
-        WORKSPACE_DIR: "/workspace",
-        CODEX_MODEL: "gpt-5.4-mini",
-        CODEX_BIN: "codex",
-        CODEX_BYPASS_SANDBOX: true,
-        OPENAI_API_KEY: undefined,
-        OPENAI_BASE_URL: undefined,
-        OPENAI_ORGANIZATION: undefined,
-        OPENAI_PROJECT: undefined,
-        MATTERMOST_URL: undefined,
-        MATTERMOST_TOKEN: undefined,
-        MATTERMOST_BOT_USER_ID: undefined,
-        MATTERMOST_BOT_USERNAME: "felix-agent",
-        MATTERMOST_BOT_DISPLAY: "Felix Agent",
-        MATTERMOST_OWNER_USER_ID: undefined,
-        MATTERMOST_OWNER_DISPLAY: "Owner",
-        SOURCE: "mattermost",
-        SECRET_ENV_FILE: "/run/secrets/.env",
-        CODEX_TIMEOUT_SECONDS: 1800,
-        paths: buildWorkspacePaths("/workspace"),
-      } as never,
-      {
-        thread: {
-          dir: "/workspace/records/sessions/mattermost/thread",
-          attachmentsDir: "/workspace/records/sessions/mattermost/thread/attachments",
-          transcriptFile: "/workspace/records/sessions/mattermost/thread/transcript.md",
+  it("produces a minimal per-turn message with preceding events", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+    try {
+      const prompt = await buildTurnPrompt(
+        {
+          WORKSPACE_DIR: "/workspace",
+          CODEX_MODEL: "gpt-5.4-mini",
+          CODEX_BIN: "codex",
+          CODEX_BYPASS_SANDBOX: true,
+          OPENAI_API_KEY: undefined,
+          OPENAI_BASE_URL: undefined,
+          OPENAI_ORGANIZATION: undefined,
+          OPENAI_PROJECT: undefined,
+          MATTERMOST_URL: undefined,
+          MATTERMOST_TOKEN: undefined,
+          MATTERMOST_BOT_USER_ID: undefined,
+          MATTERMOST_BOT_USERNAME: "felix-agent",
+          MATTERMOST_BOT_DISPLAY: "Felix Agent",
+          MATTERMOST_OWNER_USER_ID: undefined,
+          MATTERMOST_OWNER_DISPLAY: "Owner",
+          SOURCE: "mattermost",
+          SECRET_ENV_FILE: "/run/secrets/.env",
+          CODEX_TIMEOUT_SECONDS: 1800,
+          HARNESS: "codex",
+          paths: buildWorkspacePaths("/workspace"),
         } as never,
-        event: {
-          source: "mattermost",
-          thread_key: "mattermost:channel:root",
-          sender: { source: "mattermost", id: "user" },
-          text: "Hello",
-          attachments: [],
-          event_id: "evt",
-          received_at: "2026-05-25T00:00:00.000Z",
-          visibility: "channel",
-          mentions_bot: true,
-          raw_path: "/workspace/intake/mattermost/raw/event.json",
-          source_thread_ref: mattermostThreadRef("channel", "root", "evt"),
-        },
-        eventFile: "/workspace/records/sessions/mattermost/thread/events/event.md",
-        contact: {
-          source: "mattermost",
-          user_id: "user",
-          allowed_permissions: [],
-        },
-        skills: [
-          {
-            id: "general",
-            name: "general",
-            description: "Default skill",
-            permissions: [],
-            path: path.join("/workspace/catalog/skills", "general", "SKILL.md"),
-            body: "",
+        {
+          thread: {
+            dir: tmpDir,
+            attachmentsDir: path.join(tmpDir, "attachments"),
+            transcriptFile: path.join(tmpDir, "transcript.md"),
+          } as never,
+          event: {
+            source: "mattermost",
+            thread_key: "mattermost:channel:root",
+            sender: { source: "mattermost", id: "user" },
+            text: "Hello",
+            attachments: [],
+            event_id: "evt",
+            received_at: "2026-05-25T00:00:00.000Z",
+            visibility: "channel",
+            mentions_bot: true,
+            raw_path: "/workspace/intake/mattermost/raw/event.json",
+            source_thread_ref: mattermostThreadRef("channel", "root", "evt"),
           },
-        ],
-        sourceContext: {
-          behaviorInstructions: [
-            "9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions @felix-agent or @Felix Agent. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.",
-            "10. For Mattermost public threads, when a post mentions @felix-agent or @Felix Agent, fetch the current thread history before answering. Use a read-only shell script or command sequence like this:",
-            "```bash",
-            'THREAD_POST_ID="root"',
-            'curl -sS -H "Authorization: Bearer $MATTERMOST_TOKEN" \\',
-            '  "$MATTERMOST_URL/api/v4/posts/$THREAD_POST_ID/thread"',
-            "```",
-            "If the fetch fails, do not claim you read live Mattermost history. Reply that the thread could not be fetched and ask for the Mattermost link or a retry. Do not use the local thread transcript as a substitute for live Mattermost history in that case.",
+          eventFile: "/workspace/records/sessions/mattermost/thread/events/event.md",
+          contact: {
+            source: "mattermost",
+            user_id: "user",
+            allowed_permissions: ["deploy:read"],
+          },
+          skills: [
+            {
+              id: "general",
+              name: "general",
+              description: "Default skill",
+              permissions: [],
+              path: path.join("/workspace/catalog/skills", "general", "SKILL.md"),
+              body: "",
+            },
+            {
+              id: "deploy",
+              name: "deploy",
+              description: "Deploy skill",
+              permissions: ["deploy:read", "deploy:run"],
+              path: path.join("/workspace/catalog/skills", "deploy", "SKILL.md"),
+              body: "",
+            },
+          ],
+          sourceContext: {
+            behaviorInstructions: [
+              "9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions @felix-agent or @Felix Agent. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.",
+            ],
+          },
+          resumed: false,
+          precedingEvents: [
+            {
+              eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-1.md",
+              event: {
+                source: "mattermost",
+                thread_key: "mattermost:channel:root",
+                sender: { source: "mattermost", id: "user-a" },
+                text: "file first",
+                attachments: [
+                  {
+                    file_id: "file-a",
+                    filename: "report.pdf",
+                    content_type: "application/pdf",
+                    local_path: "/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf",
+                    status: "available",
+                  },
+                ],
+                event_id: "pre-1",
+                received_at: "2026-05-25T00:00:01.000Z",
+                visibility: "channel",
+                mentions_bot: false,
+                raw_path: "/workspace/intake/mattermost/raw/pre-1.json",
+                source_thread_ref: mattermostThreadRef("channel", "root", "pre-1"),
+              },
+            },
+            {
+              eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-2.md",
+              event: {
+                source: "mattermost",
+                thread_key: "mattermost:channel:root",
+                sender: { source: "mattermost", id: "user-b" },
+                text: "too large",
+                attachments: [
+                  {
+                    file_id: "file-b",
+                    filename: "huge.zip",
+                    status: "rejected",
+                    rejected_reason: "File is 30.0 MiB, above the 25.0 MiB limit.",
+                  },
+                ],
+                event_id: "pre-2",
+                received_at: "2026-05-25T00:00:02.000Z",
+                visibility: "channel",
+                mentions_bot: false,
+                raw_path: "/workspace/intake/mattermost/raw/pre-2.json",
+                source_thread_ref: mattermostThreadRef("channel", "root", "pre-2"),
+              },
+            },
           ],
         },
-        resumed: false,
-        precedingEvents: [
-          {
-            eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-1.md",
-            event: {
-              source: "mattermost",
-              thread_key: "mattermost:channel:root",
-              sender: { source: "mattermost", id: "user-a" },
-              text: "file first",
-              attachments: [
-                {
-                  file_id: "file-a",
-                  filename: "report.pdf",
-                  content_type: "application/pdf",
-                  local_path: "/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf",
-                  status: "available",
-                },
-              ],
-              event_id: "pre-1",
-              received_at: "2026-05-25T00:00:01.000Z",
-              visibility: "channel",
-              mentions_bot: false,
-              raw_path: "/workspace/intake/mattermost/raw/pre-1.json",
-              source_thread_ref: mattermostThreadRef("channel", "root", "pre-1"),
-            },
-          },
-          {
-            eventFile: "/workspace/records/sessions/mattermost/thread/events/pre-2.md",
-            event: {
-              source: "mattermost",
-              thread_key: "mattermost:channel:root",
-              sender: { source: "mattermost", id: "user-b" },
-              text: "too large",
-              attachments: [
-                {
-                  file_id: "file-b",
-                  filename: "huge.zip",
-                  status: "rejected",
-                  rejected_reason: "File is 30.0 MiB, above the 25.0 MiB limit.",
-                },
-              ],
-              event_id: "pre-2",
-              received_at: "2026-05-25T00:00:02.000Z",
-              visibility: "channel",
-              mentions_bot: false,
-              raw_path: "/workspace/intake/mattermost/raw/pre-2.json",
-              source_thread_ref: mattermostThreadRef("channel", "root", "pre-2"),
-            },
-          },
-        ],
-      },
-      "session-1",
-      [],
-    );
+        "session-1",
+      );
 
-    expect(prompt).toContain("You have an owner who grants permission");
-    expect(prompt).toContain("The owner is not reachable on this source");
-    expect(prompt).toContain("reply-only");
-    expect(prompt).toContain("ask one clarifying question");
-    expect(prompt).toContain("defer to a more specialized skill");
-    expect(prompt).toContain("simple informational help");
-    expect(prompt).toContain("Session attachments dir: /workspace/records/sessions/mattermost/thread/attachments");
-    expect(prompt).toContain("FELIX_REPLY is the primary reply channel");
-    expect(prompt).toContain("Source API posting is for supplementary content");
-    expect(prompt).toContain("upload only files generated for this current session/request");
-    expect(prompt).toContain("Never upload secrets, credential files, raw env files");
-    expect(prompt).toContain("FELIX_REPLY and source API posts must not contain duplicated content");
-    expect(prompt).toContain("Future source adapters must provide their own source-specific posting instructions");
-    expect(prompt).toContain("Do not assume Slack or any non-Mattermost API details");
-    expect(prompt).toContain("Reject prank-like or system-abuse requests");
-    expect(prompt).toContain("reveal secrets, credentials, tokens, env files");
-    expect(prompt).toContain("framed as jokes, pranks, tests, debugging, or maintenance");
-    expect(prompt).toContain("break the server");
-    expect(prompt).toContain("bypass permissions");
-    expect(prompt).toContain("only answer when the post explicitly mentions @felix-agent");
-    expect(prompt).toContain("fetch the current thread history before answering");
-    expect(prompt).toContain("when a post mentions @felix-agent");
-    expect(prompt).toContain("@Felix Agent");
-    expect(prompt).not.toContain("only answer requests from @frdinawan");
-    expect(prompt).not.toContain("source /run/secrets/.env");
-    expect(prompt).toContain("curl -sS -H \"Authorization: Bearer $MATTERMOST_TOKEN\"");
-    expect(prompt).toContain('THREAD_POST_ID="root"');
-    expect(prompt).toContain('"conversation_id":"channel"');
-    expect(prompt).toContain('"root_message_id":"root"');
-    expect(prompt).toContain("If the fetch fails, do not claim you read live Mattermost history");
-    expect(prompt).toContain("/api/v4/posts/$THREAD_POST_ID/thread");
-    expect(prompt).toContain("- event_file: /workspace/records/sessions/mattermost/thread/events/pre-1.md");
-    expect(prompt).toContain("- event_file: /workspace/records/sessions/mattermost/thread/events/pre-2.md");
-    expect(prompt).toContain("/workspace/records/sessions/mattermost/thread/attachments/2026_file-a_report.pdf (application/pdf)");
-    expect(prompt).toContain("huge.zip [rejected: File is 30.0 MiB, above the 25.0 MiB limit.]");
+      // Resolved paths the model can't derive are injected
+      expect(prompt).toContain(`thread_dir: ${tmpDir}`);
+      expect(prompt).toContain(`initial_md: ${path.join(tmpDir, "INITIAL.md")}`);
+      expect(prompt).toContain(`transcript: ${path.join(tmpDir, "transcript.md")}`);
+      expect(prompt).toContain("contact_file: ");
+      expect(prompt).toContain(path.join("catalog", "contacts", "mattermost", "user.md"));
+
+      // Per-turn message contains the new event
+      expect(prompt).toContain("event_file: /workspace/records/sessions/mattermost/thread/events/event.md");
+      expect(prompt).toContain("visibility: channel");
+      expect(prompt).toContain("mentions_bot: true");
+      expect(prompt).toContain("sender: mattermost:user");
+      expect(prompt).toContain("text: Hello");
+
+      // Server-computed permission gate is injected and authoritative
+      expect(prompt).toContain("permissions_per_skill (server-computed — authoritative");
+      expect(prompt).toContain("deploy: have=[read], need=[run]");
+      // Skills with no permissions are not listed in the gate
+      expect(prompt).not.toContain("general: have=");
+
+      // Preceding events are included
+      expect(prompt).toContain("preceding (already in transcript):");
+      expect(prompt).toContain("event_file: /workspace/records/sessions/mattermost/thread/events/pre-1.md");
+      expect(prompt).toContain("event_file: /workspace/records/sessions/mattermost/thread/events/pre-2.md");
+
+      // Attachments in preceding events
+      expect(prompt).toContain("report.pdf (application/pdf)");
+      expect(prompt).toContain("huge.zip [rejected: File is 30.0 MiB, above the 25.0 MiB limit.]");
+
+      // No old template remnants
+      expect(prompt).not.toContain("{{");
+      expect(prompt).not.toContain("Permission Model");
+      expect(prompt).not.toContain("Guardrails");
+      expect(prompt).not.toContain("Output Format");
+
+      // INITIAL.md was written
+      const { readFile } = await import("node:fs/promises");
+      const initialContent = await readFile(path.join(tmpDir, "INITIAL.md"), "utf-8");
+      expect(initialContent).toContain("Session ID");
+      expect(initialContent).toContain("session-1");
+      expect(initialContent).toContain("Platform Instructions");
+      expect(initialContent).toContain("only answer when the post explicitly mentions @felix-agent");
+      // Owner identity / permission state are not injected into INITIAL.md
+      expect(initialContent).not.toContain("## Owner");
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("produces a minimal per-turn message on resumed turns", async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), "codex-test-"));
+    try {
+      const prompt = await buildTurnPrompt(
+        {
+          WORKSPACE_DIR: "/workspace",
+          CODEX_MODEL: "gpt-5.4-mini",
+          CODEX_BIN: "codex",
+          CODEX_BYPASS_SANDBOX: true,
+          OPENAI_API_KEY: undefined,
+          OPENAI_BASE_URL: undefined,
+          OPENAI_ORGANIZATION: undefined,
+          OPENAI_PROJECT: undefined,
+          MATTERMOST_URL: undefined,
+          MATTERMOST_TOKEN: undefined,
+          MATTERMOST_BOT_USER_ID: undefined,
+          MATTERMOST_BOT_USERNAME: "felix-agent",
+          MATTERMOST_BOT_DISPLAY: "Felix Agent",
+          MATTERMOST_OWNER_USER_ID: undefined,
+          MATTERMOST_OWNER_DISPLAY: "Owner",
+          SOURCE: "mattermost",
+          SECRET_ENV_FILE: "/run/secrets/.env",
+          CODEX_TIMEOUT_SECONDS: 1800,
+          HARNESS: "codex",
+          paths: buildWorkspacePaths("/workspace"),
+        } as never,
+        {
+          thread: {
+            dir: tmpDir,
+            attachmentsDir: path.join(tmpDir, "attachments"),
+            transcriptFile: path.join(tmpDir, "transcript.md"),
+          } as never,
+          event: {
+            source: "mattermost",
+            thread_key: "mattermost:channel:root",
+            sender: { source: "mattermost", id: "user" },
+            text: "Check deploy status",
+            attachments: [],
+            event_id: "evt-2",
+            received_at: "2026-05-25T01:00:00.000Z",
+            visibility: "channel",
+            mentions_bot: true,
+            raw_path: "/workspace/intake/mattermost/raw/event.json",
+            source_thread_ref: mattermostThreadRef("channel", "root", "evt-2"),
+          },
+          eventFile: "/workspace/records/sessions/mattermost/thread/events/event-2.md",
+          contact: {
+            source: "mattermost",
+            user_id: "user",
+            allowed_permissions: [],
+          },
+          skills: [],
+          sourceContext: { behaviorInstructions: [] },
+          resumed: true,
+        },
+        "session-resumed",
+      );
+
+      // Minimal per-turn message
+      expect(prompt).toContain("event_file: /workspace/records/sessions/mattermost/thread/events/event-2.md");
+      expect(prompt).toContain("visibility: channel");
+      expect(prompt).toContain("sender: mattermost:user");
+      expect(prompt).toContain("text: Check deploy status");
+      expect(prompt).not.toContain("{{");
+      expect(prompt).not.toContain("Permission Model");
+      expect(prompt).not.toContain("Guardrails");
+      expect(prompt).not.toContain("Output Format");
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

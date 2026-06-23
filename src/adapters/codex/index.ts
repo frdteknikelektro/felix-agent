@@ -15,7 +15,6 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  collectPermissionEvents,
   buildSpawnPath,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
@@ -33,8 +32,7 @@ export class CodexHarness implements Harness {
     );
     const outputLastMessagePath = `${turnPath}.last-message.txt`;
     const logPath = `${turnPath}.log`;
-    const permissionEvents = input.promptOverride ? [] : await collectPermissionEvents(input.thread);
-    const prompt = input.promptOverride ?? buildTurnPrompt(this.cfg, input, sessionId, permissionEvents);
+    const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
     const baseArgs = [
       "--json",
       "--skip-git-repo-check",

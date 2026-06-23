@@ -91,38 +91,6 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("--json");
     expect(joined).toContain("[Felix]");
   });
-
-  it("includes owner info when WHATSAPP_OWNER_JID is set", async () => {
-    const cfg = await makeTestConfig("wa-turnctx2-", {
-      WHATSAPP_BOT_NAME: "Felix",
-      WHATSAPP_OWNER_JID: "9876543210@s.whatsapp.net",
-      WHATSAPP_OWNER_DISPLAY: "MyOwner",
-    });
-    const adapter = createWhatsAppAdapter(cfg);
-    const ctx = await adapter.getTurnContext({
-      event: {
-        source: "whatsapp",
-        event_id: "evt-1",
-        thread_key: "whatsapp:1234567890@s.whatsapp.net:1234567890@s.whatsapp.net",
-        received_at: "2026-06-01T00:00:00.000Z",
-        visibility: "dm",
-        mentions_bot: true,
-        sender: { source: "whatsapp", id: "sender-1" },
-        text: "hello",
-        attachments: [],
-        raw_path: "",
-        source_thread_ref: whatsappSourceThreadRef({
-          chatJid: "1234567890@s.whatsapp.net",
-          rootMessageId: "1234567890@s.whatsapp.net",
-          messageId: "msg-3",
-        }),
-      },
-    });
-
-    expect(ctx.owner).toBeDefined();
-    expect(ctx.owner!.userId).toBe("9876543210@s.whatsapp.net");
-    expect(ctx.owner!.display).toBe("MyOwner");
-  });
 });
 
 // ─── Mention detection ─────────────────────────────────────────────────────
