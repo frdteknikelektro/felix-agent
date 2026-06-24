@@ -5,31 +5,27 @@ import { ensureDir } from "./lib/fs.js";
 export interface WorkspacePaths {
   root: string;
   intake: string;
-  records: string;
   sessions: string;
   approvals: string;
   audit: string;
-  botMessages: string;
   catalog: string;
   skills: string;
   contacts: string;
   runtime: string;
-  health: string;
   bin: string;
   tools: string;
   python: string;
   index: string;
   threadKeyIndex: string;
+  botMessageIndex: string;
   projects: string;
   tasks: string;
   memoryDir: string;
   wikiDir: string;
-  wacliStore: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
   const intake = path.join(root, "intake");
-  const records = path.join(root, "records");
   const catalog = path.join(root, "catalog");
   const runtime = path.join(root, "runtime");
   const index = path.join(root, "index");
@@ -38,26 +34,23 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
   return {
     root,
     intake,
-    records,
-    sessions: path.join(records, "sessions"),
-    approvals: path.join(records, "approvals"),
-    audit: path.join(records, "audit.jsonl"),
-    botMessages: path.join(records, "bot_messages"),
+    sessions: path.join(root, "sessions"),
+    approvals: path.join(root, "approvals"),
+    audit: path.join(root, "audit.jsonl"),
     catalog,
     skills: path.join(catalog, "skills"),
     contacts: path.join(catalog, "contacts"),
     runtime,
-    health: path.join(runtime, "health"),
     bin: path.join(runtime, "bin"),
     tools: path.join(runtime, "tools"),
     python: path.join(runtime, "python"),
     index,
     threadKeyIndex: path.join(index, "thread-key"),
+    botMessageIndex: path.join(index, "bot-messages"),
     projects,
     tasks: path.join(root, "tasks"),
     memoryDir,
     wikiDir: path.join(memoryDir, "wiki"),
-    wacliStore: path.join(runtime, "wacli"),
   };
 }
 
@@ -65,20 +58,18 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
   await Promise.all([
     ensureDir(paths.root),
     ensureDir(paths.intake),
-    ensureDir(paths.records),
     ensureDir(paths.sessions),
     ensureDir(paths.approvals),
-    ensureDir(path.join(paths.botMessages, "whatsapp")),
     ensureDir(paths.catalog),
     ensureDir(paths.skills),
     ensureDir(paths.contacts),
     ensureDir(paths.runtime),
-    ensureDir(paths.health),
     ensureDir(paths.bin),
     ensureDir(paths.tools),
     ensureDir(paths.python),
     ensureDir(paths.index),
     ensureDir(paths.threadKeyIndex),
+    ensureDir(paths.botMessageIndex),
     ensureDir(paths.projects),
     ensureDir(paths.tasks),
     ensureDir(path.join(paths.tasks, "backlog")),
@@ -93,7 +84,6 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.wikiDir, "concepts")),
     ensureDir(path.join(paths.wikiDir, "sessions")),
     ensureDir(path.join(paths.wikiDir, "comparisons")),
-    ensureDir(paths.wacliStore),
   ]);
 }
 

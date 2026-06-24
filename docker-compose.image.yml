@@ -16,7 +16,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./.env:/run/secrets/.env:ro
-      - ./workspace:/home/node/workspace
+      - ./workspace:/home/node
     networks:
       - felix-net
 

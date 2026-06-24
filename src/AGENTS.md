@@ -72,18 +72,22 @@ Skill-specific operational checks (CLI availability, token validation, runtime d
 
 ## Workspace layout
 
-- `workspace/` — runtime data: threads, contacts, skills, approvals, audit logs
-- `skills/` — bundled skills shipped in the image
+The authoritative directory structure is defined in `WORKSPACE_FOLDER_STRUCTURE.md`
+at the workspace root — read it once per session.
+
+- `workspace/` → `$HOME` — persistent agent state (catalog, sessions, memory, tasks, projects, runtime/)
+- `skills/` — bundled skills shipped in the image (synced to `catalog/skills/` at boot)
 - `src/` — Felix source code (harness adapters, adapters, server, engine)
 - `web/` — owner console SPA (React + Vite + Tailwind)
 - `tests/` — vitest unit tests
 
 ## Key paths
 
-Paths below are relative to the working directory (the workspace root). Thread- and session-specific absolute paths are supplied in each per-turn message.
+Paths below are relative to the workspace root. The authoritative layout is in `WORKSPACE_FOLDER_STRUCTURE.md`. Thread- and session-specific absolute paths are supplied in each per-turn message.
 
 | Path | Purpose |
 |------|---------|
+| `WORKSPACE_FOLDER_STRUCTURE.md` | Authoritative directory layout (read once per session) |
 | `catalog/skills/index.md` | skill registry |
 | `catalog/skills/*/SKILL.md` | a skill's definition + required `permissions` |
 | `catalog/contacts/{source}/{user_id}.md` | per-contact config, `allowed_permissions`, display name |

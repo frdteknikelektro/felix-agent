@@ -54,7 +54,7 @@ function clearWebhookSecret(): void {
 }
 
 function getBotMessagesDir(cfg: AppConfig): string {
-  return path.join(cfg.paths.botMessages, "whatsapp");
+  return path.join(cfg.paths.botMessageIndex, "whatsapp");
 }
 
 function botMessageFilePath(cfg: AppConfig, msgId: string): string {
@@ -448,10 +448,9 @@ class WhatsAppAdapter implements SourceAdapter {
       return { stop: () => undefined, done: Promise.resolve() };
     }
 
-    const storeDir = this.wacliStoreDir();
-    const authOk = checkWacliAuth(storeDir, this.cfg.WHATSAPP_WACLI_BIN);
+    const authOk = checkWacliAuth(this.cfg.WHATSAPP_WACLI_BIN);
     if (!authOk) {
-      log.warn("whatsapp.disabled", { reason: "unauthenticated", store_dir: storeDir });
+      log.warn("whatsapp.disabled", { reason: "unauthenticated" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
 
@@ -471,13 +470,12 @@ class WhatsAppAdapter implements SourceAdapter {
       "--webhook-secret", secret,
       "--webhook-allow-private",
       "--max-reconnect", "0",
-      "--store", storeDir,
     ];
 
-    log.info("whatsapp.starting", { store_dir: storeDir, webhook_port: port });
+    log.info("whatsapp.starting", { webhook_port: port });
     this.process = spawn(this.cfg.WHATSAPP_WACLI_BIN, args, {
       stdio: ["ignore", "inherit", "inherit"],
-      env: { ...process.env, PATH: process.env.PATH ?? "", HOME: this.cfg.paths.runtime },
+      env: { ...process.env, PATH: process.env.PATH ?? "" },
     });
     wacliStartedAt = Date.now();
 
@@ -515,7 +513,6 @@ class WhatsAppAdapter implements SourceAdapter {
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
-    const storeDir = this.wacliStoreDir();
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
     const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
     const mentionHow = aliases.length > 0
@@ -534,14 +531,14 @@ class WhatsAppAdapter implements SourceAdapter {
         `W1. Only answer when @mentioned by name ${mentionHow}. If not mentioned, output nothing — no FELIX_REPLY, no explanation.`,
         "W2. Fetch WhatsApp chat context if needed before answering:",
         "```bash",
-        `wacli messages list --chat "${chatJid}" --limit 100 --store "${storeDir}" --json`,
+        `wacli messages list --chat "${chatJid}" --limit 100 --json`,
         "```",
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
         w4,
         "```bash",
-        `wacli send text --to "${chatJid}" --store "${storeDir}" \\`,
+        `wacli send text --to "${chatJid}" \\`,
         `  --message "${prefix}<your message>" \\`,
         '  --json',
         "```",
@@ -549,7 +546,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "To reply to a specific message, add `--reply-to <quoted_msg_id>`. To @mention someone, add `--mention <phone_or_jid>`.",
         "Upload a file:",
         "```bash",
-        `wacli send file --to "${chatJid}" --store "${storeDir}" \\`,
+        `wacli send file --to "${chatJid}" \\`,
         '  --file "<path under session artifact directory>" \\',
         `  --caption "${prefix}<optional caption>"`,
         "```",
@@ -564,7 +561,6 @@ class WhatsAppAdapter implements SourceAdapter {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid) return;
     const eventId = input.event.event_id;
-    const storeDir = this.wacliStoreDir();
 
     // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
     const reaction = input.status === "processing" ? "⏳" : "";
@@ -575,7 +571,6 @@ class WhatsAppAdapter implements SourceAdapter {
         "--to", chatJid,
         "--id", eventId,
         "--reaction", reaction,
-        "--store", storeDir,
         "--post-send-wait", "0",
       ], { stdio: "ignore", timeout: 10_000 });
     } catch {
@@ -598,13 +593,11 @@ class WhatsAppAdapter implements SourceAdapter {
       : [];
 
     const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
-    const storeDir = this.wacliStoreDir();
 
     const args = [
       "send", "text",
       "--to", chatJid,
       "--message", `${prefix}${input.text}`,
-      "--store", storeDir,
       "--json",
       "--post-send-wait", "0",
       ...replyToArg,
@@ -640,13 +633,11 @@ class WhatsAppAdapter implements SourceAdapter {
     text: string;
   }): Promise<SourceMessageAnchor | null> {
     const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
-    const storeDir = this.wacliStoreDir();
 
     const args = [
       "send", "text",
       "--to", input.userId,
       "--message", `${prefix}${input.text}`,
-      "--store", storeDir,
       "--json",
       "--post-send-wait", "0",
     ];
@@ -687,14 +678,12 @@ class WhatsAppAdapter implements SourceAdapter {
     if (!chatJid || !msgId) {
       throw new Error("WhatsApp editUserMessage: missing anchor fields");
     }
-    const storeDir = this.wacliStoreDir();
 
     const args = [
       "messages", "edit",
       "--chat", chatJid,
       "--id", msgId,
       "--message", input.text,
-      "--store", storeDir,
       "--post-send-wait", "0",
     ];
 
@@ -777,14 +766,12 @@ class WhatsAppAdapter implements SourceAdapter {
     );
     await ensureDir(path.dirname(dest));
 
-    const storeDir = this.wacliStoreDir();
     const args = [
       "media", "download",
       "--chat", chatJid,
       "--id", input.attachment.file_id,
       "--output", dest,
       "--read-only",
-      "--store", storeDir,
     ];
 
     try {
@@ -819,10 +806,6 @@ class WhatsAppAdapter implements SourceAdapter {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
-
-  private wacliStoreDir(): string {
-    return this.cfg.WHATSAPP_STORE_DIR || this.cfg.paths.wacliStore;
-  }
 }
 
 // ─── Message normalization ────────────────────────────────────────────────────
@@ -920,9 +903,9 @@ interface WacliAuthInfo {
   connected: boolean;
 }
 
-function checkWacliAuth(storeDir: string, bin: string): WacliAuthInfo | null {
+function checkWacliAuth(bin: string): WacliAuthInfo | null {
   try {
-    const result = spawnSync(bin, ["doctor", "--store", storeDir, "--json"], {
+    const result = spawnSync(bin, ["doctor", "--json"], {
       encoding: "utf8",
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],

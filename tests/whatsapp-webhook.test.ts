@@ -191,7 +191,7 @@ describe("handleWhatsAppWebhook", () => {
     it("tracked message persists to disk and survives re-read", async () => {
       cfg = await makeTestConfig("wa-wh-persist-", { WHATSAPP_BOT_NAME: "Felix" });
       const msgId = "tracked-msg-id-1";
-      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${msgId}.json`);
+      const botMsgPath = path.join(cfg.paths.botMessageIndex, "whatsapp", `${msgId}.json`);
 
       // Verify the file does not exist before tracking
       await expect(fs.stat(botMsgPath)).rejects.toThrow();
@@ -220,7 +220,7 @@ describe("handleWhatsAppWebhook", () => {
       const msgId = "tracked-fromme-reply";
 
       // Track the bot message
-      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${msgId}.json`);
+      const botMsgPath = path.join(cfg.paths.botMessageIndex, "whatsapp", `${msgId}.json`);
       await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
       await fs.writeFile(botMsgPath, JSON.stringify({
         msgId,
@@ -282,7 +282,7 @@ describe("handleWhatsAppWebhook", () => {
       const reactionTarget = "tracked-fromme-react";
 
       // Track the bot message
-      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${reactionTarget}.json`);
+      const botMsgPath = path.join(cfg.paths.botMessageIndex, "whatsapp", `${reactionTarget}.json`);
       await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
       await fs.writeFile(botMsgPath, JSON.stringify({
         msgId: reactionTarget,

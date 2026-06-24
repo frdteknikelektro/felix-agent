@@ -33,7 +33,6 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     WHATSAPP_OWNER_JID: undefined,
     WHATSAPP_OWNER_DISPLAY: "Owner",
     WHATSAPP_WACLI_BIN: "wacli",
-    WHATSAPP_STORE_DIR: "",
     WHATSAPP_WEBHOOK_SECRET: "",
     WHATSAPP_MAX_MESSAGES: 5000,
     WHATSAPP_MAX_DB_SIZE: "100MB",

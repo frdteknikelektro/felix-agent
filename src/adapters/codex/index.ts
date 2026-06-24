@@ -61,7 +61,6 @@ export class CodexHarness implements Harness {
       cwd: this.cfg.paths.root,
       env: {
         ...process.env,
-        HOME: this.cfg.paths.runtime,
         WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
         ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
         OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
@@ -164,7 +163,6 @@ export class CodexHarness implements Harness {
         cwd: this.cfg.paths.root,
         env: {
           ...process.env,
-          HOME: this.cfg.paths.runtime,
           WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
           ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
           OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
@@ -205,7 +203,6 @@ export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
     input: `${cfg.OPENAI_API_KEY}\n`,
     env: {
       ...process.env,
-      HOME: cfg.paths.runtime,
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
       OPENAI_API_KEY: cfg.OPENAI_API_KEY,
       OPENAI_BASE_URL: cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,

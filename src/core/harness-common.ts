@@ -240,22 +240,6 @@ export function buildSpawnPath(cfg: AppConfig): string {
   return prepend.length > 0 ? `${prepend.join(":")}:${current}` : current;
 }
 
-export function buildOpencodeEnv(cfg: AppConfig): Record<string, string | undefined> {
-  return {
-    HOME: cfg.paths.runtime,
-    WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-    OPENAI_API_KEY: cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-    OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
-    OPENROUTER_API_KEY: cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
-    DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-    XDG_DATA_HOME: `${cfg.paths.runtime}/.local`,
-    XDG_CONFIG_HOME: `${cfg.paths.runtime}/.config`,
-    XDG_STATE_HOME: `${cfg.paths.runtime}/.local/state`,
-    XDG_CACHE_HOME: `${cfg.paths.runtime}/.cache`,
-    PATH: buildSpawnPath(cfg),
-  };
-}
-
 export function buildDecisionNotificationPrompt(input: DecisionNotificationInput): string {
   const owner = input.ownerDisplay ?? "your owner";
   const lines = [

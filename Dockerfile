@@ -13,8 +13,8 @@ RUN npm --prefix web run build
 COPY src ./src
 COPY tests ./tests
 COPY skills ./skills
-COPY AGENTS.md ./
-RUN npm run build:server
+RUN npm run build:server \
+    && cp src/AGENTS.md src/WORKSPACE_FOLDER_STRUCTURE.md dist/
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
@@ -81,9 +81,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     HOME=/home/node \
-    WORKSPACE_DIR=/home/node/workspace \
-    PYTHONUSERBASE=/home/node/workspace/runtime/python \
-    PATH="/app/node_modules/.bin:/home/node/workspace/runtime/bin:/home/node/workspace/runtime/npm/bin:/home/node/workspace/runtime/python/bin:$PATH"
+    WORKSPACE_DIR=/home/node \
+    PYTHONUSERBASE=/home/node/runtime/python \
+    PATH="/app/node_modules/.bin:/home/node/runtime/bin:/home/node/runtime/npm/bin:/home/node/runtime/python/bin:$PATH"
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
@@ -92,8 +92,6 @@ RUN npm ci --omit=dev \
 COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
-# Behavior contract — read at boot by dist/index.js (resolves to /app/AGENTS.md)
-COPY --from=build --chown=node:node /app/AGENTS.md ./AGENTS.md
 
 USER node
 

@@ -11,7 +11,7 @@ import type { ParsedAgentOutput, TurnResult } from "../src/core/ports.js";
 // the real parser + decision path — so a drift between what AGENTS.md tells the
 // model to emit and what parseAgentOutput accepts fails CI.
 
-const agentsMd = readFileSync(path.resolve(import.meta.dirname, "../AGENTS.md"), "utf8");
+const agentsMd = readFileSync(path.resolve(import.meta.dirname, "../src/AGENTS.md"), "utf8");
 
 /** Pull the fenced block between `start` and `end` (inclusive) out of AGENTS.md. */
 function documentedBlock(start: string, end: string): string {

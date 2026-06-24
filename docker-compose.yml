@@ -8,7 +8,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./.env:/app/.env
-      - ./workspace:/home/node/workspace
+      - ./workspace:/home/node
     profiles: ["setup"]
     stdin_open: true
     tty: true
@@ -30,7 +30,7 @@ services:
     secrets:
       - .env
     volumes:
-      - ./workspace:/home/node/workspace
+      - ./workspace:/home/node
     cap_drop:
       - ALL
     cap_add:

@@ -87,7 +87,7 @@ describe("thread store", () => {
       received_at: "2026-05-25T00:00:00.000Z",
     });
 
-    expect(thread.dir).toContain(path.join("records", "sessions", "slack"));
+    expect(thread.dir).toContain(path.join("sessions", "slack"));
     await expect(fs.stat(path.join(cfg.paths.threadKeyIndex, "slack", "slack_C123_1717000000.000100.json"))).resolves.toBeTruthy();
     expect(thread.state.source_thread_ref).toMatchObject({ source: "slack", conversation_id: "C123" });
   });

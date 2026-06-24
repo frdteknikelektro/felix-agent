@@ -13,7 +13,7 @@ const IN_CONTAINER = existsSync("/app");
 const ROOT = IN_CONTAINER ? "/app" : join(__dirname, "..");
 const EXAMPLE_PATH = IN_CONTAINER ? "/app/.env.example" : join(ROOT, ".env.example");
 const ENV_PATH = IN_CONTAINER ? "/app/.env" : join(ROOT, ".env");
-const WORKSPACE_PATH = IN_CONTAINER ? "/home/node/workspace" : join(ROOT, "workspace");
+const WORKSPACE_PATH = IN_CONTAINER ? "/home/node" : join(ROOT, "workspace");
 
 // ── ANSI colors ────────────────────────────────────────────────────────────
 
@@ -400,10 +400,8 @@ async function main() {
         const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
       } else {
-        // OAuth: use CODEX_HOME to isolate auth from host's ~/.codex/
-        const runtimeDir = join(WORKSPACE_PATH, "runtime");
-        mkdirSync(runtimeDir, { recursive: true });
-        const tmpHome = join(runtimeDir, `.felix-oauth-${randomUUID().slice(0, 8)}`);
+        // OAuth: use a temp home under workspace
+        const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
         mkdirSync(tmpHome, { recursive: true });
 
         info("\n  Launching device auth...");
@@ -635,33 +633,24 @@ async function main() {
           });
           wizard.WHATSAPP_OWNER_DISPLAY = display;
 
-          const storeDir = join(WORKSPACE_PATH, "runtime", "wacli");
-          const sessionDb = join(storeDir, "session.db");
-          if (!existsSync(sessionDb)) {
-            info("\n  Pairing wacli with WhatsApp...");
-            info("  A QR code will appear. Scan it with WhatsApp on your phone.");
-            info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
+          info("\n  Pairing wacli with WhatsApp...");
+          info("  A QR code will appear. Scan it with WhatsApp on your phone.");
+          info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
 
-            mkdirSync(storeDir, { recursive: true });
-            const authChild = spawn("wacli", ["auth", "--store", storeDir], {
-              stdio: "inherit",
-              env: {
-                ...process.env,
-                WACLI_SYNC_MAX_MESSAGES: "1",
-              },
-            });
-            const exitCode = await new Promise((resolve) => {
-              authChild.on("close", (code) => resolve(code ?? -1));
-            });
-            if (!existsSync(sessionDb)) {
-              warn("wacli auth failed. Run `wacli auth --store <workspace>/runtime/wacli` manually.");
-            } else if (exitCode !== 0) {
-              info("  Pairing succeeded — bootstrap sync hit storage limit (expected).\n");
-            } else {
-              succeed("WhatsApp paired successfully.");
-            }
+          const authChild = spawn("wacli", ["auth"], {
+            stdio: "inherit",
+            env: {
+              ...process.env,
+              WACLI_SYNC_MAX_MESSAGES: "1",
+            },
+          });
+          const exitCode = await new Promise((resolve) => {
+            authChild.on("close", (code) => resolve(code ?? -1));
+          });
+          if (exitCode !== 0) {
+            warn("wacli auth failed. Run `wacli auth` manually.");
           } else {
-            info("  wacli session already exists — skipping pairing.\n");
+            succeed("WhatsApp paired successfully.");
           }
         } else {
           info(`\n  ${def.ownerHint}`);

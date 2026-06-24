@@ -14,7 +14,7 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  buildOpencodeEnv,
+  buildSpawnPath,
   detectProviderFailure,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
@@ -164,15 +164,15 @@ export async function opencodeRun(
 export class OpencodeHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
 
-  private async buildEnv(): Promise<Record<string, string | undefined>> {
-    const env = buildOpencodeEnv(this.cfg);
-    await Promise.all([
-      ensureDir(env.XDG_DATA_HOME!),
-      ensureDir(env.XDG_CONFIG_HOME!),
-      ensureDir(env.XDG_STATE_HOME!),
-      ensureDir(env.XDG_CACHE_HOME!),
-    ]);
-    return env;
+  private buildEnv(): Record<string, string | undefined> {
+    return {
+      WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+      OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+      OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
+      OPENROUTER_API_KEY: this.cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
+      DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
+      PATH: buildSpawnPath(this.cfg),
+    };
   }
 
   async run(input: TurnInput): Promise<TurnResult> {
@@ -259,17 +259,9 @@ export class OpencodeHarness implements Harness {
 }
 
 export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
-  const env = buildOpencodeEnv(cfg);
-  await Promise.all([
-    ensureDir(env.XDG_DATA_HOME!),
-    ensureDir(env.XDG_CONFIG_HOME!),
-    ensureDir(env.XDG_STATE_HOME!),
-    ensureDir(env.XDG_CACHE_HOME!),
-  ]);
-
   const check = spawnSync(cfg.OPENCODE_BIN, ["--version"], {
     cwd: cfg.paths.root,
-    env: { ...process.env, ...env } as NodeJS.ProcessEnv,
+    env: { ...process.env } as NodeJS.ProcessEnv,
     encoding: "utf8",
     timeout: 10_000,
   });

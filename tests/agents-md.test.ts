@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const agentsMd = readFileSync(path.resolve(import.meta.dirname, "../AGENTS.md"), "utf8");
+const agentsMd = readFileSync(path.resolve(import.meta.dirname, "../src/AGENTS.md"), "utf8");
 
 describe("AGENTS.md", () => {
   it("is a non-empty file", () => {

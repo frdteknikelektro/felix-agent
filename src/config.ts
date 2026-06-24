@@ -56,7 +56,6 @@ const Env = z.object({
   WHATSAPP_OWNER_JID: z.string().optional(),
   WHATSAPP_OWNER_DISPLAY: z.string().default("Owner"),
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),
-  WHATSAPP_STORE_DIR: z.string().default(""),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
   WHATSAPP_MAX_MESSAGES: z.coerce.number().int().positive().default(5000),
   WHATSAPP_MAX_DB_SIZE: z.string()

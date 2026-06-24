@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadConfig } from "./config.js";
+import { migrateWorkspaceLayout } from "./migrations.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
 import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
@@ -114,6 +115,9 @@ async function syncMemorySchema(paths: import("./workspace.js").WorkspacePaths):
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
+  // One-time upgrade: flatten legacy records/ layout + relocate wacli store.
+  // Runs before ensureWorkspace so rename targets don't pre-exist.
+  await migrateWorkspaceLayout(cfg);
   await ensureWorkspace(cfg.paths);
   await syncBundledSkills(cfg.paths);
   await syncMemorySchema(cfg.paths);
@@ -122,7 +126,7 @@ async function main(): Promise<void> {
   // AGENTS.md carries the entire behavior contract (output format, permission
   // rules, refusal rules); a Felix without it is unsafe, so boot is fatal if
   // the file is missing rather than running contract-less.
-  const agentsMdSrc = path.resolve(import.meta.dirname, "..", "AGENTS.md");
+  const agentsMdSrc = path.resolve(import.meta.dirname, "AGENTS.md");
   const agentsMd = await fs.readFile(agentsMdSrc, "utf-8").catch((err) => {
     throw new Error(
       `AGENTS.md not found at ${agentsMdSrc} — refusing to boot without the behavior contract (${err instanceof Error ? err.message : String(err)})`,
@@ -141,6 +145,14 @@ async function main(): Promise<void> {
   }
   log.info("contract.written", { agents_md: agentsMdDst, claude_md: claudeMdDst, bytes: agentsMd.length });
 
+  // Write WORKSPACE_FOLDER_STRUCTURE.md — the authoritative directory layout.
+  const structSrc = path.resolve(import.meta.dirname, "WORKSPACE_FOLDER_STRUCTURE.md");
+  const structMd = await fs.readFile(structSrc, "utf-8").catch(() => null);
+  if (structMd) {
+    const structDst = path.join(cfg.paths.root, "WORKSPACE_FOLDER_STRUCTURE.md");
+    await writeTextAtomic(structDst, structMd);
+  }
+
   let harness: import("./core/ports.js").Harness;
   switch (cfg.HARNESS) {
     case "opencode":
@@ -154,7 +166,7 @@ async function main(): Promise<void> {
     case "codex":
     default:
       if (cfg.OPENAI_CODEX_AUTH_JSON) {
-        const codexHome = path.join(cfg.paths.runtime, ".codex");
+        const codexHome = path.join(cfg.paths.root, ".codex");
         const authPath = path.join(codexHome, "auth.json");
         try {
           await fs.access(authPath);

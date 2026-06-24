@@ -5,7 +5,7 @@ import { ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { AppConfig } from "../../config.js";
-import { between, buildSpawnPath, buildOpencodeEnv } from "../../core/harness-common.js";
+import { between, buildSpawnPath } from "../../core/harness-common.js";
 import { opencodeRun } from "../../adapters/opencode/index.js";
 import { claudeCodeRun } from "../../adapters/claude-code/index.js";
 
@@ -126,13 +126,14 @@ async function classifyViaOpencode(
   await ensureDir(workDir);
   await writeTextAtomic(turnPath, prompt);
 
-  const env = buildOpencodeEnv(cfg);
-  await Promise.all([
-    ensureDir(env.XDG_DATA_HOME!),
-    ensureDir(env.XDG_CONFIG_HOME!),
-    ensureDir(env.XDG_STATE_HOME!),
-    ensureDir(env.XDG_CACHE_HOME!),
-  ]);
+  const env = {
+    WORKSPACE_DIR: cfg.WORKSPACE_DIR,
+    OPENAI_API_KEY: cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
+    OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
+    OPENROUTER_API_KEY: cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
+    DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
+    PATH: buildSpawnPath(cfg),
+  };
 
   const args = [
     "run",
