@@ -49,6 +49,10 @@ const Env = z.object({
     .regex(/^(|[A-Za-z0-9_]+)$/, "WHATSAPP_BOT_NAME must only contain letters, digits, and underscores")
     .optional()
     .transform((v) => v || undefined),
+  WHATSAPP_BOT_ALIASES: z.string()
+    .regex(/^[A-Za-z0-9_,]*$/, "WHATSAPP_BOT_ALIASES must be comma-separated letters, digits, and underscores")
+    .optional()
+    .transform((v) => v || undefined),
   WHATSAPP_OWNER_JID: z.string().optional(),
   WHATSAPP_OWNER_DISPLAY: z.string().default("Owner"),
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),

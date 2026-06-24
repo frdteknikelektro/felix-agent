@@ -609,6 +609,14 @@ async function main() {
           });
           wizard.WHATSAPP_BOT_NAME = botName;
 
+          // WHATSAPP_BOT_ALIASES — plain input, optional
+          const aliases = await input({
+            message: `WHATSAPP_BOT_ALIASES [optional] (comma-separated short names, e.g. f,F,lix):`,
+            default: existing.WHATSAPP_BOT_ALIASES || "",
+            validate: (v) => /^[A-Za-z0-9_,]*$/.test(v) ? true : "Only letters, digits, underscores, and commas allowed",
+          });
+          wizard.WHATSAPP_BOT_ALIASES = aliases;
+
           // WHATSAPP_OWNER_PHONE → derive WHATSAPP_OWNER_JID
           info(`\n  ${def.ownerHint}`);
           const existingJid = existing.WHATSAPP_OWNER_JID || "";

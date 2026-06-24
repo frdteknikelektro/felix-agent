@@ -146,6 +146,9 @@ export async function handleWhatsAppWebhook(
 
   await cleanupExpiredBotMessages(cfg);
 
+  const botName = cfg.WHATSAPP_BOT_NAME ?? "Felix";
+  const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
+
   if (webhookSecret) {
     const signature = req.headers["x-wacli-signature"] as string | undefined;
     if (!signature || !verifyWebhookSignature(body, webhookSecret, signature)) {
@@ -185,7 +188,7 @@ export async function handleWhatsAppWebhook(
 
   if (payload.FromMe) {
     // ── Self-sent message (Felix prefixes its own messages) ───────────
-    const botPrefix = `*[${cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* `;
+    const botPrefix = `*[${botName}]* `;
     if ((payload.Text ?? "").startsWith(botPrefix)) {
       sendJson(res, 200, { ignored: "self_message" });
       return;
@@ -237,7 +240,7 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "self_reaction" });
         return;
       }
-      const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+      const event = normalizeParsedMessage(payload, botName, botAliases);
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
         return;
@@ -281,7 +284,7 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "self_media" });
         return;
       }
-      const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+      const event = normalizeParsedMessage(payload, botName, botAliases);
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
         return;
@@ -305,7 +308,7 @@ export async function handleWhatsAppWebhook(
   // If this is a reply to a tracked bot message, check for owner decision first
   if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
-    const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+    const event = normalizeParsedMessage(payload, botName, botAliases);
     if (!event) {
       sendJson(res, 200, { ignored: "empty_event" });
       return;
@@ -377,7 +380,7 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
+  const event = normalizeParsedMessage(payload, botName, botAliases);
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
@@ -514,6 +517,10 @@ class WhatsAppAdapter implements SourceAdapter {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
     const storeDir = this.wacliStoreDir();
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
+    const mentionHow = aliases.length > 0
+      ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
+      : `(e.g. \`@${botName}\`)`;
     // Only prefix messages when the bot shares a number with its owner — on a
     // dedicated number the sender already identifies the bot. Mirrors the
     // adapter's own send paths (sendThreadReply / sendUserMessage).
@@ -524,7 +531,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
     return {
       behaviorInstructions: [
-        "W1. Only answer when @mentioned by name (e.g. `@Felix_Bot`). If not mentioned, output nothing — no FELIX_REPLY, no explanation.",
+        `W1. Only answer when @mentioned by name ${mentionHow}. If not mentioned, output nothing — no FELIX_REPLY, no explanation.`,
         "W2. Fetch WhatsApp chat context if needed before answering:",
         "```bash",
         `wacli messages list --chat "${chatJid}" --limit 100 --store "${storeDir}" --json`,
@@ -823,6 +830,7 @@ class WhatsAppAdapter implements SourceAdapter {
 function normalizeParsedMessage(
   pm: ParsedMessage,
   botName: string,
+  aliases: string[] = [],
 ): UniversalEvent | null {
   const chatJid = pm.Chat || "";
   if (!chatJid) return null;
@@ -835,7 +843,7 @@ function normalizeParsedMessage(
 
   const visibility = "channel"; // all WhatsApp chats require @mention; no auto-answer DMs
   const senderJid = pm.SenderJID ?? "unknown";
-  const mentionsBot = detectsWhatsappMention(text, botName);
+  const mentionsBot = detectsWhatsappMention(text, botName, aliases);
 
   const displayText = hasReaction
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
@@ -894,10 +902,15 @@ async function writeRawWhatsAppEvent(cfg: AppConfig, event: UniversalEvent): Pro
 
 // ─── Mention detection ────────────────────────────────────────────────────────
 
-export function detectsWhatsappMention(text: string, botName: string): boolean {
+export function detectsWhatsappMention(text: string, botName: string, aliases: string[] = []): boolean {
   const lower = text.toLowerCase();
   const botLower = botName.toLowerCase();
-  return lower.includes(`@${botLower}`);
+  if (lower.includes(`@${botLower}`)) return true;
+  for (const alias of aliases) {
+    const a = alias.trim().toLowerCase();
+    if (a && lower.includes(`@${a}`)) return true;
+  }
+  return false;
 }
 
 // ─── wacli helpers ────────────────────────────────────────────────────────────
