@@ -286,6 +286,9 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "empty_event" });
         return;
       }
+      // Shared number: owner and bot share the same JID. Use a distinct
+      // sender ID so isOwnMessage doesn't drop owner messages from queue.
+      event.sender.id = `owner:${event.sender.id}`;
       sendJson(res, 200, { ok: true });
       void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
         log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });

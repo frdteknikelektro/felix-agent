@@ -16,6 +16,7 @@ import {
   between,
   fallbackNotification,
   buildSpawnPath,
+  detectProviderFailure,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
@@ -76,7 +77,9 @@ export class CodexHarness implements Harness {
     }
     await ensureDir(path.dirname(logPath));
     const logStream = await fs.open(logPath, "a");
-    const stderrStream = await fs.open(`${logPath}.stderr`, "a");
+
+    const stderrLines: string[] = [];
+    let ebuf = "";
 
     const exitCode = await new Promise<number>((resolve) => {
       child.stdout.on("data", async (chunk: Buffer) => {
@@ -96,9 +99,19 @@ export class CodexHarness implements Harness {
         }
       });
       child.stderr.on("data", async (chunk: Buffer) => {
-        await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
+        const text = chunk.toString("utf8");
+        ebuf += text;
+        const lines = ebuf.split(/\r?\n/);
+        ebuf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line) stderrLines.push(line);
+        }
+        await appendText(`${logPath}.stderr`, text);
       });
-      child.on("close", (code) => resolve(code ?? -1));
+      child.on("close", (code) => {
+        if (ebuf.trim()) stderrLines.push(ebuf);
+        resolve(code ?? -1);
+      });
       child.on("error", (error) => {
         log.error("codex.spawn_error", { error: error.message });
         resolve(-1);
@@ -106,7 +119,12 @@ export class CodexHarness implements Harness {
     });
 
     await logStream.close();
-    await stderrStream.close();
+
+    // Check stderr for provider failures before reading output
+    const providerFailure = detectProviderFailure(stderrLines, "Codex");
+    if (providerFailure) {
+      throw new Error(providerFailure);
+    }
 
     const lastMessage = await readText(outputLastMessagePath, "");
     if (capturedSessionId !== sessionState.harness_session_id) {

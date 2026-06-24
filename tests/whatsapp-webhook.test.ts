@@ -152,8 +152,8 @@ describe("handleWhatsAppWebhook", () => {
   });
 
   it("accepts FromMe non-prefix messages as owner DM when same number", async () => {
-    // When ownerSharesNumber is true (default module-level state), FromMe
-    // messages that don't match the bot prefix are treated as owner DMs.
+    // On a shared number, FromMe non-prefix messages are owner messages.
+    // The sender.id is prefixed with "owner:" so isOwnMessage lets them through.
     cfg = await makeTestConfig("wa-wh-owndm-", {
       WHATSAPP_BOT_NAME: "Felix",
     });
