@@ -118,9 +118,9 @@ const SOURCE_DEFS = {
     label: "WhatsApp (via wacli)",
     required: ["WHATSAPP_BOT_NAME"],
     optional: {},
-    ownerKeys: ["WHATSAPP_OWNER_JID", "WHATSAPP_OWNER_DISPLAY"],
+    ownerKeys: ["WHATSAPP_OWNER_DISPLAY"],
     ownerDefaults: { WHATSAPP_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Enter your WhatsApp JID (e.g. 1234567890@s.whatsapp.net)",
+    ownerHint: "Enter your WhatsApp phone number (with country code, no +). The JID will be derived automatically.",
   },
 };
 
@@ -446,7 +446,7 @@ async function main() {
 
       const ocModel = await input({
         message:
-          "OPENCODE_MODEL [optional] (provider/model format):\n  Browse: https://models.dev\n  Docs:   https://opencode.ai/docs/providers",
+          "OPENCODE_MODEL [optional] (provider/model format):\n  Browse: https://models.dev",
         default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
       });
       wizard.OPENCODE_MODEL = ocModel;
@@ -528,6 +528,8 @@ async function main() {
       console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}`);
 
       for (const reqKey of def.required) {
+        // WHATSAPP_BOT_NAME handled in the WhatsApp block (plain input, no masking)
+        if (src === "whatsapp" && reqKey === "WHATSAPP_BOT_NAME") continue;
         const val = await promptRequired(reqKey, src, existing);
         if (val) wizard[reqKey] = val;
       }
@@ -543,7 +545,6 @@ async function main() {
       if (src === "mattermost") {
           const mmUrl = wizard.MATTERMOST_URL || existing.MATTERMOST_URL;
           const mmToken = wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN;
-          const existingUserId = existing.MATTERMOST_OWNER_USER_ID || wizard.MATTERMOST_OWNER_USER_ID;
           const existingUsername = existing.MATTERMOST_OWNER_USERNAME || wizard.MATTERMOST_OWNER_USERNAME || "";
           const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
 
@@ -553,15 +554,8 @@ async function main() {
           });
           wizard.MATTERMOST_OWNER_USERNAME = username;
 
-          if (existingUserId) {
-            const hint = ` ${c.dim}(current: ${mask(existingUserId)} — Enter to keep)${c.reset}`;
-            const val = await input({
-              message: `MATTERMOST_OWNER_USER_ID [optional]:${hint}`,
-              default: existingUserId,
-            });
-            wizard.MATTERMOST_OWNER_USER_ID = val || existingUserId;
-          } else if (mmUrl && mmToken && username) {
-            info("  Looking up your User ID via Mattermost API...\n");
+          if (mmUrl && mmToken && username) {
+            info("  Looking up your User ID and display name via Mattermost API...\n");
             try {
               const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(username)}`, {
                 headers: { Authorization: `Bearer ${mmToken}` },
@@ -570,11 +564,18 @@ async function main() {
                 const user = await res.json();
                 wizard.MATTERMOST_OWNER_USER_ID = user.id;
                 succeed(`Found User ID: ${user.id}`);
+                if (user.nickname || user.first_name || user.last_name) {
+                  const fetchedDisplay = user.nickname || [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+                  info(`  Fetched display name: ${fetchedDisplay}`);
+                  if (!existingDisplay || existingDisplay === def.ownerDefaults.MATTERMOST_OWNER_DISPLAY) {
+                    wizard.MATTERMOST_OWNER_DISPLAY = fetchedDisplay;
+                  }
+                }
               } else {
                 warn(`API lookup failed (${res.status}). Please enter manually.`);
                 const val = await input({
                   message: `MATTERMOST_OWNER_USER_ID [optional]:`,
-                  default: "",
+                  default: existing.MATTERMOST_OWNER_USER_ID || ""
                 });
                 wizard.MATTERMOST_OWNER_USER_ID = val;
               }
@@ -582,14 +583,14 @@ async function main() {
               warn(`API lookup failed: ${err.message}. Please enter manually.`);
               const val = await input({
                 message: `MATTERMOST_OWNER_USER_ID [optional]:`,
-                default: "",
+                default: existing.MATTERMOST_OWNER_USER_ID || ""
               });
               wizard.MATTERMOST_OWNER_USER_ID = val;
             }
           } else {
             const val = await input({
               message: `MATTERMOST_OWNER_USER_ID [optional]:`,
-              default: "",
+              default: existing.MATTERMOST_OWNER_USER_ID || ""
             });
             wizard.MATTERMOST_OWNER_USER_ID = val;
           }
@@ -600,12 +601,25 @@ async function main() {
           });
           wizard.MATTERMOST_OWNER_DISPLAY = display;
         } else if (src === "whatsapp") {
-          info(`\n  ${def.ownerHint}`);
-          const ownerJid = await input({
-            message: `WHATSAPP_OWNER_JID [optional] (e.g. 1234567890@s.whatsapp.net):`,
-            default: existing.WHATSAPP_OWNER_JID || "",
+          // WHATSAPP_BOT_NAME — plain input, no masking
+          const botName = await input({
+            message: `WHATSAPP_BOT_NAME [required] (letters, digits, underscores):`,
+            default: existing.WHATSAPP_BOT_NAME || "",
+            validate: (v) => v.trim().length > 0 ? true : "WHATSAPP_BOT_NAME is required for WhatsApp",
           });
-          wizard.WHATSAPP_OWNER_JID = ownerJid;
+          wizard.WHATSAPP_BOT_NAME = botName;
+
+          // WHATSAPP_OWNER_PHONE → derive WHATSAPP_OWNER_JID
+          info(`\n  ${def.ownerHint}`);
+          const existingJid = existing.WHATSAPP_OWNER_JID || "";
+          const existingPhone = existingJid ? existingJid.split("@")[0] : "";
+          const phone = await input({
+            message: `WHATSAPP_OWNER_PHONE [optional] (e.g. 6281234567890):`,
+            default: existingPhone,
+          });
+          if (phone) {
+            wizard.WHATSAPP_OWNER_JID = phone + "@s.whatsapp.net";
+          }
 
           const display = await input({
             message: `WHATSAPP_OWNER_DISPLAY [optional]:`,
@@ -672,20 +686,31 @@ async function main() {
       info("  No skill environment variables to configure.\n");
     } else {
       info("  Bundled skills request these environment variables.\n");
+
+      // Group by skill
+      const bySkill = new Map();
       for (const v of pendingSkillVars) {
-        const hasExisting = existing && existing[v.key];
-        const hint = hasExisting
-          ? ` ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
-          : "";
-        const val = await input({
-          message: `${v.key} — ${v.description} (${v.skill}) [${v.required ? "required" : "optional"}]:${hint}`,
-          default: hasExisting ? existing[v.key] : (v.default || ""),
-          validate: (val) => {
-            if (v.required && !val && !hasExisting) return `${v.key} is required by ${v.skill}`;
-            return true;
-          },
-        });
-        if (val) wizard[v.key] = val;
+        if (!bySkill.has(v.skill)) bySkill.set(v.skill, []);
+        bySkill.get(v.skill).push(v);
+      }
+
+      for (const [skill, vars] of bySkill) {
+        console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${skill}${c.reset}`);
+        for (const v of vars) {
+          const hasExisting = existing && existing[v.key];
+          const hint = hasExisting
+            ? ` ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
+            : "";
+          const val = await input({
+            message: `${v.key} — ${v.description} [${v.required ? "required" : "optional"}]:${hint}`,
+            default: hasExisting ? existing[v.key] : (v.default || ""),
+            validate: (val) => {
+              if (v.required && !val && !hasExisting) return `${v.key} is required by ${skill}`;
+              return true;
+            },
+          });
+          if (val) wizard[v.key] = val;
+        }
       }
     }
 
