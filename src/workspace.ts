@@ -9,6 +9,7 @@ export interface WorkspacePaths {
   sessions: string;
   approvals: string;
   audit: string;
+  botMessages: string;
   catalog: string;
   skills: string;
   contacts: string;
@@ -41,6 +42,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     sessions: path.join(records, "sessions"),
     approvals: path.join(records, "approvals"),
     audit: path.join(records, "audit.jsonl"),
+    botMessages: path.join(records, "bot_messages"),
     catalog,
     skills: path.join(catalog, "skills"),
     contacts: path.join(catalog, "contacts"),
@@ -66,6 +68,7 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(paths.records),
     ensureDir(paths.sessions),
     ensureDir(paths.approvals),
+    ensureDir(path.join(paths.botMessages, "whatsapp")),
     ensureDir(paths.catalog),
     ensureDir(paths.skills),
     ensureDir(paths.contacts),

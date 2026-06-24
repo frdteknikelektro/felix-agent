@@ -753,6 +753,7 @@ export class FelixEngine {
       mattermost: this.cfg.MATTERMOST_OWNER_DISPLAY,
       discord: this.cfg.DISCORD_OWNER_DISPLAY,
       slack: this.cfg.SLACK_OWNER_DISPLAY,
+      whatsapp: this.cfg.WHATSAPP_OWNER_DISPLAY,
     };
     return map[source];
   }

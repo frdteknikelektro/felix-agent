@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createServer } from "node:http";
+import path from "node:path";
+import fs from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { handleWhatsAppWebhook } from "../src/adapters/whatsapp/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
@@ -184,9 +186,144 @@ describe("handleWhatsAppWebhook", () => {
     expect(result.status).toBe(200);
     expect(result.body).toHaveProperty("ignored", "empty_event");
   });
-});
 
-// NOTE: Full integration tests for reply/reaction approval paths,
-// media ingestion, and HMAC verification require deeper mocking of
-// wacli spawnSync and botMessageIds tracking. Those are exercised
-// indirectly via engine-routing.test.ts and the owner-decision test suite.
+  describe("owner permission decision via persisted tracking", () => {
+    it("tracked message persists to disk and survives re-read", async () => {
+      cfg = await makeTestConfig("wa-wh-persist-", { WHATSAPP_BOT_NAME: "Felix" });
+      const msgId = "tracked-msg-id-1";
+      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${msgId}.json`);
+
+      // Verify the file does not exist before tracking
+      await expect(fs.stat(botMsgPath)).rejects.toThrow();
+
+      // The only way to get a tracked message is via a FromMe sender path.
+      // We simulate tracking by writing the record directly.
+      await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
+      await fs.writeFile(botMsgPath, JSON.stringify({
+        msgId,
+        threadKey: "whatsapp:12345@s.whatsapp.net:12345@s.whatsapp.net",
+        trackedAt: new Date().toISOString(),
+      }));
+
+      // Verify the file exists and is readable
+      const stat = await fs.stat(botMsgPath);
+      expect(stat.isFile()).toBe(true);
+      const content = JSON.parse(await fs.readFile(botMsgPath, "utf-8"));
+      expect(content.msgId).toBe(msgId);
+    });
+
+    it("FromMe text reply to tracked bot message routes to decision path", async () => {
+      cfg = await makeTestConfig("wa-wh-fromme-reply-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      const msgId = "tracked-fromme-reply";
+
+      // Track the bot message
+      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${msgId}.json`);
+      await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
+      await fs.writeFile(botMsgPath, JSON.stringify({
+        msgId,
+        threadKey: "whatsapp:chat@s.whatsapp.net:chat@s.whatsapp.net",
+        trackedAt: new Date().toISOString(),
+      }));
+
+      // Send a FromMe reply to the tracked message with a decision text
+      const result = await sendWebhook(
+        cfg,
+        engine,
+        JSON.stringify({
+          Chat: "chat@s.whatsapp.net",
+          ID: "reply-msg-1",
+          FromMe: true,
+          ReplyToID: msgId,
+          Text: "OK once",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      // The webhook should accept it and route to the owner-decision path
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+    });
+
+    it("FromMe reply to untracked message falls through to normal ingestion", async () => {
+      cfg = await makeTestConfig("wa-wh-fromme-untracked-", {
+        WHATSAPP_BOT_NAME: "Felix",
+      });
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "chat@s.whatsapp.net",
+          ID: "reply-untracked",
+          FromMe: true,
+          ReplyToID: "never-tracked-reply-id",
+          Text: "hello",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+
+      // Falls through to ownerSharesNumber → normal ingestion
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+    });
+
+    it("FromMe reaction to tracked bot message routes to decision path", async () => {
+      cfg = await makeTestConfig("wa-wh-fromme-react-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      const reactionTarget = "tracked-fromme-react";
+
+      // Track the bot message
+      const botMsgPath = path.join(cfg.paths.botMessages, "whatsapp", `${reactionTarget}.json`);
+      await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
+      await fs.writeFile(botMsgPath, JSON.stringify({
+        msgId: reactionTarget,
+        threadKey: "whatsapp:chat@s.whatsapp.net:chat@s.whatsapp.net",
+        trackedAt: new Date().toISOString(),
+      }));
+
+      const result = await sendWebhook(
+        cfg,
+        engine,
+        JSON.stringify({
+          Chat: "chat@s.whatsapp.net",
+          ID: "react-msg-1",
+          FromMe: true,
+          ReactionToID: reactionTarget,
+          ReactionEmoji: "👍",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+    });
+
+    it("untracked reaction is ignored as self_reaction", async () => {
+      cfg = await makeTestConfig("wa-wh-untracked-react-", {
+        WHATSAPP_BOT_NAME: "Felix",
+      });
+      const result = await sendWebhook(
+        cfg,
+        engine,
+        JSON.stringify({
+          Chat: "12345@s.whatsapp.net",
+          ID: "msg-untracked-react",
+          FromMe: true,
+          ReactionToID: "never-tracked-msg",
+          ReactionEmoji: "👍",
+        }),
+      );
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ignored", "self_reaction");
+    });
+  });
+});

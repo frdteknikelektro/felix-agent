@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import type http from "node:http";
 import type { AppConfig } from "../../config.js";
-import { writeTextAtomic, ensureDir, safeFileName } from "../../lib/fs.js";
+import { writeTextAtomic, ensureDir, safeFileName, readText } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
@@ -36,7 +38,6 @@ export function startWhatsAppSource(
 
 // ─── Webhook handler (module-level, imported by app.ts) ───────────────────────
 
-const botMessageIds = new Map<string, { msgId: string; threadKey: string; trackedAt: number }>();
 const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
@@ -52,27 +53,87 @@ function clearWebhookSecret(): void {
   webhookSecret = null;
 }
 
+function getBotMessagesDir(cfg: AppConfig): string {
+  return path.join(cfg.paths.botMessages, "whatsapp");
+}
+
+function botMessageFilePath(cfg: AppConfig, msgId: string): string {
+  return path.join(getBotMessagesDir(cfg), `${safeFileName(msgId)}.json`);
+}
+
+interface TrackedBotMessage {
+  msgId: string;
+  threadKey: string;
+  trackedAt: string;
+}
+
+async function addTrackedBotMessage(cfg: AppConfig, msgId: string, threadKey: string): Promise<void> {
+  await ensureDir(getBotMessagesDir(cfg));
+  const record: TrackedBotMessage = { msgId, threadKey, trackedAt: new Date().toISOString() };
+  await writeTextAtomic(botMessageFilePath(cfg, msgId), JSON.stringify(record));
+}
+
+async function removeTrackedBotMessage(cfg: AppConfig, msgId: string): Promise<void> {
+  try {
+    await fs.unlink(botMessageFilePath(cfg, msgId));
+  } catch {
+    // best-effort — file may not exist
+  }
+}
+
+async function hasTrackedBotMessage(cfg: AppConfig, msgId: string): Promise<boolean> {
+  try {
+    await fs.stat(botMessageFilePath(cfg, msgId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getTrackedBotMessage(
+  cfg: AppConfig,
+  msgId: string,
+): Promise<{ msgId: string; threadKey: string } | undefined> {
+  try {
+    const raw = await readText(botMessageFilePath(cfg, msgId), "");
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as TrackedBotMessage;
+    if (!parsed.msgId || !parsed.threadKey) return undefined;
+    return { msgId: parsed.msgId, threadKey: parsed.threadKey };
+  } catch {
+    return undefined;
+  }
+}
+
+async function cleanupExpiredBotMessages(cfg: AppConfig): Promise<void> {
+  const dir = getBotMessagesDir(cfg);
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - BOT_MSG_TTL_MS;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(dir, entry.name);
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.mtimeMs < cutoff) {
+        await fs.unlink(filePath);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+}
+
 async function waitForSendSlot(): Promise<void> {
   const elapsed = Date.now() - lastSendAt;
   if (elapsed < SEND_MIN_GAP_MS) {
     await new Promise((r) => setTimeout(r, SEND_MIN_GAP_MS - elapsed));
   }
   lastSendAt = Date.now();
-}
-
-export function trackBotMessage(msgId: string, threadKey: string): void {
-  botMessageIds.set(msgId, { msgId, threadKey, trackedAt: Date.now() });
-}
-
-function evictExpiredBotMessages(): void {
-  const cutoff = Date.now() - BOT_MSG_TTL_MS;
-  for (const [id, entry] of botMessageIds) {
-    if (entry.trackedAt < cutoff) botMessageIds.delete(id);
-  }
-}
-
-export function untrackBotMessage(msgId: string): void {
-  botMessageIds.delete(msgId);
 }
 
 export async function handleWhatsAppWebhook(
@@ -83,7 +144,7 @@ export async function handleWhatsAppWebhook(
 ): Promise<void> {
   const body = await readBody(req);
 
-  evictExpiredBotMessages();
+  await cleanupExpiredBotMessages(cfg);
 
   if (webhookSecret) {
     const signature = req.headers["x-wacli-signature"] as string | undefined;
@@ -133,8 +194,12 @@ export async function handleWhatsAppWebhook(
     // ── Self-sent reaction — unless it's on a bot permission message ──
     if (payload.ReactionToID) {
       const reactionTarget = payload.ReactionToID;
-      if (botMessageIds.has(reactionTarget)) {
-        const botMsg = botMessageIds.get(reactionTarget)!;
+      if (await hasTrackedBotMessage(cfg, reactionTarget)) {
+        const botMsg = await getTrackedBotMessage(cfg, reactionTarget);
+        if (!botMsg) {
+          sendJson(res, 200, { ignored: "self_reaction" });
+          return;
+        }
         const emoji = payload.ReactionEmoji ?? "";
         const decision = parseDecisionToken(emoji);
         if (decision) {
@@ -155,7 +220,7 @@ export async function handleWhatsAppWebhook(
               decidedBy: payload.SenderJID ?? "unknown",
               target,
             });
-          }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
+          }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
             log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
           });
           return;
@@ -166,8 +231,12 @@ export async function handleWhatsAppWebhook(
     }
 
     // ── Owner replying to a bot permission-request message ────────────
-    if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)) {
-      const botMsg = botMessageIds.get(payload.ReplyToID)!;
+    if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)) {
+      const botMsg = await getTrackedBotMessage(cfg, payload.ReplyToID);
+      if (!botMsg) {
+        sendJson(res, 200, { ignored: "self_reaction" });
+        return;
+      }
       const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
@@ -198,7 +267,7 @@ export async function handleWhatsAppWebhook(
           });
         });
       }).then(() => {
-        untrackBotMessage(payload.ReplyToID!);
+        void removeTrackedBotMessage(cfg, payload.ReplyToID!);
       }).catch((error) => {
         log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
@@ -231,7 +300,7 @@ export async function handleWhatsAppWebhook(
 
   // ── Normal processing (incoming messages from others) ────────────────
   // If this is a reply to a tracked bot message, check for owner decision first
-  if (payload.ReplyToID && botMessageIds.has(payload.ReplyToID)
+  if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
     const event = normalizeParsedMessage(payload, cfg.WHATSAPP_BOT_NAME ?? "Felix");
     if (!event) {
@@ -239,7 +308,8 @@ export async function handleWhatsAppWebhook(
       return;
     }
     sendJson(res, 200, { ok: true });
-    const botMsg = botMessageIds.get(payload.ReplyToID!)!;
+    const botMsg = await getTrackedBotMessage(cfg, payload.ReplyToID!);
+    if (!botMsg) return;
     const target = {
       kind: "owner_message" as const,
       anchor: {
@@ -264,7 +334,7 @@ export async function handleWhatsAppWebhook(
         });
       });
     }).then(() => {
-      untrackBotMessage(payload.ReplyToID!);
+      void removeTrackedBotMessage(cfg, payload.ReplyToID!);
     }).catch((error) => {
       log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
     });
@@ -272,13 +342,14 @@ export async function handleWhatsAppWebhook(
   }
 
   // If this is a reaction on a tracked bot message from the owner
-  if (payload.ReactionToID && botMessageIds.has(payload.ReactionToID)
+  if (payload.ReactionToID && await hasTrackedBotMessage(cfg, payload.ReactionToID)
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
     const reactionTarget = payload.ReactionToID;
     const emoji = payload.ReactionEmoji ?? "";
     const decision = parseDecisionToken(emoji);
     if (decision) {
-      const botMsg = botMessageIds.get(reactionTarget)!;
+      const botMsg = await getTrackedBotMessage(cfg, reactionTarget);
+      if (!botMsg) return;
       sendJson(res, 200, { ok: true });
       const target = {
         kind: "owner_message" as const,
@@ -296,7 +367,7 @@ export async function handleWhatsAppWebhook(
           decidedBy: payload.SenderJID ?? "unknown",
           target,
         });
-      }).then(() => untrackBotMessage(reactionTarget)).catch((error) => {
+      }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
         log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
     }
@@ -352,13 +423,14 @@ interface ParsedMessage {
 class WhatsAppAdapter implements SourceAdapter {
   source = "whatsapp";
   get botUserId(): string | undefined {
-    return undefined;
+    return this.botJid;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.WHATSAPP_OWNER_JID;
   }
   private process?: ReturnType<typeof spawn>;
   private sameNumber = false;
+  private botJid?: string;
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -377,6 +449,7 @@ class WhatsAppAdapter implements SourceAdapter {
       return { stop: () => undefined, done: Promise.resolve() };
     }
 
+    this.botJid = authOk.jid;
     this.sameNumber = this.cfg.WHATSAPP_OWNER_JID
       ? this.cfg.WHATSAPP_OWNER_JID.startsWith(authOk.jid.split("@")[0])
       : true;
@@ -585,7 +658,7 @@ class WhatsAppAdapter implements SourceAdapter {
               message_id: parsed.id,
               thread_id: parsed.id,
             };
-            trackBotMessage(parsed.id, whatsappThreadKey(input.userId));
+            await addTrackedBotMessage(this.cfg, parsed.id, whatsappThreadKey(input.userId));
             return anchor;
           }
         } catch {
