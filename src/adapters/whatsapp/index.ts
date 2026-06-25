@@ -439,7 +439,7 @@ function getWacliStoreDir(): string {
   const custom = process.env.WACLI_STORE_DIR;
   if (custom) return custom;
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  return path.join(home, ".wacli");
+  return path.join(home, ".local", "state", "wacli");
 }
 
 // ─── ParsedMessage (webhook payload) ──────────────────────────────────────────
@@ -529,8 +529,6 @@ class WhatsAppAdapter implements SourceAdapter {
       env: {
         ...process.env,
         PATH: process.env.PATH ?? "",
-        WACLI_SYNC_MAX_MESSAGES: "128",
-        WACLI_SYNC_MAX_DB_SIZE: "128MB",
       },
     });
     wacliStartedAt = Date.now();

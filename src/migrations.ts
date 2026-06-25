@@ -9,7 +9,7 @@ import { log } from "./lib/log.js";
 //
 // The workspace was remounted as $HOME and the `records/` layer was flattened:
 //   records/{sessions,approvals,audit.jsonl,bot_messages} → workspace root
-//   runtime/wacli                                          → $HOME/.wacli
+//   runtime/wacli                                          → $HOME/.local/state/wacli
 //
 // Existing deployments still have data under the old layout. This migration
 // moves it into place and rewrites the absolute paths persisted inside session
@@ -31,6 +31,7 @@ function rerootSessionPath(cfg: AppConfig, old: string): string | null {
 
 /** Move `src` to `dst`, falling back to recursive copy+remove across devices. */
 async function move(src: string, dst: string): Promise<void> {
+  await fs.mkdir(path.dirname(dst), { recursive: true });
   try {
     await fs.rename(src, dst);
   } catch (err) {
@@ -147,12 +148,12 @@ async function rewriteApprovalPaths(cfg: AppConfig): Promise<void> {
 }
 
 /** Move the wacli WhatsApp store from the old custom location to the default
- *  `$HOME/.wacli`, preserving the device link. */
+ *  `$HOME/.local/state/wacli`, preserving the device link. */
 async function relocateWacliStore(cfg: AppConfig): Promise<void> {
   const home = process.env.HOME;
   if (!home) return;
   const src = path.join(cfg.paths.runtime, "wacli");
-  const dst = path.join(home, ".wacli");
+  const dst = path.join(home, ".local", "state", "wacli");
   if (!(await pathExists(src)) || (await pathExists(dst))) return;
   await move(src, dst);
   log.info("migration.wacli_relocated", { from: src, to: dst });

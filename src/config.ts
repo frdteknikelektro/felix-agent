@@ -57,10 +57,6 @@ const Env = z.object({
   WHATSAPP_OWNER_DISPLAY: z.string().default("Owner"),
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
-  WHATSAPP_MAX_MESSAGES: z.coerce.number().int().positive().default(5000),
-  WHATSAPP_MAX_DB_SIZE: z.string()
-    .regex(/^\d+(B|KB|MB|GB)$/i, "WHATSAPP_MAX_DB_SIZE must be like 100MB or 1GB")
-    .default("100MB"),
   SOURCE: z.string().default("mattermost"),
   OWNER_CHANNEL: z.enum(["mattermost", "discord", "slack", "whatsapp"])
     .optional()

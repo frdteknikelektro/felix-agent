@@ -28,7 +28,7 @@ describe("workspace layout migration", () => {
     cfg = await makeTestConfig("felix-migrate-");
     root = cfg.paths.root;
     // Point HOME at a clean dir so the wacli relocation is observable and
-    // never touches the developer's real ~/.wacli.
+    // never touches the developer's real ~/.local/state/wacli.
     originalHome = process.env.HOME;
     home = path.join(root, "fake-home");
     await fs.mkdir(home, { recursive: true });
@@ -83,7 +83,7 @@ describe("workspace layout migration", () => {
     expect(await exists(path.join(root, "approvals", "mattermost_chan_root", "r1.json"))).toBe(true);
     expect(await exists(path.join(root, "audit.jsonl"))).toBe(true);
     expect(await exists(path.join(root, "index", "bot-messages", "whatsapp", "m1.json"))).toBe(true);
-    expect(await exists(path.join(home, ".wacli", "session.db"))).toBe(true);
+    expect(await exists(path.join(home, ".local", "state", "wacli", "session.db"))).toBe(true);
   });
 
   it("rewrites stored absolute paths to the new sessions location", async () => {
