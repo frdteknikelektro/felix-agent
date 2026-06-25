@@ -712,8 +712,8 @@ class WhatsAppAdapter implements SourceAdapter {
     // wacli messages edit can't run when sync holds the store — send a new
     // message instead (delegated through sync IPC). Only send the status
     // update; the owner already has the full notification.
-    const statusMatch = input.text.match(/\*Status\*: `(\w+)`/);
-    const decisionMatch = input.text.match(/\*Decision\*: (.+?)$/m);
+    const statusMatch = input.text.match(/\*Status\*\n`(\w+)`/);
+    const decisionMatch = input.text.match(/\*Decision\*\n(.+?)(?:\n|$)/);
     const status = statusMatch ? `*${statusMatch[1]}*` : "done";
     const decision = decisionMatch?.[1]?.trim();
     const text = decision ? `${status} — ${decision}` : status;
@@ -733,29 +733,28 @@ class WhatsAppAdapter implements SourceAdapter {
   }): Promise<string> {
     const status = input.status ?? "pending";
     const lines = [
-      `*Requester*: ${input.requesterName} (\`${input.requesterId}\`)`,
-      `*Skill*: \`${input.skillId}\``,
-      `*Permissions*: ${input.permissions.map((p) => `\`${p}\``).join(", ")}`,
-      `*Reason*: ${input.reason}`,
-      `*Status*: \`${status}\``,
+      `*Requester*\n${input.requesterName} (\`${input.requesterId}\`)`,
+      `*Skill*\n\`${input.skillId}\``,
+      `*Permissions*\n${input.permissions.map((p) => `\`${p}\``).join(", ")}`,
+      `*Reason*\n${input.reason}`,
+      `*Status*\n\`${status}\``,
     ];
     if (status !== "pending" && input.decisionMode) {
-      lines.push(`*Decision*: ${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`);
+      lines.push(`*Decision*\n${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`);
     }
     if (input.decidedAt) {
-      lines.push(`*Resolved*: ${input.decidedAt}`);
+      lines.push(`*Resolved*\n${input.decidedAt}`);
     }
     if (input.threadLink) {
-      lines.push(`*Thread*: ${input.threadLink}`);
+      lines.push(`*Thread*\n${input.threadLink}`);
     }
     if (status === "pending") {
       lines.push(
-        "",
         "Reply `yes` to approve once, `always` to always allow, or `no` to reject.",
         "You can also react with 👌 (once), 👍 (always), or 🙏 (reject).",
       );
     }
-    return lines.join("\n");
+    return lines.join("\n\n");
   }
 
   async downloadAttachment(input: {
