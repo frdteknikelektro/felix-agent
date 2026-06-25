@@ -711,27 +711,31 @@ class WhatsAppAdapter implements SourceAdapter {
       throw new Error("WhatsApp editUserMessage: missing anchor fields");
     }
 
-    const args = [
-      "messages", "edit",
-      "--chat", chatJid,
-      "--id", msgId,
-      "--message", input.text,
-      "--post-send-wait", "0",
-    ];
-
+    // Fall back to send (delegated via IPC) when edit fails (store locked by sync)
     try {
-      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
+        "messages", "edit",
+        "--chat", chatJid,
+        "--id", msgId,
+        "--message", input.text,
+        "--post-send-wait", "0",
+      ], {
         encoding: "utf8",
         timeout: 30_000,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      if (result.status !== 0) {
-        const err = result.stderr || `exit ${result.status}`;
-        throw new Error(`WhatsApp messages edit failed: ${err.trim()}`);
+      if (result.status === 0) return;
+      if (!result.stderr?.includes("store is locked")) {
+        throw new Error(`WhatsApp messages edit failed: ${result.stderr || `exit ${result.status}`}`.trim());
       }
     } catch (error) {
-      throw new Error(`WhatsApp messages edit failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!(error instanceof Error) || !error.message.includes("store is locked")) {
+        throw new Error(`WhatsApp messages edit failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+
+    // Edit unavailable — send a new message instead (delegated through sync IPC)
+    await this.sendUserMessage({ userId: chatJid, text: input.text });
   }
 
   async formatOwnerNotification(input: {
