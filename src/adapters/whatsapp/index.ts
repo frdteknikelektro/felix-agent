@@ -188,7 +188,7 @@ export async function handleWhatsAppWebhook(
 
   if (payload.FromMe) {
     // ── Self-sent message (Felix prefixes its own messages) ───────────
-    const botPrefix = `*[${botName}]* `;
+    const botPrefix = `*[${botName}]*`;
     if ((payload.Text ?? "").startsWith(botPrefix)) {
       sendJson(res, 200, { ignored: "self_message" });
       return;
@@ -541,7 +541,7 @@ class WhatsAppAdapter implements SourceAdapter {
     // Only prefix messages when the bot shares a number with its owner — on a
     // dedicated number the sender already identifies the bot. Mirrors the
     // adapter's own send paths (sendThreadReply / sendUserMessage).
-    const prefix = this.sameNumber ? `*[${botName}]* ` : "";
+    const prefix = this.sameNumber ? `*[${botName}]*\n` : "";
     const w4 = this.sameNumber
       ? `W4. This bot shares a WhatsApp number with its owner, so every outgoing message MUST start with the *[${botName}]* prefix — on every send, including any intermediate or supplementary message — to distinguish the bot's messages from the owner's. Send intermediate/progress messages as needed per the output contract.`
       : `W4. This bot has its own dedicated WhatsApp number — do NOT add any name prefix to messages. Send intermediate/progress messages as needed per the output contract.`;
@@ -612,7 +612,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", rootMessageId]
       : [];
 
-    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
+    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]*\n` : "";
 
     const args = [
       "send", "text",
@@ -652,7 +652,7 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]* ` : "";
+    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]*\n` : "";
 
     const args = [
       "send", "text",
