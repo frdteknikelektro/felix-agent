@@ -659,14 +659,16 @@ class WhatsAppAdapter implements SourceAdapter {
       } else if (result.stdout) {
         try {
           const parsed = JSON.parse(result.stdout.trim());
-          if (parsed.id) {
+          const inner = parsed.data ?? parsed;
+          const msgId = inner.id;
+          if (msgId) {
             const anchor: SourceMessageAnchor = {
               source: "whatsapp",
               conversation_id: input.userId,
-              message_id: parsed.id,
-              thread_id: parsed.id,
+              message_id: msgId,
+              thread_id: msgId,
             };
-            await addTrackedBotMessage(this.cfg, parsed.id, whatsappThreadKey(input.userId));
+            await addTrackedBotMessage(this.cfg, msgId, whatsappThreadKey(input.userId));
             return anchor;
           }
           log.warn("whatsapp.send_user_missing_id", { chat_jid: input.userId, parsed: result.stdout.slice(0, 500) });
