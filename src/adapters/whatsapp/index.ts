@@ -217,7 +217,13 @@ export async function handleWhatsAppWebhook(
             },
           };
           void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-            if (!found) return;
+            if (!found) {
+              log.warn("whatsapp.owner_decision_thread_not_found", {
+                reaction_target: reactionTarget.slice(0, 40),
+                message_id: botMsg.msgId,
+              });
+              return;
+            }
             return engine.handleOwnerDecision({
               mode: decision,
               decidedBy: payload.SenderJID ?? "unknown",
@@ -228,53 +234,66 @@ export async function handleWhatsAppWebhook(
           });
           return;
         }
+        sendJson(res, 200, { ignored: "unrecognized_emoji" });
+        return;
       }
+      log.info("whatsapp.reaction_untracked", { reaction_target: reactionTarget.slice(0, 40) });
       sendJson(res, 200, { ignored: "self_reaction" });
       return;
     }
 
     // ── Owner replying to a bot permission-request message ────────────
-    if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)) {
-      const botMsg = await getTrackedBotMessage(cfg, payload.ReplyToID);
-      if (!botMsg) {
-        sendJson(res, 200, { ignored: "self_reaction" });
-        return;
-      }
-      const event = normalizeParsedMessage(payload, botName, botAliases);
-      if (!event) {
-        sendJson(res, 200, { ignored: "empty_event" });
-        return;
-      }
-      sendJson(res, 200, { ok: true });
-      const target = {
-        kind: "owner_message" as const,
-        anchor: {
-          source: "whatsapp",
-          conversation_id: chatJid,
-          message_id: botMsg.msgId,
-          thread_id: botMsg.msgId,
-        },
-      };
-      void writeRawWhatsAppEvent(cfg, event).then(() => {
-        return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-          if (!found) return;
-          return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
-            if (ownerDecision) {
-              return engine.handleOwnerDecision({
-                mode: ownerDecision.mode,
-                decidedBy: payload.SenderJID ?? "unknown",
-                target,
-              }).then(() => undefined);
+    if (payload.ReplyToID) {
+      const replyTarget = payload.ReplyToID;
+      if (await hasTrackedBotMessage(cfg, replyTarget)) {
+        const botMsg = await getTrackedBotMessage(cfg, replyTarget);
+        if (!botMsg) {
+          sendJson(res, 200, { ignored: "self_reaction" });
+          return;
+        }
+        const event = normalizeParsedMessage(payload, botName, botAliases);
+        if (!event) {
+          sendJson(res, 200, { ignored: "empty_event" });
+          return;
+        }
+        sendJson(res, 200, { ok: true });
+        const target = {
+          kind: "owner_message" as const,
+          anchor: {
+            source: "whatsapp",
+            conversation_id: chatJid,
+            message_id: botMsg.msgId,
+            thread_id: botMsg.msgId,
+          },
+        };
+        void writeRawWhatsAppEvent(cfg, event).then(() => {
+          return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
+            if (!found) {
+              log.warn("whatsapp.owner_decision_thread_not_found", {
+                reply_target: replyTarget.slice(0, 40),
+                message_id: botMsg.msgId,
+              });
+              return;
             }
-            return engine.ingest(event);
+            return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
+              if (ownerDecision) {
+                return engine.handleOwnerDecision({
+                  mode: ownerDecision.mode,
+                  decidedBy: payload.SenderJID ?? "unknown",
+                  target,
+                }).then(() => undefined);
+              }
+              return engine.ingest(event);
+            });
           });
+        }).then(() => {
+          void removeTrackedBotMessage(cfg, replyTarget);
+        }).catch((error) => {
+          log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
         });
-      }).then(() => {
-        void removeTrackedBotMessage(cfg, payload.ReplyToID!);
-      }).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
-      });
-      return;
+        return;
+      }
+      log.info("whatsapp.reply_untracked", { reply_target: replyTarget.slice(0, 40) });
     }
 
     // ── Owner using the same number ──────────────────────────────────
