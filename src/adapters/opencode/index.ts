@@ -15,7 +15,6 @@ import {
   between,
   fallbackNotification,
   buildSpawnPath,
-  detectProviderFailure,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
@@ -65,7 +64,6 @@ export async function opencodeRun(
   const logStream = await fs.open(logPath, "a");
 
   const stdoutLines: string[] = [];
-  const stderrLines: string[] = [];
   let buf = "";
   let ebuf = "";
 
@@ -82,16 +80,11 @@ export async function opencodeRun(
     child.stderr.on("data", async (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       ebuf += text;
-      const lines = ebuf.split(/\r?\n/);
-      ebuf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line) stderrLines.push(line);
-      }
+      ebuf = ebuf.split(/\r?\n/).pop() ?? "";
       await appendText(`${logPath}.stderr`, text);
     });
     child.on("close", (code) => {
       if (buf.trim()) stdoutLines.push(buf);
-      if (ebuf.trim()) stderrLines.push(ebuf);
       resolve(code ?? -1);
     });
     child.on("error", (error) => {
@@ -101,12 +94,6 @@ export async function opencodeRun(
   });
 
   await logStream.close();
-
-  // Check stderr for provider failures before parsing JSON events
-  const providerFailure = detectProviderFailure(stderrLines, "OpenCode");
-  if (providerFailure) {
-    throw new Error(providerFailure);
-  }
 
   let capturedSessionId = "";
   const textParts: string[] = [];

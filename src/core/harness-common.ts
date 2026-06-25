@@ -7,35 +7,7 @@ import { decisionEmoji, decisionLabel } from "./decision.js";
 import { contactPath } from "../slices/contacts/index.js";
 import { buildInitialMd } from "./initial-md.js";
 
-const PROVIDER_FAILURE_PATTERNS = [
-  /rate[-_\s]?limit/i,
-  /AI_APICallError/i,
-  /APIError/i,
-  /insufficient.*?(?:balance|quota|credits)/i,
-  /billing.*?(?:limit|exceeded)/i,
-  /quota.*?exceeded/i,
-  /exceeded.*?(?:quota|rate)/i,
-  /429\b/,
-  /503\b.*?(?:service|overloaded|unavailable)/i,
-  /invalid.*api[-_\s]?key/i,
-  /unauthorized.*api/i,
-  /authentication.*error/i,
-  /model.*?(?:overloaded|unavailable|not.found)/i,
-  /context.*?(?:length|token).*?exceed/i,
-  /token.*?limit.*?exceed/i,
-];
 
-export function detectProviderFailure(stderrLines: string[], harnessName: string): string | null {
-  const stderr = stderrLines.join("\n");
-  if (!stderr.trim()) return null;
-  for (const pattern of PROVIDER_FAILURE_PATTERNS) {
-    if (pattern.test(stderr)) {
-      const excerpt = stderr.slice(0, 500).replace(/[A-Za-z0-9_-]{20,}/g, "[REDACTED]");
-      return `${harnessName} provider failure detected in stderr: ${excerpt}`;
-    }
-  }
-  return null;
-}
 
 export function parseAgentOutput(raw: string): ParsedAgentOutput {
   const text = raw.trim();
