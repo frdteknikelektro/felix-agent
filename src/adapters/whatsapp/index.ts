@@ -706,35 +706,11 @@ class WhatsAppAdapter implements SourceAdapter {
 
   async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
     const chatJid = input.anchor.conversation_id;
-    const msgId = input.anchor.message_id;
-    if (!chatJid || !msgId) {
+    if (!chatJid) {
       throw new Error("WhatsApp editUserMessage: missing anchor fields");
     }
-
-    // Fall back to send (delegated via IPC) when edit fails (store locked by sync)
-    try {
-      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
-        "messages", "edit",
-        "--chat", chatJid,
-        "--id", msgId,
-        "--message", input.text,
-        "--post-send-wait", "0",
-      ], {
-        encoding: "utf8",
-        timeout: 30_000,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      if (result.status === 0) return;
-      if (!result.stderr?.includes("store is locked")) {
-        throw new Error(`WhatsApp messages edit failed: ${result.stderr || `exit ${result.status}`}`.trim());
-      }
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("store is locked")) {
-        throw new Error(`WhatsApp messages edit failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    // Edit unavailable — send a new message instead (delegated through sync IPC)
+    // wacli messages edit can't run when sync holds the store — send a new
+    // message instead (delegated through sync IPC, same as sendUserMessage).
     await this.sendUserMessage({ userId: chatJid, text: input.text });
   }
 
