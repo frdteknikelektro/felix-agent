@@ -710,8 +710,14 @@ class WhatsAppAdapter implements SourceAdapter {
       throw new Error("WhatsApp editUserMessage: missing anchor fields");
     }
     // wacli messages edit can't run when sync holds the store — send a new
-    // message instead (delegated through sync IPC, same as sendUserMessage).
-    await this.sendUserMessage({ userId: chatJid, text: input.text });
+    // message instead (delegated through sync IPC). Only send the status
+    // update; the owner already has the full notification.
+    const statusMatch = input.text.match(/\*Status\*: `(\w+)`/);
+    const decisionMatch = input.text.match(/\*Decision\*: (.+?)$/m);
+    const status = statusMatch ? `*${statusMatch[1]}*` : "done";
+    const decision = decisionMatch?.[1]?.trim();
+    const text = decision ? `${status} — ${decision}` : status;
+    await this.sendUserMessage({ userId: chatJid, text });
   }
 
   async formatOwnerNotification(input: {
