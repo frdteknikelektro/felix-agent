@@ -84,7 +84,7 @@ export function buildBatchedIngestPrompt(cfg: AppConfig): string {
     "3. For each thread, read session.json to check last_event_at.",
     "4. A thread needs ingesting when BOTH conditions are met:",
     "   - Its last_event_at is newer than its checkpoint entry (checkpoint.threads[thread_key].lastIngestAt)",
-    "   - Its last_event_at is more than 1 hour old (skip active conversations)",
+    "   - Its last_event_at is more than 6 hours old (skip active conversations)",
     "5. For each qualifying thread:",
     "   - Read the full transcript",
     "   - Extract: entities, concepts, decisions, preferences, facts",

@@ -28,7 +28,7 @@ export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
       .finally(() => {
         state.locked = false;
       });
-  }, 10 * 60 * 1000);
+  }, 30 * 60 * 1000);
 
   state.interval.unref();
 }
@@ -79,7 +79,7 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
     const sess = await loadSessionState(thread);
     if (!sess.last_event_at) continue;
     const lastEvent = new Date(sess.last_event_at).getTime();
-    if (now - lastEvent < 60 * 60 * 1000) continue;
+    if (now - lastEvent < 6 * 60 * 60 * 1000) continue;
     const entry = checkpoint.threads[thread.state.thread_key];
     const lastIngestAt = entry ? new Date(entry.lastIngestAt).getTime() : 0;
     if (lastIngestAt < lastEvent) {

@@ -32,14 +32,14 @@ describe("memory cron debounce logic", () => {
 
   it("skips thread when conversation is still active", () => {
     const now = Date.now();
-    const lastEvent = new Date(now - 10 * 60 * 1000).toISOString();
-    expect(now - new Date(lastEvent).getTime() < 60 * 60 * 1000).toBe(true);
+    const lastEvent = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+    expect(now - new Date(lastEvent).getTime() < 6 * 60 * 60 * 1000).toBe(true);
   });
 
-  it("ingests thread when idle > 60 min and has new content", () => {
+  it("ingests thread when idle > 6 hours and has new content", () => {
     const now = Date.now();
-    const lastEvent = new Date(now - 90 * 60 * 1000).toISOString();
-    expect(now - new Date(lastEvent).getTime() >= 60 * 60 * 1000).toBe(true);
+    const lastEvent = new Date(now - 7 * 60 * 60 * 1000).toISOString();
+    expect(now - new Date(lastEvent).getTime() >= 6 * 60 * 60 * 1000).toBe(true);
   });
 
   it("save and reload checkpoint preserves thread entries", async () => {
