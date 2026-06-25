@@ -649,7 +649,14 @@ class WhatsAppAdapter implements SourceAdapter {
         timeout: 30_000,
         stdio: ["ignore", "pipe", "pipe"],
       });
-      if (result.status === 0 && result.stdout) {
+      if (result.status !== 0) {
+        log.warn("whatsapp.send_user_status", {
+          chat_jid: input.userId,
+          status: result.status,
+          stderr: result.stderr?.slice(0, 500),
+          stdout: result.stdout?.slice(0, 500),
+        });
+      } else if (result.stdout) {
         try {
           const parsed = JSON.parse(result.stdout.trim());
           if (parsed.id) {
@@ -662,9 +669,12 @@ class WhatsAppAdapter implements SourceAdapter {
             await addTrackedBotMessage(this.cfg, parsed.id, whatsappThreadKey(input.userId));
             return anchor;
           }
+          log.warn("whatsapp.send_user_missing_id", { chat_jid: input.userId, parsed: result.stdout.slice(0, 500) });
         } catch {
           log.warn("whatsapp.send_user_parse", { chat_jid: input.userId, stdout: result.stdout?.slice(0, 200) });
         }
+      } else {
+        log.warn("whatsapp.send_user_empty", { chat_jid: input.userId, stderr: result.stderr?.slice(0, 500) });
       }
       return null;
     } catch (error) {
