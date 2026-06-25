@@ -190,6 +190,7 @@ export async function handleWhatsAppWebhook(
     // ── Self-sent message (Felix prefixes its own messages) ───────────
     const botPrefix = `*[${botName}]*`;
     if ((payload.Text ?? "").startsWith(botPrefix)) {
+      if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
       sendJson(res, 200, { ignored: "self_message" });
       return;
     }
@@ -301,6 +302,7 @@ export async function handleWhatsAppWebhook(
     if (ownerSharesNumber) {
       // Media-only self-message (no text/caption) — bot's own outgoing file
       if (payload.Media && !(payload.Text ?? "").trim()) {
+        void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
         sendJson(res, 200, { ignored: "self_media" });
         return;
       }
@@ -320,6 +322,7 @@ export async function handleWhatsAppWebhook(
     }
 
     // ── FromMe from a different number → ignore ─────────────────────
+    if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
     sendJson(res, 200, { ignored: "from_me" });
     return;
   }
@@ -407,9 +410,36 @@ export async function handleWhatsAppWebhook(
   }
 
   sendJson(res, 200, { ok: true });
+
+  // Delete media for messages Felix won't use (not mentioned, not DM)
+  const isGroup = chatJid.includes("@g.us");
+  const isMentioned = event.mentions_bot;
+  const isDM = !isGroup;
+  if (payload.Media && !isMentioned && !isDM) {
+    void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
+  }
+
   void writeRawWhatsAppEvent(cfg, event).then(() => engine.ingest(event)).catch((error) => {
     log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
   });
+}
+
+// ─── Media cleanup ─────────────────────────────────────────────────────────────
+
+async function deleteWacliMedia(storeDir: string, chatJid: string, msgId: string): Promise<void> {
+  const mediaDir = path.join(storeDir, "media", chatJid, msgId);
+  try {
+    await fs.rm(mediaDir, { recursive: true, force: true });
+  } catch {
+    // best-effort — directory may not exist
+  }
+}
+
+function getWacliStoreDir(): string {
+  const custom = process.env.WACLI_STORE_DIR;
+  if (custom) return custom;
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  return path.join(home, ".wacli");
 }
 
 // ─── ParsedMessage (webhook payload) ──────────────────────────────────────────
@@ -486,6 +516,7 @@ class WhatsAppAdapter implements SourceAdapter {
     const port = 3000;
     const args = [
       "sync", "--follow",
+      "--download-media",
       "--webhook", `http://127.0.0.1:${port}/webhooks/whatsapp`,
       "--webhook-secret", secret,
       "--webhook-allow-private",
@@ -495,7 +526,12 @@ class WhatsAppAdapter implements SourceAdapter {
     log.info("whatsapp.starting", { webhook_port: port });
     this.process = spawn(this.cfg.WHATSAPP_WACLI_BIN, args, {
       stdio: ["ignore", "inherit", "inherit"],
-      env: { ...process.env, PATH: process.env.PATH ?? "" },
+      env: {
+        ...process.env,
+        PATH: process.env.PATH ?? "",
+        WACLI_SYNC_MAX_MESSAGES: "128",
+        WACLI_SYNC_MAX_DB_SIZE: "128MB",
+      },
     });
     wacliStartedAt = Date.now();
 
@@ -612,12 +648,14 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", rootMessageId]
       : [];
 
-    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]*\n` : "";
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const prefix = `*[${botName}]*`;
+    const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 
     const args = [
       "send", "text",
       "--to", chatJid,
-      "--message", `${prefix}${input.text}`,
+      "--message", text,
       "--json",
       "--post-send-wait", "0",
       ...replyToArg,
@@ -652,12 +690,14 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const prefix = this.sameNumber ? `*[${this.cfg.WHATSAPP_BOT_NAME ?? "Felix"}]*\n` : "";
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const prefix = `*[${botName}]*`;
+    const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 
     const args = [
       "send", "text",
       "--to", input.userId,
-      "--message", `${prefix}${input.text}`,
+      "--message", text,
       "--json",
       "--post-send-wait", "0",
     ];

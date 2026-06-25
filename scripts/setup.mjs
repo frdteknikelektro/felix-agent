@@ -641,7 +641,8 @@ async function main() {
             stdio: "inherit",
             env: {
               ...process.env,
-              WACLI_SYNC_MAX_MESSAGES: "1",
+              WACLI_SYNC_MAX_MESSAGES: "128",
+              WACLI_SYNC_MAX_DB_SIZE: "128MB",
             },
           });
           const exitCode = await new Promise((resolve) => {
