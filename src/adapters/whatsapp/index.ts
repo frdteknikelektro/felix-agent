@@ -211,9 +211,7 @@ export async function handleWhatsAppWebhook(
             kind: "owner_message" as const,
             anchor: {
               source: "whatsapp",
-              conversation_id: chatJid,
               message_id: botMsg.msgId,
-              thread_id: botMsg.msgId,
             },
           };
           void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
@@ -221,6 +219,7 @@ export async function handleWhatsAppWebhook(
               log.warn("whatsapp.owner_decision_thread_not_found", {
                 reaction_target: reactionTarget.slice(0, 40),
                 message_id: botMsg.msgId,
+                target_anchor: { source: target.anchor.source, message_id: target.anchor.message_id },
               });
               return;
             }
@@ -261,9 +260,7 @@ export async function handleWhatsAppWebhook(
           kind: "owner_message" as const,
           anchor: {
             source: "whatsapp",
-            conversation_id: chatJid,
             message_id: botMsg.msgId,
-            thread_id: botMsg.msgId,
           },
         };
         void writeRawWhatsAppEvent(cfg, event).then(() => {
@@ -339,9 +336,7 @@ export async function handleWhatsAppWebhook(
       kind: "owner_message" as const,
       anchor: {
         source: "whatsapp",
-        conversation_id: chatJid,
         message_id: botMsg.msgId,
-        thread_id: botMsg.msgId,
       },
     };
     void writeRawWhatsAppEvent(cfg, event).then(() => {
@@ -380,9 +375,7 @@ export async function handleWhatsAppWebhook(
         kind: "owner_message" as const,
         anchor: {
           source: "whatsapp",
-          conversation_id: chatJid,
           message_id: botMsg.msgId,
-          thread_id: botMsg.msgId,
         },
       };
       void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
