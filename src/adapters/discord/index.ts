@@ -1,16 +1,12 @@
-import path from "node:path";
 import { Client, GatewayIntentBits, Partials, Events, type Message } from "discord.js";
 import type { AppConfig } from "../../config.js";
-import { writeTextAtomic, ensureDir } from "../../lib/fs.js";
-import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { routeOwnerDecisionFromEvent, routeOwnerDecisionFromReaction } from "../../slices/approvals/index.js";
+import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 export { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
-import { sourceRawDir } from "../../workspace.js";
 import {
   AttachmentRejectedError,
   downloadResponseToFile,
@@ -281,7 +277,7 @@ class DiscordAdapter implements SourceAdapter {
     if (!message?.author?.id || this.cfg.DISCORD_BOT_USER_ID && message.author.id !== this.cfg.DISCORD_BOT_USER_ID) {
       return;
     }
-    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+    await handleSourceReactionIntake(this.cfg, {
       source: "discord",
       token: reaction.emoji.name ?? reaction.emoji.identifier ?? "",
       decidedBy: user.id,
@@ -291,9 +287,8 @@ class DiscordAdapter implements SourceAdapter {
         message_id: message.id,
         thread_id: message.id,
       },
+      ports: engine,
     });
-    if (routed.kind !== "routed") return;
-    await engine.handleOwnerDecision(routed.decision);
   }
 
   async downloadAttachment(input: {
@@ -353,19 +348,13 @@ class DiscordAdapter implements SourceAdapter {
     const event = await this.normalizeDiscordMessage(message);
     if (!event) return;
 
-    await this.writeRawEvent(event);
-
-    if (this.ownerUserId && this.ownerUserId === event.sender.id) {
-      const routed = await routeOwnerDecisionFromEvent(this.cfg, {
-        event,
-        decidedBy: event.sender.id,
-      });
-      if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
-        return;
-      }
-    }
-
-    await engine.ingest(event);
+    await handleSourceEventIntake(this.cfg, {
+      event,
+      owner: this.ownerUserId && this.ownerUserId === event.sender.id
+        ? { decidedBy: event.sender.id }
+        : undefined,
+      ports: engine,
+    });
   }
 
   private async normalizeDiscordMessage(message: Message): Promise<UniversalEvent | null> {
@@ -446,18 +435,6 @@ class DiscordAdapter implements SourceAdapter {
       raw_path: "",
       source_thread_ref: sourceThreadRef,
     };
-  }
-
-  // ── Internal: raw event persistence ──────────────────────────────────────
-
-  private async writeRawEvent(event: UniversalEvent): Promise<void> {
-    await ensureDir(sourceRawDir(this.cfg.paths, "discord"));
-    const file = path.join(
-      sourceRawDir(this.cfg.paths, "discord"),
-      `${fsTimestamp(new Date(event.received_at))}_${safeFileName(event.event_id)}.json`,
-    );
-    event.raw_path = file;
-    await writeTextAtomic(file, JSON.stringify(event, null, 2));
   }
 
   // ── Internal: dedup ──────────────────────────────────────────────────────
@@ -561,8 +538,4 @@ function splitLongDiscordMessage(text: string, limit: number): string[] {
     chunks.push(remaining);
   }
   return chunks;
-}
-
-function safeFileName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

@@ -1,16 +1,12 @@
-import path from "node:path";
 import { App } from "@slack/bolt";
 import type { AppConfig } from "../../config.js";
-import { writeTextAtomic, ensureDir } from "../../lib/fs.js";
-import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { routeOwnerDecisionFromEvent, routeOwnerDecisionFromReaction } from "../../slices/approvals/index.js";
+import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 export { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
-import { sourceRawDir } from "../../workspace.js";
 import {
   AttachmentRejectedError,
   downloadResponseToFile,
@@ -292,7 +288,7 @@ class SlackAdapter implements SourceAdapter {
     if ((event.user as string | undefined) !== this.ownerUserId) return;
     const item = event.item as { type?: string; channel?: string; ts?: string } | undefined;
     if (!item || item.type !== "message" || !item.channel || !item.ts) return;
-    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+    await handleSourceReactionIntake(this.cfg, {
       source: "slack",
       token: (event.reaction as string | undefined) ?? "",
       decidedBy: this.ownerUserId,
@@ -302,9 +298,8 @@ class SlackAdapter implements SourceAdapter {
         message_id: item.ts,
         thread_id: item.ts,
       },
+      ports: engine,
     });
-    if (routed.kind !== "routed") return;
-    await engine.handleOwnerDecision(routed.decision);
   }
 
   async downloadAttachment(input: {
@@ -371,19 +366,15 @@ class SlackAdapter implements SourceAdapter {
       await this.enrichSenderDisplay(client, normalized);
     }
 
-    await this.writeRawEvent(normalized);
-
-    if (this.ownerUserId && this.ownerUserId === normalized.sender.id) {
-      const routed = await routeOwnerDecisionFromEvent(this.cfg, {
-        event: normalized,
-        decidedBy: normalized.sender.id,
-      });
-      if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
-        return;
-      }
-    }
-
-    await engine.ingest(normalized);
+    await handleSourceEventIntake(this.cfg, {
+      event: normalized,
+      owner: this.ownerUserId && this.ownerUserId === normalized.sender.id
+        ? {
+            decidedBy: normalized.sender.id,
+          }
+        : undefined,
+      ports: engine,
+    });
   }
 
   private async enrichSenderDisplay(client: unknown, normalized: UniversalEvent): Promise<void> {
@@ -459,18 +450,6 @@ class SlackAdapter implements SourceAdapter {
     };
   }
 
-  // ── Internal: raw event persistence ──────────────────────────────────────
-
-  private async writeRawEvent(event: UniversalEvent): Promise<void> {
-    await ensureDir(sourceRawDir(this.cfg.paths, "slack"));
-    const file = path.join(
-      sourceRawDir(this.cfg.paths, "slack"),
-      `${fsTimestamp(new Date(event.received_at))}_${safeFileName(event.event_id)}.json`,
-    );
-    event.raw_path = file;
-    await writeTextAtomic(file, JSON.stringify(event, null, 2));
-  }
-
   // ── Internal: dedup ──────────────────────────────────────────────────────
 
   private remember(messageId: string): void {
@@ -509,10 +488,4 @@ export function slackSourceThreadRef(opts: {
       user_id: opts.authorId,
     },
   };
-}
-
-// ─── Internal utilities ──────────────────────────────────────────────────────
-
-function safeFileName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

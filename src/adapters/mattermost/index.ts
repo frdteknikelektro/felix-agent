@@ -1,21 +1,15 @@
 import path from "node:path";
 import WebSocket from "ws";
 import type { AppConfig } from "../../config.js";
-import { readText, writeTextAtomic, ensureDir } from "../../lib/fs.js";
-import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import {
-  isOwnerDecisionReactionToken,
-  routeOwnerDecisionFromEvent,
-  routeOwnerDecisionFromReaction,
-} from "../../slices/approvals/index.js";
+import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
+import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
 export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
-import { sourceRawDir } from "../../workspace.js";
 import {
   AttachmentRejectedError,
   downloadResponseToFile,
@@ -333,7 +327,7 @@ class MattermostAdapter implements SourceAdapter {
     if (this.cfg.MATTERMOST_BOT_USER_ID && !isSelfMessage(post.user_id, this.cfg.MATTERMOST_BOT_USER_ID)) {
       return;
     }
-    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+    await handleSourceReactionIntake(this.cfg, {
       source: "mattermost",
       token: reaction.emoji_name,
       decidedBy: reaction.user_id,
@@ -343,9 +337,8 @@ class MattermostAdapter implements SourceAdapter {
         message_id: post.id,
         thread_id: normalizeThreadRootId(post.root_id, post.id),
       },
+      ports: engine,
     });
-    if (routed.kind !== "routed") return;
-    await engine.handleOwnerDecision(routed.decision);
   }
 
   private parseReaction(payload: WsPayload): MattermostReaction | null {
@@ -528,17 +521,13 @@ class MattermostAdapter implements SourceAdapter {
         const postId = post.event_id;
         if (this.isDuplicate(postId)) return;
         this.remember(postId);
-        await this.writeRawEvent(post);
-        if (this.ownerUserId && this.ownerUserId === post.sender.id) {
-          const routed = await routeOwnerDecisionFromEvent(this.cfg, {
-            event: post,
-            decidedBy: post.sender.id,
-          });
-          if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
-            return;
-          }
-        }
-        await engine.ingest(post);
+        await handleSourceEventIntake(this.cfg, {
+          event: post,
+          owner: this.ownerUserId && this.ownerUserId === post.sender.id
+            ? { decidedBy: post.sender.id }
+            : undefined,
+          ports: engine,
+        });
         return;
       }
       case "reaction_added":
@@ -547,16 +536,6 @@ class MattermostAdapter implements SourceAdapter {
       default:
         return;
     }
-  }
-
-  private async writeRawEvent(event: UniversalEvent): Promise<void> {
-    await ensureDir(sourceRawDir(this.cfg.paths, "mattermost"));
-    const file = path.join(
-      sourceRawDir(this.cfg.paths, "mattermost"),
-      `${fsTimestamp(new Date(event.received_at))}_${safeFileName(event.event_id)}.json`,
-    );
-    event.raw_path = file;
-    await writeTextAtomic(file, JSON.stringify(event, null, 2));
   }
 
   private remember(postId: string): void {
