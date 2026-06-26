@@ -5,3 +5,11 @@ export type { PendingPermissionThread } from "./resolve.js";
 export { listPendingPermissionThreads, resolvePendingPermissionThread, resolvePendingPermissionThreadExact } from "./resolve.js";
 export type { AppliedOwnerDecision } from "./apply.js";
 export { applyOwnerDecision } from "./apply.js";
+export type { OwnerDecisionCandidate, OwnerDecisionRoute } from "./routing.js";
+export {
+  isOwnerDecisionReactionToken,
+  ownerDecisionCandidateFromReaction,
+  routeOwnerDecisionCandidate,
+  routeOwnerDecisionFromEvent,
+  routeOwnerDecisionFromReaction,
+} from "./routing.js";

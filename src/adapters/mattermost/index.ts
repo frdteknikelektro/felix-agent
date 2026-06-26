@@ -6,10 +6,12 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import {
+  isOwnerDecisionReactionToken,
+  routeOwnerDecisionFromEvent,
+  routeOwnerDecisionFromReaction,
+} from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-import { parseDecisionToken } from "../../core/decision.js";
 import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
 export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
@@ -325,28 +327,25 @@ class MattermostAdapter implements SourceAdapter {
     const reaction = this.parseReaction(payload);
     if (!reaction || !reaction.user_id || !reaction.post_id || !reaction.emoji_name) return;
     if (this.ownerUserId && reaction.user_id !== this.ownerUserId) return;
-    const mode = parseDecisionToken(reaction.emoji_name);
-    if (!mode) return;
+    if (!isOwnerDecisionReactionToken(reaction.emoji_name)) return;
     const post = await this.fetchPost(reaction.post_id);
     if (!post?.id || !post.channel_id || !post.user_id) return;
     if (this.cfg.MATTERMOST_BOT_USER_ID && !isSelfMessage(post.user_id, this.cfg.MATTERMOST_BOT_USER_ID)) {
       return;
     }
-    const target = {
-      kind: "owner_message" as const,
+    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+      source: "mattermost",
+      token: reaction.emoji_name,
+      decidedBy: reaction.user_id,
       anchor: {
         source: "mattermost",
         conversation_id: post.channel_id,
         message_id: post.id,
         thread_id: normalizeThreadRootId(post.root_id, post.id),
       },
-    };
-    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
-    await engine.handleOwnerDecision({
-      mode,
-      decidedBy: reaction.user_id,
-      target,
     });
+    if (routed.kind !== "routed") return;
+    await engine.handleOwnerDecision(routed.decision);
   }
 
   private parseReaction(payload: WsPayload): MattermostReaction | null {
@@ -531,28 +530,12 @@ class MattermostAdapter implements SourceAdapter {
         this.remember(postId);
         await this.writeRawEvent(post);
         if (this.ownerUserId && this.ownerUserId === post.sender.id) {
-          const ownerDecision = await parseOwnerDecisionAsync(post.text, this.cfg);
-          if (ownerDecision) {
-            const target = {
-            kind: "owner_message" as const,
-            anchor: {
-              source: "mattermost",
-              conversation_id: post.source_thread_ref.conversation_id,
-              message_id: post.source_thread_ref.root_message_id ?? post.source_thread_ref.message_id,
-              thread_id: post.source_thread_ref.thread_id,
-            },
-          };
-          // Only route as an owner decision if the exact pending target resolves.
-          // Otherwise, treat as a normal chat message so it gets ⏳ and LLM processing.
-          if (
-            await engine.handleOwnerDecision({
-              mode: ownerDecision.mode,
-              decidedBy: post.sender.id,
-              target,
-            })
-          ) {
+          const routed = await routeOwnerDecisionFromEvent(this.cfg, {
+            event: post,
+            decidedBy: post.sender.id,
+          });
+          if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
             return;
-          }
           }
         }
         await engine.ingest(post);

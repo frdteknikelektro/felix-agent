@@ -6,10 +6,8 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import { routeOwnerDecisionFromEvent, routeOwnerDecisionFromReaction } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-import { parseDecisionToken } from "../../core/decision.js";
 export { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
@@ -292,25 +290,21 @@ class SlackAdapter implements SourceAdapter {
   private async handleReactionAdd(engine: FelixEngine, event: Record<string, unknown>): Promise<void> {
     if (!this.ownerUserId) return;
     if ((event.user as string | undefined) !== this.ownerUserId) return;
-    const reaction = parseDecisionToken((event.reaction as string | undefined) ?? "");
-    if (!reaction) return;
     const item = event.item as { type?: string; channel?: string; ts?: string } | undefined;
     if (!item || item.type !== "message" || !item.channel || !item.ts) return;
-    const target = {
-      kind: "owner_message" as const,
+    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+      source: "slack",
+      token: (event.reaction as string | undefined) ?? "",
+      decidedBy: this.ownerUserId,
       anchor: {
         source: "slack",
         conversation_id: item.channel,
         message_id: item.ts,
         thread_id: item.ts,
       },
-    };
-    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
-    await engine.handleOwnerDecision({
-      mode: reaction,
-      decidedBy: this.ownerUserId,
-      target,
     });
+    if (routed.kind !== "routed") return;
+    await engine.handleOwnerDecision(routed.decision);
   }
 
   async downloadAttachment(input: {
@@ -380,26 +374,12 @@ class SlackAdapter implements SourceAdapter {
     await this.writeRawEvent(normalized);
 
     if (this.ownerUserId && this.ownerUserId === normalized.sender.id) {
-      const ownerDecision = await parseOwnerDecisionAsync(normalized.text, this.cfg);
-      if (ownerDecision) {
-        const target = {
-          kind: "owner_message" as const,
-          anchor: {
-            source: "slack",
-            conversation_id: normalized.source_thread_ref.conversation_id,
-            message_id: normalized.source_thread_ref.root_message_id ?? normalized.source_thread_ref.message_id,
-            thread_id: normalized.source_thread_ref.thread_id,
-          },
-        };
-        if (
-          await engine.handleOwnerDecision({
-            mode: ownerDecision.mode,
-            decidedBy: normalized.sender.id,
-            target,
-          })
-        ) {
-          return;
-        }
+      const routed = await routeOwnerDecisionFromEvent(this.cfg, {
+        event: normalized,
+        decidedBy: normalized.sender.id,
+      });
+      if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
+        return;
       }
     }
 

@@ -6,10 +6,8 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
+import { routeOwnerDecisionFromEvent, routeOwnerDecisionFromReaction } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-import { parseDecisionToken } from "../../core/decision.js";
 export { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
@@ -283,23 +281,19 @@ class DiscordAdapter implements SourceAdapter {
     if (!message?.author?.id || this.cfg.DISCORD_BOT_USER_ID && message.author.id !== this.cfg.DISCORD_BOT_USER_ID) {
       return;
     }
-    const mode = parseDecisionToken(reaction.emoji.name ?? reaction.emoji.identifier ?? "");
-    if (!mode) return;
-    const target = {
-      kind: "owner_message" as const,
+    const routed = await routeOwnerDecisionFromReaction(this.cfg, {
+      source: "discord",
+      token: reaction.emoji.name ?? reaction.emoji.identifier ?? "",
+      decidedBy: user.id,
       anchor: {
         source: "discord",
         conversation_id: message.channel.id,
         message_id: message.id,
         thread_id: message.id,
       },
-    };
-    if (!(await resolvePendingPermissionThreadExact(this.cfg, target))) return;
-    await engine.handleOwnerDecision({
-      mode,
-      decidedBy: user.id,
-      target,
     });
+    if (routed.kind !== "routed") return;
+    await engine.handleOwnerDecision(routed.decision);
   }
 
   async downloadAttachment(input: {
@@ -362,26 +356,12 @@ class DiscordAdapter implements SourceAdapter {
     await this.writeRawEvent(event);
 
     if (this.ownerUserId && this.ownerUserId === event.sender.id) {
-      const ownerDecision = await parseOwnerDecisionAsync(event.text, this.cfg);
-      if (ownerDecision) {
-        const target = {
-          kind: "owner_message" as const,
-          anchor: {
-            source: "discord",
-            conversation_id: event.source_thread_ref.conversation_id,
-            message_id: event.source_thread_ref.root_message_id ?? event.source_thread_ref.message_id,
-            thread_id: event.source_thread_ref.thread_id,
-          },
-        };
-        if (
-          await engine.handleOwnerDecision({
-            mode: ownerDecision.mode,
-            decidedBy: event.sender.id,
-            target,
-          })
-        ) {
-          return;
-        }
+      const routed = await routeOwnerDecisionFromEvent(this.cfg, {
+        event,
+        decidedBy: event.sender.id,
+      });
+      if (routed.kind === "routed" && await engine.handleOwnerDecision(routed.decision)) {
+        return;
       }
     }
 

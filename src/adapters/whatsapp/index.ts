@@ -10,9 +10,12 @@ import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { parseOwnerDecisionAsync } from "../../slices/approvals/index.js";
-import { resolvePendingPermissionThreadExact } from "../../slices/approvals/resolve.js";
-import { decisionEmoji, decisionLabel, parseDecisionToken } from "../../core/decision.js";
+import {
+  ownerDecisionCandidateFromReaction,
+  routeOwnerDecisionCandidate,
+  routeOwnerDecisionFromEvent,
+} from "../../slices/approvals/index.js";
+import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { sourceRawDir } from "../../workspace.js";
 import {
@@ -205,32 +208,42 @@ export async function handleWhatsAppWebhook(
           return;
         }
         const emoji = payload.ReactionEmoji ?? "";
-        const decision = parseDecisionToken(emoji);
-        if (decision) {
-          sendJson(res, 200, { ok: true });
-          const target = {
-            kind: "owner_message" as const,
+        if (emoji) {
+          const candidate = ownerDecisionCandidateFromReaction({
+            source: "whatsapp",
+            token: emoji,
+            decidedBy: payload.SenderJID ?? "unknown",
             anchor: {
               source: "whatsapp",
               conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
               message_id: botMsg.msgId,
               thread_id: botMsg.msgId,
             },
+          });
+          if (candidate.kind === "not_decision") {
+            sendJson(res, 200, { ignored: "unrecognized_emoji" });
+            return;
+          }
+          sendJson(res, 200, { ok: true });
+          const anchor: SourceMessageAnchor = {
+            source: "whatsapp",
+            conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
+            message_id: botMsg.msgId,
+            thread_id: botMsg.msgId,
           };
-          void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-            if (!found) {
+          void routeOwnerDecisionCandidate(cfg, candidate.decision).then((routed) => {
+            if (routed.kind === "no_pending_approval") {
               log.warn("whatsapp.owner_decision_thread_not_found", {
                 reaction_target: reactionTarget.slice(0, 40),
                 message_id: botMsg.msgId,
-                target_anchor: { source: target.anchor.source, message_id: target.anchor.message_id },
+                target_anchor: { source: anchor.source, message_id: anchor.message_id },
               });
               return;
             }
-            return engine.handleOwnerDecision({
-              mode: decision,
-              decidedBy: payload.SenderJID ?? "unknown",
-              target,
-            });
+            if (routed.kind === "routed") {
+              return engine.handleOwnerDecision(routed.decision);
+            }
+            return undefined;
           }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
             log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
           });
@@ -259,34 +272,29 @@ export async function handleWhatsAppWebhook(
           return;
         }
         sendJson(res, 200, { ok: true });
-        const target = {
-          kind: "owner_message" as const,
-          anchor: {
-            source: "whatsapp",
-            conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-            message_id: botMsg.msgId,
-            thread_id: botMsg.msgId,
-          },
+        const anchor: SourceMessageAnchor = {
+          source: "whatsapp",
+          conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
+          message_id: botMsg.msgId,
+          thread_id: botMsg.msgId,
         };
         void writeRawWhatsAppEvent(cfg, event).then(() => {
-          return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-            if (!found) {
+          return routeOwnerDecisionFromEvent(cfg, {
+            event,
+            decidedBy: payload.SenderJID ?? "unknown",
+            anchor,
+          }).then((routed) => {
+            if (routed.kind === "no_pending_approval") {
               log.warn("whatsapp.owner_decision_thread_not_found", {
                 reply_target: replyTarget.slice(0, 40),
                 message_id: botMsg.msgId,
               });
-              return;
-            }
-            return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
-              if (ownerDecision) {
-                return engine.handleOwnerDecision({
-                  mode: ownerDecision.mode,
-                  decidedBy: payload.SenderJID ?? "unknown",
-                  target,
-                }).then(() => undefined);
-              }
               return engine.ingest(event);
-            });
+            }
+            if (routed.kind === "routed") {
+              return engine.handleOwnerDecision(routed.decision).then(() => undefined);
+            }
+            return engine.ingest(event);
           });
         }).then(() => {
           void removeTrackedBotMessage(cfg, replyTarget);
@@ -339,28 +347,22 @@ export async function handleWhatsAppWebhook(
     sendJson(res, 200, { ok: true });
     const botMsg = await getTrackedBotMessage(cfg, payload.ReplyToID!);
     if (!botMsg) return;
-    const target = {
-      kind: "owner_message" as const,
-      anchor: {
-        source: "whatsapp",
-        conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-        message_id: botMsg.msgId,
-        thread_id: botMsg.msgId,
-      },
+    const anchor: SourceMessageAnchor = {
+      source: "whatsapp",
+      conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
+      message_id: botMsg.msgId,
+      thread_id: botMsg.msgId,
     };
     void writeRawWhatsAppEvent(cfg, event).then(() => {
-      return resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-        if (!found) return;
-        return parseOwnerDecisionAsync(event.text, cfg).then((ownerDecision) => {
-          if (ownerDecision) {
-            return engine.handleOwnerDecision({
-              mode: ownerDecision.mode,
-              decidedBy: payload.SenderJID ?? "unknown",
-              target,
-            }).then(() => undefined);
-          }
-          return engine.ingest(event);
-        });
+      return routeOwnerDecisionFromEvent(cfg, {
+        event,
+        decidedBy: payload.SenderJID ?? "unknown",
+        anchor,
+      }).then((routed) => {
+        if (routed.kind === "routed") {
+          return engine.handleOwnerDecision(routed.decision).then(() => undefined);
+        }
+        return engine.ingest(event);
       });
     }).then(() => {
       void removeTrackedBotMessage(cfg, payload.ReplyToID!);
@@ -375,31 +377,38 @@ export async function handleWhatsAppWebhook(
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
     const reactionTarget = payload.ReactionToID;
     const emoji = payload.ReactionEmoji ?? "";
-    const decision = parseDecisionToken(emoji);
-    if (decision) {
-      const botMsg = await getTrackedBotMessage(cfg, reactionTarget);
-      if (!botMsg) return;
-      sendJson(res, 200, { ok: true });
-      const target = {
-        kind: "owner_message" as const,
-        anchor: {
-          source: "whatsapp",
-          conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-          message_id: botMsg.msgId,
-          thread_id: botMsg.msgId,
-        },
-      };
-      void resolvePendingPermissionThreadExact(cfg, target).then((found) => {
-        if (!found) return;
-        return engine.handleOwnerDecision({
-          mode: decision,
-          decidedBy: payload.SenderJID ?? "unknown",
-          target,
-        });
-      }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
-      });
+    if (!emoji) {
+      sendJson(res, 200, { ignored: "unrecognized_emoji" });
+      return;
     }
+    const botMsg = await getTrackedBotMessage(cfg, reactionTarget);
+    if (!botMsg) {
+      sendJson(res, 200, { ignored: "tracked_message_missing" });
+      return;
+    }
+    const anchor: SourceMessageAnchor = {
+      source: "whatsapp",
+      conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
+      message_id: botMsg.msgId,
+      thread_id: botMsg.msgId,
+    };
+    const candidate = ownerDecisionCandidateFromReaction({
+      source: "whatsapp",
+      token: emoji,
+      decidedBy: payload.SenderJID ?? "unknown",
+      anchor,
+    });
+    if (candidate.kind === "not_decision") {
+      sendJson(res, 200, { ignored: "unrecognized_emoji" });
+      return;
+    }
+    sendJson(res, 200, { ok: true });
+    void routeOwnerDecisionCandidate(cfg, candidate.decision).then((routed) => {
+      if (routed.kind !== "routed") return undefined;
+      return engine.handleOwnerDecision(routed.decision);
+    }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
+      log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+    });
     return;
   }
 
@@ -641,9 +650,9 @@ class WhatsAppAdapter implements SourceAdapter {
     if (!chatJid) {
       throw new Error("WhatsApp sendThreadReply: missing conversation_id in source_thread_ref");
     }
-    const isSystem = input.event.sender.id === "system";
+    const isSystem = input.event.sender.id === "system" || input.event.sender.id.startsWith("owner:");
     const replyToMsgId = !isSystem ? input.event.event_id : undefined;
-    const replyToSender = !isSystem ? input.event.sender.id : undefined;
+    const replyToSender = !isSystem ? input.event.sender.id.replace(/^owner:/, "") : undefined;
     const replyToArg = replyToMsgId && replyToSender
       ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];

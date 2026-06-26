@@ -125,7 +125,7 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("shares a WhatsApp number");
-    expect(joined).toContain('--message "*[Felix]* <your message>"');
+    expect(joined).toContain('--message "*[Felix]*\n<your message>"');
     expect(joined).toContain("prefix in file captions");
   });
 });
@@ -235,7 +235,7 @@ describe("WhatsAppAdapter formatOwnerNotification", () => {
       status: "pending",
     });
 
-    expect(msg).toContain("*Requester*: Alice");
+    expect(msg).toContain("*Requester*\nAlice");
     expect(msg).toContain("`test-skill`");
     expect(msg).toContain("`yes`");
     expect(msg).toContain("`always`");
@@ -256,8 +256,8 @@ describe("WhatsAppAdapter formatOwnerNotification", () => {
       decidedAt: "2026-06-01T00:00:00Z",
     });
 
-    expect(msg).toContain("*Status*: `approved`");
-    expect(msg).toContain("*Decision*:");
+    expect(msg).toContain("*Status*\n`approved`");
+    expect(msg).toContain("*Decision*\n");
   });
 });
 

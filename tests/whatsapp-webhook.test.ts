@@ -307,6 +307,36 @@ describe("handleWhatsAppWebhook", () => {
       expect(result.body).toHaveProperty("ok", true);
     });
 
+    it("incoming owner reaction to tracked bot message responds when emoji is not a decision", async () => {
+      cfg = await makeTestConfig("wa-wh-owner-react-unknown-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      const reactionTarget = "tracked-owner-react-unknown";
+      const botMsgPath = path.join(cfg.paths.botMessageIndex, "whatsapp", `${reactionTarget}.json`);
+      await fs.mkdir(path.dirname(botMsgPath), { recursive: true });
+      await fs.writeFile(botMsgPath, JSON.stringify({
+        msgId: reactionTarget,
+        threadKey: "whatsapp:chat@s.whatsapp.net:chat@s.whatsapp.net",
+        trackedAt: new Date().toISOString(),
+      }));
+
+      const result = await sendWebhook(
+        cfg,
+        engine,
+        JSON.stringify({
+          Chat: "chat@s.whatsapp.net",
+          ID: "react-msg-unknown",
+          ReactionToID: reactionTarget,
+          ReactionEmoji: "❤️",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ignored", "unrecognized_emoji");
+    });
+
     it("untracked reaction is ignored as self_reaction", async () => {
       cfg = await makeTestConfig("wa-wh-untracked-react-", {
         WHATSAPP_BOT_NAME: "Felix",
