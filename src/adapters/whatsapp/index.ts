@@ -641,9 +641,11 @@ class WhatsAppAdapter implements SourceAdapter {
     if (!chatJid) {
       throw new Error("WhatsApp sendThreadReply: missing conversation_id in source_thread_ref");
     }
-    const rootMessageId = input.event.source_thread_ref.root_message_id;
-    const replyToArg = rootMessageId && rootMessageId !== input.event.event_id
-      ? ["--reply-to", rootMessageId]
+    const isSystem = input.event.sender.id === "system";
+    const replyToMsgId = !isSystem ? input.event.event_id : undefined;
+    const replyToSender = !isSystem ? input.event.sender.id : undefined;
+    const replyToArg = replyToMsgId && replyToSender
+      ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];
 
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
