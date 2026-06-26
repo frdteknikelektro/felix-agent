@@ -3,6 +3,7 @@ import {
   Activity,
   CircleDot,
   Clock,
+  Coins,
   ListChecks,
   MessageSquare,
   Radio,
@@ -17,7 +18,7 @@ import { SourceBadge } from "@/components/source-badge";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { useDashboardStream, type StreamStatus } from "@/lib/sse";
-import { threadLabel, timeAgo } from "@/lib/format";
+import { compactNumber, threadLabel, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { DashboardActiveSession, DashboardActivityItem } from "@/lib/types";
 
@@ -38,7 +39,7 @@ export function Dashboard() {
     <div className="space-y-6">
       <ConnectionPill status={status} />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatTile label="Active sessions" value={snapshot.activeSessions} icon={Radio} accent="primary" />
         <StatTile label="Queued events" value={snapshot.totalQueueDepth} icon={Clock} accent="primary" />
         <StatTile
@@ -48,6 +49,7 @@ export function Dashboard() {
           accent={snapshot.pendingApprovals > 0 ? "warning" : "primary"}
         />
         <StatTile label="Sessions today" value={snapshot.sessionsToday} icon={MessageSquare} accent="success" />
+        <StatTile label="Tokens today" value={compactNumber(snapshot.tokensToday)} icon={Coins} accent="success" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

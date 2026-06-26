@@ -10,6 +10,7 @@ import { SkillEditor } from "@/pages/skill-editor";
 import { Contacts } from "@/pages/contacts";
 import { ContactEditor } from "@/pages/contact-editor";
 import { Audit } from "@/pages/audit";
+import { Usage } from "@/pages/usage";
 import { NotFound } from "@/pages/not-found";
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="contacts/new" element={<ContactEditor mode="create" />} />
         <Route path="contacts/:source/*" element={<ContactEditor mode="edit" />} />
         <Route path="audit" element={<Audit />} />
+        <Route path="usage" element={<Usage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

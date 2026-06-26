@@ -268,6 +268,9 @@ export async function recordTurn(handle: ThreadHandle, harnessSessionId: string)
 export async function clearHarnessSession(handle: ThreadHandle): Promise<SessionState> {
   const session = await loadSessionState(handle);
   delete session.harness_session_id;
+  // Cumulative usage is keyed to the harness session; reset it so the next turn's
+  // (fresh-session) cumulative isn't deltaed against a stale, larger total.
+  delete session.usage_cumulative;
   await saveSessionState(handle, session);
   return session;
 }

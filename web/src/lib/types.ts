@@ -165,4 +165,31 @@ export interface DashboardSnapshot {
   activeSessionList: DashboardActiveSession[];
   pendingApprovalList: ApprovalRecord[];
   recentActivity: DashboardActivityItem[];
+  tokensToday: number;
+}
+
+export type UsageWindow = "today" | "week" | "month" | "all";
+
+export interface UsageTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+  turns: number;
+}
+
+export interface UsageBreakdownRow extends UsageTotals {
+  key: string;
+}
+
+export interface UsageView {
+  window: UsageWindow;
+  tz: string;
+  generatedAt: string;
+  totals: UsageTotals;
+  byContact: UsageBreakdownRow[];
+  bySource: UsageBreakdownRow[];
+  byModel: UsageBreakdownRow[];
+  byThread: UsageBreakdownRow[];
 }

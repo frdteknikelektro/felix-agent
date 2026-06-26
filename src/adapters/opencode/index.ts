@@ -6,7 +6,7 @@ import type { AppConfig } from "../../config.js";
 import { appendText, ensureDir, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput, TurnResult, DecisionNotificationInput } from "../../core/ports.js";
+import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput } from "../../core/ports.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -15,6 +15,7 @@ import {
   between,
   fallbackNotification,
   buildSpawnPath,
+  normalizeUsage,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
@@ -35,6 +36,7 @@ export interface RunResult {
   exitCode: number;
   sessionId: string;
   assistantText: string;
+  usage: TurnUsage | null;
 }
 
 export async function opencodeRun(
@@ -48,7 +50,7 @@ export async function opencodeRun(
   await ensureDir(path.dirname(logPath));
 
   if (signal?.aborted) {
-    return { exitCode: 143, sessionId: "", assistantText: "" };
+    return { exitCode: 143, sessionId: "", assistantText: "", usage: null };
   }
 
   const child = spawn(bin, args, {
@@ -99,6 +101,11 @@ export async function opencodeRun(
   const textParts: string[] = [];
   let lastEventType: string | null = null;
   const errors: string[] = [];
+  let usage: TurnUsage | null = null;
+
+  // opencode v1.17.x `--format json` emits token usage on step_finish events
+  // under part.tokens (input, output, cache.read, cache.write).  modelID is not
+  // in the stream — the harness falls back to cfg.OPENCODE_MODEL.
 
   for (const line of stdoutLines) {
     try {
@@ -106,6 +113,20 @@ export async function opencodeRun(
       const eventType = typeof event.type === "string" ? event.type : null;
       if (eventType === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
         capturedSessionId = event.sessionID;
+      }
+      if (eventType === "step_finish") {
+        const part = event.part as Record<string, unknown> | undefined;
+        const tokens = part?.tokens as Record<string, unknown> | undefined;
+        if (tokens && typeof tokens === "object") {
+          const cache = tokens.cache as Record<string, unknown> | undefined;
+          const normalized = normalizeUsage({
+            input: tokens.input,
+            output: tokens.output,
+            cache_read: cache?.read,
+            cache_write: cache?.write,
+          });
+          if (normalized) usage = normalized;
+        }
       }
       if (eventType === "error") {
         const msg = extractError(event);
@@ -143,7 +164,7 @@ export async function opencodeRun(
     throw new Error(errors.join("; "));
   }
 
-  return { exitCode, sessionId: capturedSessionId, assistantText };
+  return { exitCode, sessionId: capturedSessionId, assistantText, usage };
 }
 
 // ─── Harness ──────────────────────────────────────────────────────────────
@@ -192,7 +213,7 @@ export class OpencodeHarness implements Harness {
       ? [...baseArgs, "--session", sessionId, prompt]
       : [...baseArgs, prompt];
 
-    const { exitCode, sessionId: capturedSessionId, assistantText } =
+    const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
       await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal);
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
@@ -201,8 +222,9 @@ export class OpencodeHarness implements Harness {
 
     const parsed = parseAgentOutput(assistantText);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
+    const usageWithModel = usage ? { ...usage, model: usage.model ?? this.cfg.OPENCODE_MODEL } : null;
 
-    return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath };
+    return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath, usage: usageWithModel };
   }
 
   async generateDecisionNotification(input: DecisionNotificationInput): Promise<string> {

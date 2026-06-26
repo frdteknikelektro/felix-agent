@@ -12,6 +12,8 @@ import { findThreadHandle, listThreadHandles, loadSessionState, loadThreadState,
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
+import { aggregateUsage, type UsageView, type UsageWindow } from "./slices/usage/index.js";
+import { tzDateKey } from "./lib/time.js";
 
 export interface SessionSummary {
   threadKey: string;
@@ -95,6 +97,7 @@ export interface DashboardSnapshot {
   activeSessionList: DashboardActiveSession[];
   pendingApprovalList: ApprovalRecord[];
   recentActivity: DashboardActivityItem[];
+  tokensToday: number;
 }
 
 const ACTIVE_SESSION_LIMIT = 15;
@@ -205,13 +208,35 @@ export function chatMessageFromEvent(
  * Build the live dashboard snapshot. Reads session summaries, approvals and the
  * audit log, then delegates to the pure {@link buildDashboardSnapshot}.
  */
+// The dashboard SSE stream polls once per second; re-reading + Zod-parsing today's
+// usage file every tick is wasteful. Cache the "tokens today" total briefly.
+const TOKENS_TODAY_TTL_MS = 5000;
+let tokensTodayCache: { dayKey: string; value: number; expiresAt: number } | null = null;
+
+async function cachedTokensToday(cfg: AppConfig, now: Date): Promise<number> {
+  const dayKey = tzDateKey(now, cfg.USAGE_TZ);
+  if (tokensTodayCache && tokensTodayCache.dayKey === dayKey && now.getTime() < tokensTodayCache.expiresAt) {
+    return tokensTodayCache.value;
+  }
+  const view = await aggregateUsage(cfg, "today", now);
+  tokensTodayCache = { dayKey, value: view.totals.total, expiresAt: now.getTime() + TOKENS_TODAY_TTL_MS };
+  return view.totals.total;
+}
+
 export async function dashboardSnapshot(cfg: AppConfig): Promise<DashboardSnapshot> {
-  const [summaries, approvals, audit] = await Promise.all([
+  const now = new Date();
+  const [summaries, approvals, audit, tokensToday] = await Promise.all([
     listSessionSummaries(cfg),
     listApprovalRecords(cfg),
     listAuditForUi(cfg),
+    cachedTokensToday(cfg, now),
   ]);
-  return buildDashboardSnapshot(summaries, approvals, audit, new Date());
+  return buildDashboardSnapshot(summaries, approvals, audit, now, tokensToday, cfg.USAGE_TZ);
+}
+
+/** Windowed token-usage view for the owner console Usage page. */
+export async function usageView(cfg: AppConfig, window: UsageWindow): Promise<UsageView> {
+  return aggregateUsage(cfg, window);
 }
 
 /**
@@ -224,9 +249,11 @@ export function buildDashboardSnapshot(
   approvals: ApprovalRecord[],
   audit: AuditEntry[],
   now: Date,
+  tokensToday = 0,
+  tz = "UTC",
 ): DashboardSnapshot {
   const pending = approvals.filter((a) => a.status === "pending");
-  const today = now.toISOString().slice(0, 10);
+  const today = tzDateKey(now, tz);
 
   const activeSessionList = [...summaries]
     .sort((a, b) => Number(b.busy) - Number(a.busy) || b.updatedAt.localeCompare(a.updatedAt))
@@ -263,10 +290,11 @@ export function buildDashboardSnapshot(
     activeSessions: summaries.filter((s) => s.busy).length,
     totalQueueDepth: summaries.reduce((sum, s) => sum + s.queueLength, 0),
     pendingApprovals: pending.length,
-    sessionsToday: summaries.filter((s) => s.createdAt.slice(0, 10) === today).length,
+    sessionsToday: summaries.filter((s) => tzDateKey(s.createdAt, tz) === today).length,
     activeSessionList,
     pendingApprovalList: pending,
     recentActivity,
+    tokensToday,
   };
 }
 

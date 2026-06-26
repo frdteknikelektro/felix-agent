@@ -77,6 +77,17 @@ export interface TurnInput {
   signal?: AbortSignal;
 }
 
+/** Normalized per-turn token usage, extracted from the harness CLI's JSON stream. */
+export interface TurnUsage {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  /** input + output + cache_write (cache_read excluded — it is discounted reuse). */
+  total: number;
+  model: string | null;
+}
+
 export interface TurnResult {
   sessionId: string;
   exitCode: number;
@@ -84,6 +95,14 @@ export interface TurnResult {
   success: boolean;
   parsed: ParsedAgentOutput;
   logPath: string;
+  /** Token usage for this turn, when the harness emitted parseable usage data. */
+  usage?: TurnUsage | null;
+  /**
+   * True when `usage` is session-cumulative rather than per-turn (codex reports a
+   * running total across resumed turns). The engine deltas cumulative usage against
+   * the thread's last-seen total before recording. Unset/false ⇒ already per-turn.
+   */
+  usageCumulative?: boolean;
 }
 
 export interface DecisionNotificationInput {

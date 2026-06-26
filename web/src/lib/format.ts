@@ -42,6 +42,18 @@ export function sourceLabel(source: string): string {
   return SOURCE_LABELS[source] ?? source.charAt(0).toUpperCase() + source.slice(1);
 }
 
+/** Thousands-separated integer, e.g. 1234567 → "1,234,567". */
+export function formatNumber(n: number): string {
+  return Math.round(n).toLocaleString();
+}
+
+const COMPACT_FORMAT = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Compact token count for tight spaces, e.g. 1234567 → "1.2M", 999999 → "1M". */
+export function compactNumber(n: number): string {
+  return COMPACT_FORMAT.format(Math.round(n));
+}
+
 /** A readable name for a thread: the channel/conversation part of the key. */
 export function threadLabel(threadKey: string): string {
   const parts = threadKey.split(":");

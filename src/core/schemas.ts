@@ -62,6 +62,14 @@ export const SessionPermissionRequestSchema = z.object({
   requester_event_file: z.string(),
 });
 
+const SessionUsageCumulativeSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cache_read: z.number(),
+  cache_write: z.number(),
+  total: z.number(),
+});
+
 export const SessionStateSchema = z.object({
   schema_version: z.number().optional(),
   harness_session_id: z.string().optional(),
@@ -70,6 +78,12 @@ export const SessionStateSchema = z.object({
   pending_permission: SessionPermissionRequestSchema.nullable().optional(),
   last_event_at: z.string().optional(),
   last_turn_at: z.string().optional(),
+  // Last-seen cumulative token usage for this thread (codex reports session-
+  // cumulative usage; we delta against this to record per-turn counts).
+  usage_cumulative: SessionUsageCumulativeSchema.nullable().optional(),
+  // contact_id of the last human (non-system) event, for attributing usage from
+  // synthetic system/proceed turns back to the requester.
+  last_event_sender: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -127,6 +141,25 @@ export const TaskRecordSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Usage domain — usage/<YYYY-MM-DD>.jsonl (one record per LLM turn)
+// ---------------------------------------------------------------------------
+
+export const UsageRecordSchema = z.object({
+  schema_version: z.number().optional(),
+  at: z.string(),
+  source: z.string(),
+  contact_id: z.string(),
+  thread_key: z.string(),
+  harness: z.string(),
+  model: z.string().nullable(),
+  input: z.number(),
+  output: z.number(),
+  cache_read: z.number(),
+  cache_write: z.number(),
+  total: z.number(),
+});
+
+// ---------------------------------------------------------------------------
 // Inferred types — single source of truth for persisted shapes
 // ---------------------------------------------------------------------------
 
@@ -140,3 +173,4 @@ export type SessionState = z.infer<typeof SessionStateSchema>;
 export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type TaskRecord = z.infer<typeof TaskRecordSchema>;
+export type UsageRecord = z.infer<typeof UsageRecordSchema>;

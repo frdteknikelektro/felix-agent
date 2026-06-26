@@ -11,6 +11,7 @@ export type {
   ApprovalRecord,
   TaskRecord,
   TaskStatus,
+  UsageRecord,
 } from "./core/schemas.js";
 
 // ---------------------------------------------------------------------------

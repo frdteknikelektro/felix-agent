@@ -6,7 +6,7 @@ import type { AppConfig } from "../../config.js";
 import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput, TurnResult, DecisionNotificationInput } from "../../core/ports.js";
+import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput } from "../../core/ports.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -15,6 +15,7 @@ import {
   between,
   fallbackNotification,
   buildSpawnPath,
+  normalizeUsage,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
@@ -24,6 +25,7 @@ export interface RunResult {
   exitCode: number;
   sessionId: string;
   assistantText: string;
+  usage: TurnUsage | null;
 }
 
 export async function claudeCodeRun(
@@ -37,7 +39,7 @@ export async function claudeCodeRun(
   await ensureDir(path.dirname(logPath));
 
   if (signal?.aborted) {
-    return { exitCode: 143, sessionId: "", assistantText: "" };
+    return { exitCode: 143, sessionId: "", assistantText: "", usage: null };
   }
 
   const child = spawn(bin, args, {
@@ -86,6 +88,8 @@ export async function claudeCodeRun(
 
   let capturedSessionId = "";
   const textParts: string[] = [];
+  let usageRaw: Record<string, unknown> | null = null;
+  let model: string | null = null;
 
   for (const line of stdoutLines) {
     try {
@@ -104,6 +108,9 @@ export async function claudeCodeRun(
       // Capture assistant text from assistant messages
       if (eventType === "assistant") {
         const message = event.message as Record<string, unknown> | undefined;
+        if (message && typeof message.model === "string") {
+          model = message.model;
+        }
         if (message && Array.isArray(message.content)) {
           for (const block of message.content) {
             if (typeof block === "object" && block !== null) {
@@ -116,11 +123,14 @@ export async function claudeCodeRun(
         }
       }
 
-      // Capture final result
+      // Capture final result + its cumulative usage
       if (eventType === "result") {
         const result = event.result as Record<string, unknown> | undefined;
         if (result && typeof result.result === "string") {
           textParts.push(result.result);
+        }
+        if (event.usage && typeof event.usage === "object") {
+          usageRaw = event.usage as Record<string, unknown>;
         }
       }
     } catch {
@@ -129,8 +139,17 @@ export async function claudeCodeRun(
   }
 
   const assistantText = textParts.join("");
+  const usage = usageRaw
+    ? normalizeUsage({
+        input: usageRaw.input_tokens,
+        output: usageRaw.output_tokens,
+        cache_read: usageRaw.cache_read_input_tokens,
+        cache_write: usageRaw.cache_creation_input_tokens,
+        model,
+      })
+    : null;
 
-  return { exitCode, sessionId: capturedSessionId, assistantText };
+  return { exitCode, sessionId: capturedSessionId, assistantText, usage };
 }
 
 // ─── Harness ──────────────────────────────────────────────────────────────
@@ -172,7 +191,7 @@ export class ClaudeCodeHarness implements Harness {
       ? [...baseArgs, "--resume", sessionId, prompt]
       : [...baseArgs, "--session-id", sessionId, prompt];
 
-    const { exitCode, sessionId: capturedSessionId, assistantText } =
+    const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
       await claudeCodeRun(this.cfg.CLAUDE_CODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath, input.signal);
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
@@ -182,7 +201,7 @@ export class ClaudeCodeHarness implements Harness {
     const parsed = parseAgentOutput(assistantText);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
 
-    return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath };
+    return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath, usage };
   }
 
   async generateDecisionNotification(input: DecisionNotificationInput): Promise<string> {

@@ -1,13 +1,42 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "../config.js";
-import type { TurnInput, ParsedAgentOutput, DecisionNotificationInput } from "./ports.js";
+import type { TurnInput, ParsedAgentOutput, DecisionNotificationInput, TurnUsage } from "./ports.js";
 import { skillMatchesPermission } from "../slices/skills/index.js";
 import { decisionEmoji, decisionLabel } from "./decision.js";
 import { contactPath } from "../slices/contacts/index.js";
 import { buildInitialMd } from "./initial-md.js";
 
 
+
+/**
+ * Build a normalized {@link TurnUsage} from loosely-typed token counts parsed
+ * out of a harness CLI stream. Coerces missing/invalid numbers to 0 and returns
+ * null when no token data was present, so callers never have to special-case the
+ * "harness emitted no usage" path. `total` excludes cache_read (discounted reuse).
+ */
+export function normalizeUsage(parts: {
+  input?: unknown;
+  output?: unknown;
+  cache_read?: unknown;
+  cache_write?: unknown;
+  model?: unknown;
+}): TurnUsage | null {
+  const input = toCount(parts.input);
+  const output = toCount(parts.output);
+  const cache_read = toCount(parts.cache_read);
+  const cache_write = toCount(parts.cache_write);
+  const model = typeof parts.model === "string" && parts.model ? parts.model : null;
+  if (input === 0 && output === 0 && cache_read === 0 && cache_write === 0) {
+    return null;
+  }
+  return { input, output, cache_read, cache_write, total: input + output + cache_write, model };
+}
+
+function toCount(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
 
 export function parseAgentOutput(raw: string): ParsedAgentOutput {
   const text = raw.trim();

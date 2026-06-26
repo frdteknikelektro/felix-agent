@@ -118,6 +118,7 @@ Key variables:
 | `WORKSPACE_DIR` | — | default `/home/node/workspace` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
 | `CLAUDE_CODE_MODEL` | — | default `sonnet` |
+| `USAGE_TZ` | — | IANA timezone for usage day/week/month boundaries (default `UTC`) |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
 | `SLACK_TOKEN` | Slack | enables the adapter when set |

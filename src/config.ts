@@ -62,6 +62,8 @@ const Env = z.object({
     .optional()
     .transform((v) => v || undefined),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
+  // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
+  USAGE_TZ: z.string().default("UTC"),
 });
 
 export type AppConfig = z.infer<typeof Env> & {

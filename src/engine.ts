@@ -9,6 +9,7 @@ import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHa
 import { applyOwnerDecision, resolvePendingPermissionThreadExact, type ApprovalRecord } from "./slices/approvals/index.js";
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
+import { appendUsageRecord, deltaCumulative, resolveContactId } from "./slices/usage/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
 import { fallbackNotification } from "./core/harness-common.js";
@@ -250,6 +251,9 @@ export class FelixEngine {
               session_id: result.sessionId,
               error: result.parsed.text,
             });
+            // The malformed first attempt already burned tokens — record them
+            // before the correction re-run so the ledger isn't undercounted.
+            await this.logUsage(thread, event, result);
             const correctionPrompt = [
               "Your last output had a format error:",
               "",
@@ -304,7 +308,7 @@ export class FelixEngine {
               await this.postThreadError(thread, event, "The agent produced no usable output. ");
               break;
             }
-            await recordTurn(thread, result.sessionId);
+            await this.recordTurnWithUsage(thread, event, result);
             if (retriedDecision.kind === "permission_required") {
               const permOutput = result.parsed as PermissionRequiredOutput;
               const skillId = permOutput.skillId ?? "(unknown)";
@@ -325,7 +329,7 @@ export class FelixEngine {
             }
             break;
           }
-          await recordTurn(thread, result.sessionId);
+          await this.recordTurnWithUsage(thread, event, result);
           if (decision.kind === "permission_required") {
             const permOutput = result.parsed as PermissionRequiredOutput;
             const skillId = permOutput.skillId ?? "(unknown)";
@@ -364,6 +368,82 @@ export class FelixEngine {
     await adapter.sendThreadReply({ event, text });
     await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
     await adapter.updateEventStatus({ event, status: "replied" });
+  }
+
+  /**
+   * Persist the turn (harness session + timestamp) and log its token usage.
+   */
+  private async recordTurnWithUsage(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    result: import("./core/ports.js").TurnResult,
+  ): Promise<void> {
+    await recordTurn(thread, result.sessionId);
+    await this.logUsage(thread, event, result);
+  }
+
+  /**
+   * Append a per-turn usage record for monitoring. Best-effort — a failure must
+   * never break the turn. Handles two correctness concerns:
+   *  - codex reports session-cumulative usage, so we delta against the thread's
+   *    last-seen total (the `>= stored` guard self-corrects on session resets);
+   *  - synthetic "system" turns (post-approval proceed) are attributed back to the
+   *    last human sender so the work lands under the requester, not "system".
+   */
+  private async logUsage(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    result: import("./core/ports.js").TurnResult,
+  ): Promise<void> {
+    if (!result.usage) return;
+    try {
+      const session = await loadSessionState(thread);
+      const usage = result.usage;
+
+      const contactId = resolveContactId(event.sender, session.last_event_sender);
+      if (event.sender.id !== "system") {
+        session.last_event_sender = contactId;
+      }
+
+      let perTurn = usage;
+      if (result.usageCumulative) {
+        perTurn = deltaCumulative(usage, session.usage_cumulative);
+        session.usage_cumulative = {
+          input: usage.input,
+          output: usage.output,
+          cache_read: usage.cache_read,
+          cache_write: usage.cache_write,
+          total: usage.total,
+        };
+      }
+
+      await saveSessionState(thread, session);
+
+      // After deltaing, a duplicate cumulative snapshot yields nothing to record.
+      if (perTurn.input === 0 && perTurn.output === 0 && perTurn.cache_write === 0 && perTurn.total === 0) {
+        return;
+      }
+
+      await appendUsageRecord(this.cfg, {
+        schema_version: 1,
+        at: new Date().toISOString(),
+        source: event.source,
+        contact_id: contactId,
+        thread_key: thread.state.thread_key,
+        harness: this.cfg.HARNESS,
+        model: perTurn.model,
+        input: perTurn.input,
+        output: perTurn.output,
+        cache_read: perTurn.cache_read,
+        cache_write: perTurn.cache_write,
+        total: perTurn.total,
+      });
+    } catch (error) {
+      log.warn("usage.record_failed", {
+        thread_key: thread.state.thread_key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async postThreadError(

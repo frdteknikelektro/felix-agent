@@ -20,6 +20,7 @@ export interface WorkspacePaths {
   botMessageIndex: string;
   projects: string;
   tasks: string;
+  usage: string;
   memoryDir: string;
   wikiDir: string;
 }
@@ -49,6 +50,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     botMessageIndex: path.join(index, "bot-messages"),
     projects,
     tasks: path.join(root, "tasks"),
+    usage: path.join(root, "usage"),
     memoryDir,
     wikiDir: path.join(memoryDir, "wiki"),
   };
@@ -78,6 +80,7 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.tasks, "cancelled")),
     ensureDir(path.join(paths.tasks, "blocked")),
     ensureDir(path.join(paths.tasks, "paused")),
+    ensureDir(paths.usage),
     ensureDir(paths.memoryDir),
     ensureDir(paths.wikiDir),
     ensureDir(path.join(paths.wikiDir, "entities")),

@@ -7,7 +7,7 @@ import type { AppConfig } from "../../config.js";
 import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput, TurnResult, DecisionNotificationInput } from "../../core/ports.js";
+import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput } from "../../core/ports.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -16,6 +16,7 @@ import {
   between,
   fallbackNotification,
   buildSpawnPath,
+  normalizeUsage,
 } from "../../core/harness-common.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
@@ -56,6 +57,8 @@ export class CodexHarness implements Harness {
     }
 
     let capturedSessionId = sessionId;
+    let capturedUsage: TurnUsage | null = null;
+    let capturedCumulative = false;
     const child = spawn(this.cfg.CODEX_BIN, args, {
       cwd: this.cfg.paths.root,
       env: {
@@ -90,6 +93,22 @@ export class CodexHarness implements Harness {
             if (event.type === "thread.started" && typeof event.thread_id === "string") {
               capturedSessionId = event.thread_id;
             }
+            // Codex emits a usage object on turn-completion events. Field names
+            // and per-turn-vs-cumulative semantics drift across versions, so take
+            // the last one we see and track whether it was session-cumulative.
+            const found = extractCodexUsage(event);
+            if (found) {
+              const normalized = normalizeUsage({
+                input: found.raw.input_tokens,
+                output: found.raw.output_tokens,
+                cache_read: found.raw.cached_input_tokens,
+                model: this.cfg.CODEX_MODEL,
+              });
+              if (normalized) {
+                capturedUsage = normalized;
+                capturedCumulative = found.cumulative;
+              }
+            }
           } catch {
             // keep going
           }
@@ -120,7 +139,7 @@ export class CodexHarness implements Harness {
     const parsed = parseAgentOutput(lastMessage);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
 
-    return { sessionId: capturedSessionId, exitCode, success, parsed, logPath };
+    return { sessionId: capturedSessionId, exitCode, success, parsed, logPath, usage: capturedUsage, usageCumulative: capturedCumulative };
   }
 
   async generateDecisionNotification(input: DecisionNotificationInput): Promise<string> {
@@ -173,6 +192,40 @@ export class CodexHarness implements Harness {
       return fallbackNotification(input.mode);
     }
   }
+}
+
+/**
+ * Pull a token-usage object out of a codex JSON event, tolerating the field
+ * locations seen across codex versions. Returns the raw usage object plus whether
+ * it is session-cumulative (`info.total_token_usage`) vs per-turn (`event.usage` /
+ * `turn.completed.usage`). The engine deltas cumulative values before recording.
+ */
+function extractCodexUsage(
+  event: Record<string, unknown>,
+): { raw: Record<string, unknown>; cumulative: boolean } | null {
+  const type = typeof event.type === "string" ? event.type : "";
+  const info = event.info as Record<string, unknown> | undefined;
+  // Per-turn usage on a completion event is preferred — no delta needed.
+  const perTurn =
+    (event.usage as Record<string, unknown> | undefined) ??
+    (event.turn as Record<string, unknown> | undefined)?.usage;
+  if (
+    (type === "turn.completed" || type === "token_count" || type.endsWith(".completed")) &&
+    perTurn &&
+    typeof perTurn === "object"
+  ) {
+    return { raw: perTurn as Record<string, unknown>, cumulative: false };
+  }
+  // Otherwise fall back to the session-cumulative total (token_count events).
+  const cumulative = info?.total_token_usage;
+  if (cumulative && typeof cumulative === "object") {
+    return { raw: cumulative as Record<string, unknown>, cumulative: true };
+  }
+  // Last resort: any event directly carrying a usage object (treat as per-turn).
+  if (event.usage && typeof event.usage === "object") {
+    return { raw: event.usage as Record<string, unknown>, cumulative: false };
+  }
+  return null;
 }
 
 export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
