@@ -4,7 +4,7 @@
 
 - `Owner`: the single operator who approves permissions and manages skills for this Felix instance.
 - `Session`: a persisted interaction tied to one source thread and one Codex run history.
-- `Session record`: the on-disk durable representation of a `Session`, stored under `workspace/records/sessions/<source>/`.
+- `Session record`: the on-disk durable representation of a `Session`, stored under `workspace/sessions/<source>/`.
 - `Thread key`: an opaque stable source-thread identifier produced by a source adapter; core modules store and index it but do not parse it.
 - `Thread query`: read-only lookups over the session store. Thread lookup by key is `findThreadHandle` in `src/slices/sessions/index.ts` (source-scoped index lookup) — neither the engine nor the owner console (`loadSessionDetail`) re-lists all handles to find one. Pending approval lookup is not a Thread query; it is owned by the Approval registry because it exists solely to resolve live approval requests.
 - `Session transitions`: the named, atomic mutations of session state in `src/slices/sessions/index.ts` — queue movement (`queueThreadEvent`, `shiftNextEvent`, `requeueEvent`, `clearThreadQueue`, `filterThreadQueue`), harness state (`recordTurn`, `clearHarnessSession`, `setThreadBusy`), pending-permission compatibility (`setPendingPermission`), and usage snapshot state (`recordTurnUsage`). Each owns one load-mutate-save; the engine expresses intent through them rather than hand-writing load/mutate/save.

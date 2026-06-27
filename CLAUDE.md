@@ -8,14 +8,14 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 src/
   core/          ports.ts · routing.ts · decide-turn.ts · schemas.ts
   adapters/      codex/ · opencode/ · claude-code/ · mattermost/ · discord/ · slack/ · whatsapp/
-  slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/
+  slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/ · usage/
   server/        app.ts (HTTP + static SPA + SSE) · routes.ts (API route table) · sse.ts (dashboard stream)
   engine.ts      main dispatch loop
   index.ts       composition root — boots engine, supervises sources, handles SIGTERM
   config.ts      env var loading
 web/             owner console SPA — React + Vite + Tailwind (own package.json/lockfile)
-tests/           vitest unit tests (no network, no disk)
-workspace/       runtime data — threads, contacts, skills, approvals (git-ignored)
+tests/           vitest unit tests
+workspace/       runtime sessions, catalog, approvals, indexes, projects, tools (git-ignored)
 skills/          bundled skills shipped in the image
 .env             local secrets (git-ignored)
 .env.example     env template (tracked)
@@ -30,7 +30,7 @@ contains its own login screen); `/api/*` and `/events/*` require the owner sessi
 
 ```bash
 npm install
-npm run setup          # interactive .env setup (local dev only — Docker users: docker compose run --rm setup)
+npm run setup          # interactive .env setup (local dev only — Docker users: docker compose run --rm --build setup)
 npm run dev            # tsx watch — API server (serves built web/dist if present)
 npm run dev:web        # optional: Vite dev server on :5173 with HMR, proxies /api + /events
 npm run lint         # tsc --noEmit
@@ -48,7 +48,7 @@ time and serves it — no local `npm` needed (see below).
 
 ```bash
 # First-time setup (no Node.js required — just Docker)
-docker compose run --rm setup
+docker compose run --rm --build setup
 
 # Build & start (Unix / WSL):
 UID=$(id -u) GID=$(id -g) docker compose up -d
@@ -86,7 +86,7 @@ docker run -d \
 
 ## Agent runtime image
 
-Felix uses a batteries-included Agent runtime image for provider-neutral skill work. Keep `node:24-bookworm-slim` as the base unless there is a new ADR.
+Felix uses a batteries-included Agent runtime image for provider-neutral skill work. Keep `node:24-bookworm-slim` as the base unless there is a new explicit architecture decision.
 
 Stable Runtime capabilities:
 
@@ -100,7 +100,7 @@ Stable Runtime capabilities:
 
 Provider-specific operational CLIs are intentionally excluded from the image, including `aws`, `gcloud`, `kubectl`, and `terraform`. Use the `install-tool` skill or another explicit setup path for those.
 
-LibreOffice and browser automation runtimes are excluded from v1. See `docs/adr/0002-agent-runtime-image-contract.md`.
+LibreOffice and browser automation runtimes are excluded from v1.
 
 ## Config
 

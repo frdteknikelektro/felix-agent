@@ -139,14 +139,14 @@ npm run build        # 📦 build SPA + server → dist/ + web/dist
 src/
 ├── core/        # ⚙️  ports · routing · decide-turn · schemas
 ├── adapters/    # 🔌 codex · opencode · claude-code · mattermost · discord · slack · whatsapp
-├── slices/      # 🧱 sessions · events · approvals · contacts · skills · audit
+├── slices/      # 🧱 sessions · events · approvals · contacts · skills · audit · usage
 ├── server/      # 🌐 HTTP API + static SPA + SSE
 ├── engine.ts    # 🧠 main dispatch loop
 └── index.ts     # 🚀 composition root
 web/             # 🖥️  React + Vite owner console
 skills/          # 🧩 bundled skills shipped in the image
 tests/           # 🧪 vitest unit tests
-workspace/       # 💾 runtime data (git-ignored)
+workspace/       # 💾 runtime sessions, catalog, approvals, indexes, projects, tools (git-ignored)
 ```
 
 ## 🔗 Related

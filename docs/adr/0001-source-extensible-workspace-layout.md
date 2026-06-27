@@ -1,3 +1,0 @@
-# Source-Extensible Workspace Layout
-
-Felix stores workspace data by ownership and retention: source intake under `intake/`, durable records under `records/`, owner-managed catalog data under `catalog/`, runtime support under `runtime/`, lookup data under `index/`, and checked-out target repos under `projects/`. This is a fresh-layout breaking change with no automatic migration because existing deployments can discard or manually move workspace data, and avoiding legacy readers keeps `thread_key` opaque for future Slack, Telegram, or other source adapters while leaving a clean seam for GitHub and GitLab adapters.
