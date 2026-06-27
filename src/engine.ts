@@ -5,11 +5,11 @@ import type { AppConfig } from "./config.js";
 import { hasPendingApproval, requestApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
+import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import { applyOwnerDecision, type ApprovalRecord } from "./slices/approvals/index.js";
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
-import { appendUsageRecord, deltaCumulative, resolveContactId } from "./slices/usage/index.js";
+import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
 import { fallbackNotification } from "./core/harness-common.js";
@@ -135,10 +135,7 @@ export class FelixEngine {
   }
 
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
-    const session = await loadSessionState(thread);
-    if (session.queue.length === 0) return;
-    session.queue = [];
-    await saveSessionState(thread, session);
+    await clearThreadQueue(thread);
   }
 
   async processThread(thread: ThreadHandle): Promise<void> {
@@ -397,27 +394,11 @@ export class FelixEngine {
   ): Promise<void> {
     if (!result.usage) return;
     try {
-      const session = await loadSessionState(thread);
-      const usage = result.usage;
-
-      const contactId = resolveContactId(event.sender, session.last_event_sender);
-      if (event.sender.id !== "system") {
-        session.last_event_sender = contactId;
-      }
-
-      let perTurn = usage;
-      if (result.usageCumulative) {
-        perTurn = deltaCumulative(usage, session.usage_cumulative);
-        session.usage_cumulative = {
-          input: usage.input,
-          output: usage.output,
-          cache_read: usage.cache_read,
-          cache_write: usage.cache_write,
-          total: usage.total,
-        };
-      }
-
-      await saveSessionState(thread, session);
+      const { contactId, usage: perTurn } = await recordTurnUsage(thread, {
+        sender: event.sender,
+        usage: result.usage,
+        cumulative: result.usageCumulative,
+      });
 
       // After deltaing, a duplicate cumulative snapshot yields nothing to record.
       if (perTurn.input === 0 && perTurn.output === 0 && perTurn.cache_write === 0 && perTurn.total === 0) {
@@ -760,29 +741,20 @@ export class FelixEngine {
   }
 
   private async sanitizeThreadQueue(thread: ThreadHandle): Promise<void> {
-    const session = await loadSessionState(thread);
-    if (session.queue.length === 0) {
-      return;
-    }
-    const kept = [];
-    let dropped = 0;
-    for (const item of session.queue) {
+    const result = await filterThreadQueue(thread, async (item) => {
       const event = await this.readEventFromPath(item.event_file);
       if (this.isOwnMessage(event)) {
-        dropped++;
-        continue;
+        return false;
       }
-      kept.push(item);
-    }
-    if (dropped === 0) {
+      return true;
+    });
+    if (result.dropped === 0) {
       return;
     }
-    session.queue = kept;
-    await saveSessionState(thread, session);
     log.info("thread.queue_sanitized", {
       thread_key: thread.state.thread_key,
-      dropped,
-      remaining: kept.length,
+      dropped: result.dropped,
+      remaining: result.remaining,
     });
   }
 

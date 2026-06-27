@@ -7,12 +7,14 @@ import { parseFrontmatter, renderFrontmatter } from "../../lib/markdown.js";
 import { buildEventFile, type EventFileSpec, type OwnerPermissionDetails } from "../events/index.js";
 import { ThreadStateSchema, SessionStateSchema } from "../../core/schemas.js";
 import type {
+  SourceSender,
   SessionPermissionRequest,
   SessionQueueItem,
   SessionState,
   ThreadState,
   UniversalEvent,
 } from "../../types.js";
+import type { TurnUsage } from "../../core/ports.js";
 import { sourceSessionsDir, sourceThreadKeyIndexDir } from "../../workspace.js";
 
 export interface ThreadHandle {
@@ -208,6 +210,25 @@ export async function saveThreadState(handle: ThreadHandle, state: ThreadState):
 
 const MAX_QUEUE_SIZE = 16;
 
+export interface QueueFilterResult {
+  session: SessionState;
+  dropped: number;
+  remaining: number;
+}
+
+export interface CumulativeTotals {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  total: number;
+}
+
+export interface TurnUsageRecord {
+  contactId: string;
+  usage: TurnUsage;
+}
+
 export async function queueThreadEvent(
   handle: ThreadHandle,
   item: SessionQueueItem,
@@ -223,6 +244,40 @@ export async function queueThreadEvent(
   session.last_event_at = item.received_at;
   await saveSessionState(handle, session);
   return session;
+}
+
+export async function clearThreadQueue(handle: ThreadHandle): Promise<SessionState> {
+  const session = await loadSessionState(handle);
+  if (session.queue.length === 0) return session;
+  session.queue = [];
+  await saveSessionState(handle, session);
+  return session;
+}
+
+export async function filterThreadQueue(
+  handle: ThreadHandle,
+  shouldKeep: (item: SessionQueueItem) => boolean | Promise<boolean>,
+): Promise<QueueFilterResult> {
+  const session = await loadSessionState(handle);
+  if (session.queue.length === 0) {
+    return { session, dropped: 0, remaining: 0 };
+  }
+
+  const kept: SessionQueueItem[] = [];
+  let dropped = 0;
+  for (const item of session.queue) {
+    if (await shouldKeep(item)) {
+      kept.push(item);
+    } else {
+      dropped++;
+    }
+  }
+
+  if (dropped > 0) {
+    session.queue = kept;
+    await saveSessionState(handle, session);
+  }
+  return { session, dropped, remaining: kept.length };
 }
 
 export async function setThreadBusy(handle: ThreadHandle, busy: boolean): Promise<SessionState> {
@@ -265,6 +320,36 @@ export async function recordTurn(handle: ThreadHandle, harnessSessionId: string)
   return session;
 }
 
+export async function recordTurnUsage(
+  handle: ThreadHandle,
+  input: {
+    sender: SourceSender;
+    usage: TurnUsage;
+    cumulative?: boolean;
+  },
+): Promise<TurnUsageRecord> {
+  const session = await loadSessionState(handle);
+  const contactId = resolveContactId(input.sender, session.last_event_sender);
+  if (input.sender.id !== "system") {
+    session.last_event_sender = contactId;
+  }
+
+  let usage = input.usage;
+  if (input.cumulative) {
+    usage = deltaCumulative(input.usage, session.usage_cumulative);
+    session.usage_cumulative = {
+      input: input.usage.input,
+      output: input.usage.output,
+      cache_read: input.usage.cache_read,
+      cache_write: input.usage.cache_write,
+      total: input.usage.total,
+    };
+  }
+
+  await saveSessionState(handle, session);
+  return { contactId, usage };
+}
+
 export async function clearHarnessSession(handle: ThreadHandle): Promise<SessionState> {
   const session = await loadSessionState(handle);
   delete session.harness_session_id;
@@ -283,6 +368,30 @@ export async function setPendingPermission(
   session.pending_permission = request;
   await saveSessionState(handle, session);
   return session;
+}
+
+/**
+ * Per-turn usage from a possibly session-cumulative current reading. When the
+ * current total is smaller than the stored total, the harness session restarted.
+ */
+export function deltaCumulative(current: TurnUsage, stored: CumulativeTotals | null | undefined): TurnUsage {
+  if (!stored || current.total < stored.total) return current;
+  return {
+    input: Math.max(0, current.input - stored.input),
+    output: Math.max(0, current.output - stored.output),
+    cache_read: Math.max(0, current.cache_read - stored.cache_read),
+    cache_write: Math.max(0, current.cache_write - stored.cache_write),
+    total: Math.max(0, current.total - stored.total),
+    model: current.model,
+  };
+}
+
+export function resolveContactId(
+  sender: { source: string; id: string },
+  lastEventSender: string | undefined,
+): string {
+  if (sender.id === "system") return lastEventSender ?? "system";
+  return `${sender.source}:${sender.id}`;
 }
 
 export async function updateThreadState(

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { appendEventToThread, appendFelixReply, appendPermissionRequest, clearHarnessSession, createOrLoadThread, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurn, requeueEvent, shiftNextEvent } from "../src/slices/sessions/index.js";
+import { appendEventToThread, appendFelixReply, appendPermissionRequest, clearHarnessSession, clearThreadQueue, createOrLoadThread, filterThreadQueue, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurn, recordTurnUsage, requeueEvent, shiftNextEvent } from "../src/slices/sessions/index.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
 async function makeThread() {
@@ -121,6 +121,31 @@ describe("session transitions", () => {
     expect(session.harness_session_id).toBeUndefined();
   });
 
+  it("clearThreadQueue drains queued events in one transition", async () => {
+    const thread = await makeThread();
+    await queueThreadEvent(thread, item("a"));
+    await queueThreadEvent(thread, item("b"));
+
+    const session = await clearThreadQueue(thread);
+
+    expect(session.queue).toEqual([]);
+    expect((await loadSessionState(thread)).queue).toEqual([]);
+  });
+
+  it("filterThreadQueue saves only kept events and reports the dropped count", async () => {
+    const thread = await makeThread();
+    await queueThreadEvent(thread, item("keep-a"));
+    await queueThreadEvent(thread, item("drop"));
+    await queueThreadEvent(thread, item("keep-b"));
+
+    const result = await filterThreadQueue(thread, (queued) => queued.source_event_id !== "drop");
+
+    expect(result.dropped).toBe(1);
+    expect(result.remaining).toBe(2);
+    expect(result.session.queue.map((q) => q.source_event_id)).toEqual(["keep-a", "keep-b"]);
+    expect((await loadSessionState(thread)).queue.map((q) => q.source_event_id)).toEqual(["keep-a", "keep-b"]);
+  });
+
   it("recordTurn stamps the harness session and turn time in one write", async () => {
     const thread = await makeThread();
     const session = await recordTurn(thread, "session-xyz");
@@ -137,6 +162,25 @@ describe("session transitions", () => {
     await recordTurn(thread, "session-xyz");
     await clearHarnessSession(thread);
     expect((await loadSessionState(thread)).harness_session_id).toBeUndefined();
+  });
+
+  it("recordTurnUsage attributes system turns to the last human sender and deltas cumulative usage", async () => {
+    const thread = await makeThread();
+
+    const first = await recordTurnUsage(thread, {
+      sender: { source: "mattermost", id: "u1" },
+      usage: { input: 100, output: 0, cache_read: 0, cache_write: 0, total: 100, model: "gpt" },
+      cumulative: true,
+    });
+    const second = await recordTurnUsage(thread, {
+      sender: { source: "mattermost", id: "system" },
+      usage: { input: 250, output: 0, cache_read: 0, cache_write: 0, total: 250, model: "gpt" },
+      cumulative: true,
+    });
+
+    expect(first).toMatchObject({ contactId: "mattermost:u1", usage: { total: 100 } });
+    expect(second).toMatchObject({ contactId: "mattermost:u1", usage: { total: 150 } });
+    expect((await loadSessionState(thread)).usage_cumulative?.total).toBe(250);
   });
 });
 

@@ -4,45 +4,8 @@ import { appendText, readText } from "../../lib/fs.js";
 import { tzDateKey, weekStartKey, monthStartKey, dateKeyRange } from "../../lib/time.js";
 import { UsageRecordSchema } from "../../core/schemas.js";
 import type { UsageRecord } from "../../types.js";
-import type { TurnUsage } from "../../core/ports.js";
 import type { AppConfig } from "../../config.js";
-
-export interface CumulativeTotals {
-  input: number;
-  output: number;
-  cache_read: number;
-  cache_write: number;
-  total: number;
-}
-
-/**
- * Per-turn usage from a (possibly session-cumulative) current reading. When
- * `current.total < stored.total` the session was reset (or this is the first
- * turn), so the full current value is the delta; otherwise subtract field-wise.
- */
-export function deltaCumulative(current: TurnUsage, stored: CumulativeTotals | null | undefined): TurnUsage {
-  if (!stored || current.total < stored.total) return current;
-  return {
-    input: Math.max(0, current.input - stored.input),
-    output: Math.max(0, current.output - stored.output),
-    cache_read: Math.max(0, current.cache_read - stored.cache_read),
-    cache_write: Math.max(0, current.cache_write - stored.cache_write),
-    total: Math.max(0, current.total - stored.total),
-    model: current.model,
-  };
-}
-
-/**
- * Attribute usage to a contact. Synthetic "system" turns (post-approval proceed)
- * are credited to the last human sender so work lands under the requester.
- */
-export function resolveContactId(
-  sender: { source: string; id: string },
-  lastEventSender: string | undefined,
-): string {
-  if (sender.id === "system") return lastEventSender ?? "system";
-  return `${sender.source}:${sender.id}`;
-}
+export { deltaCumulative, resolveContactId, type CumulativeTotals } from "../sessions/index.js";
 
 export type UsageWindow = "today" | "week" | "month" | "all";
 
