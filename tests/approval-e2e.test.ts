@@ -4,7 +4,7 @@ import { parseDecisionToken } from "../src/core/decision.js";
 import { loadConfig } from "../src/config.js";
 
 describe("Permission approval end-to-end", () => {
-  const cfg = loadConfig({ WORKSPACE_DIR: "/tmp/felix-test-e2e" });
+  const cfg = loadConfig({ WORKSPACE_DIR: "/tmp/felix-test-e2e", SECRET_ENV_FILE: "/tmp/no-secrets" });
 
   describe("decision token → mode mapping", () => {
     it("emoji reaction 👌 → once", () => {
