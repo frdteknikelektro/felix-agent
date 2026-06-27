@@ -304,8 +304,10 @@ export class OpencodeHarness implements Harness {
 
       // Read the summary from the output file
       const summaryPath = path.join(this.cfg.paths.root, `compact_${sessionId}.txt`);
-      const summary = await readText(summaryPath, "");
-      if (!summary.trim()) {
+      const rawSummary = await readText(summaryPath, "");
+      // Strip FELIX_REPLY markers if present
+      const summary = between(rawSummary, "FELIX_REPLY", "END_FELIX_REPLY")?.trim() || rawSummary.trim();
+      if (!summary) {
         log.warn("opencode.compact_empty_summary", { session_id: sessionId });
         return false;
       }

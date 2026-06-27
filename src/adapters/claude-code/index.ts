@@ -272,7 +272,8 @@ export class ClaudeCodeHarness implements Harness {
         logPath,
       );
 
-      const summary = assistantText.trim();
+      // Strip FELIX_REPLY markers if present
+      const summary = between(assistantText, "FELIX_REPLY", "END_FELIX_REPLY")?.trim() || assistantText.trim();
       if (!summary) {
         log.warn("claude-code.compact_empty_summary", { session_id: sessionId });
         return false;
