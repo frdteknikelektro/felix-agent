@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import type { AppConfig } from "../../config.js";
-import { appendText, ensureDir, writeTextAtomic } from "../../lib/fs.js";
+import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput } from "../../core/ports.js";
@@ -17,6 +17,7 @@ import {
   buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
+import { appendCompactedContext } from "../../core/initial-md.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 // ─── Shared spawn ─────────────────────────────────────────────────────────
@@ -266,12 +267,25 @@ export class OpencodeHarness implements Harness {
     }
   }
 
-  async compact(sessionId: string): Promise<boolean> {
+  async compact(sessionId: string, threadDir?: string): Promise<boolean> {
     const logPath = path.join(this.cfg.paths.root, `compact_${sessionId}.log`);
+    const summarizationPrompt = [
+      "Please summarize our conversation so far.",
+      "Focus on:",
+      "- Key decisions made",
+      "- Important context and facts",
+      "- Current task status",
+      "- Any pending items",
+      "",
+      "Provide a concise summary that can be used as context for continuing the conversation.",
+    ].join("\n");
+
     const args = [
-      "compact",
-      "--dir", this.cfg.paths.root,
+      "exec",
+      "--json",
+      "--output-last-message", path.join(this.cfg.paths.root, `compact_${sessionId}.txt`),
       "--session", sessionId,
+      summarizationPrompt,
     ];
 
     try {
@@ -282,7 +296,26 @@ export class OpencodeHarness implements Harness {
         await this.buildEnv(),
         logPath,
       );
-      return exitCode === 0;
+
+      if (exitCode !== 0) {
+        log.warn("opencode.compact_failed", { session_id: sessionId, exit_code: exitCode });
+        return false;
+      }
+
+      // Read the summary from the output file
+      const summaryPath = path.join(this.cfg.paths.root, `compact_${sessionId}.txt`);
+      const summary = await readText(summaryPath, "");
+      if (!summary.trim()) {
+        log.warn("opencode.compact_empty_summary", { session_id: sessionId });
+        return false;
+      }
+
+      // Append summary to INITIAL.md
+      if (threadDir) {
+        await appendCompactedContext(threadDir, summary);
+      }
+
+      return true;
     } catch (error) {
       log.warn("opencode.compact_failed", {
         session_id: sessionId,
