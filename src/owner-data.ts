@@ -1,13 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "./config.js";
-import { loadContact, saveContact, contactPath } from "./slices/contacts/index.js";
 import { readText, writeTextAtomic, ensureDir, pathExists } from "./lib/fs.js";
 import { renderFrontmatter } from "./lib/markdown.js";
 import { eventAt, historyTitle, parseEventFile, type ParsedEvent } from "./slices/events/index.js";
 import type { AuditEntry } from "./slices/audit/index.js";
 import { listAuditEntries, recordAuditEntry } from "./slices/audit/index.js";
-import type { ContactRecord, SessionState, SkillRecord, SourceSender, ThreadState } from "./types.js";
+import type { SessionState, SkillRecord, SourceSender, ThreadState } from "./types.js";
 import { findThreadHandle, listThreadHandles, loadSessionState, loadThreadState, type ThreadHandle } from "./slices/sessions/index.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
@@ -338,80 +337,6 @@ export async function deleteSkillForUi(cfg: AppConfig, skillId: string): Promise
   await writeSkillIndex(cfg, await loadSkills(cfg));
 }
 
-export async function listContactsForUi(cfg: AppConfig): Promise<ContactRecord[]> {
-  const entries = await fs.readdir(cfg.paths.contacts, { withFileTypes: true }).catch(() => []);
-  const out: ContactRecord[] = [];
-  for (const sourceEntry of entries) {
-    if (!sourceEntry.isDirectory()) continue;
-    const source = sourceEntry.name;
-    const sourceDir = path.join(cfg.paths.contacts, source);
-    const files = await fs.readdir(sourceDir, { withFileTypes: true }).catch(() => []);
-    for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith(".md")) continue;
-      const userId = file.name.slice(0, -3);
-      const contact = await loadContact(cfg, source, userId);
-      if (!(await pathExists(contactPath(cfg, source, userId)))) continue;
-      out.push(contact);
-    }
-  }
-  return out.sort((a, b) => `${a.source}:${a.user_id}`.localeCompare(`${b.source}:${b.user_id}`));
-}
-
-export async function loadContactForUi(
-  cfg: AppConfig,
-  source: string,
-  userId: string,
-): Promise<ContactRecord | null> {
-  const file = contactPath(cfg, source, userId);
-  if (!(await pathExists(file))) return null;
-  return loadContact(cfg, source, userId);
-}
-
-export async function saveContactForUi(
-  cfg: AppConfig,
-  source: string,
-  userId: string,
-  patch: Partial<ContactRecord>,
-): Promise<ContactRecord> {
-  const file = contactPath(cfg, source, userId);
-  if (!(await pathExists(file))) {
-    throw new Error("contact_missing");
-  }
-  const current = await loadContact(cfg, source, userId);
-  const next: ContactRecord = {
-    ...current,
-    ...patch,
-    source,
-    user_id: userId,
-    allowed_permissions: normalizeList(patch.allowed_permissions ?? current.allowed_permissions),
-  };
-  await saveContact(cfg, next);
-  return next;
-}
-
-export async function createContactForUi(
-  cfg: AppConfig,
-  source: string,
-  userId: string,
-  patch: Partial<ContactRecord>,
-): Promise<ContactRecord> {
-  const file = contactPath(cfg, source, userId);
-  if (await pathExists(file)) {
-    throw new Error("contact_exists");
-  }
-  const next: ContactRecord = {
-    source,
-    user_id: userId,
-    display: patch.display,
-    username: patch.username,
-    alias: patch.alias,
-    allowed_permissions: normalizeList(patch.allowed_permissions ?? []),
-    notes: patch.notes,
-  };
-  await saveContact(cfg, next);
-  return next;
-}
-
 export async function listAuditForUi(cfg: AppConfig): Promise<AuditEntry[]> {
   return listAuditEntries(cfg);
 }
@@ -582,10 +507,6 @@ function approvalIdFromPath(file: string): string {
 }
 
 function normalizePermissions(value: string[]): string[] {
-  return Array.from(new Set(value.map((item) => item.trim()).filter(Boolean)));
-}
-
-function normalizeList(value: string[]): string[] {
   return Array.from(new Set(value.map((item) => item.trim()).filter(Boolean)));
 }
 

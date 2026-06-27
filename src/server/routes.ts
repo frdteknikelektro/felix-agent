@@ -9,10 +9,6 @@ import {
   loadSkillForUi,
   saveSkillForUi,
   deleteSkillForUi,
-  listContactsForUi,
-  loadContactForUi,
-  saveContactForUi,
-  createContactForUi,
   listAuditForUi,
   addSkillAudit,
   addContactAudit,
@@ -21,6 +17,13 @@ import {
 } from "../owner-data.js";
 import type { UsageWindow } from "../slices/usage/index.js";
 import { listApprovalRecords } from "../slices/approvals/index.js";
+import {
+  ContactEditorError,
+  createContactFromEditor,
+  listContacts,
+  loadContactForEditor,
+  updateContactFromEditor,
+} from "../slices/contacts/index.js";
 
 // ---------------------------------------------------------------------------
 // Route context
@@ -220,7 +223,7 @@ export const API_ROUTES: Route[] = [
     method: "GET",
     pattern: "/api/contacts",
     async handler({ cfg, send }) {
-      send(200, { items: await listContactsForUi(cfg) });
+      send(200, { items: await listContacts(cfg) });
     },
   },
   {
@@ -232,7 +235,7 @@ export const API_ROUTES: Route[] = [
         send(400, { error: "invalid_contact_path" });
         return;
       }
-      const contact = await loadContactForUi(cfg, source, userId);
+      const contact = await loadContactForEditor(cfg, source, userId);
       if (!contact) {
         send(404, { error: "not_found" });
         return;
@@ -249,17 +252,20 @@ export const API_ROUTES: Route[] = [
         send(400, { error: "invalid_contact_path" });
         return;
       }
-      const existing = await loadContactForUi(cfg, source, userId);
-      if (!existing) {
-        send(404, { error: "not_found" });
-        return;
-      }
       const body = await readBody();
-      const saved = await saveContactForUi(cfg, source, userId, normalizeContactBody(body));
-      await addContactAudit(cfg, source, userId, "update", `Updated contact ${source}:${userId}`, {
-        permissions: saved.allowed_permissions,
-      });
-      send(200, saved);
+      try {
+        const saved = await updateContactFromEditor(cfg, source, userId, body);
+        await addContactAudit(cfg, source, userId, "update", `Updated contact ${source}:${userId}`, {
+          permissions: saved.allowed_permissions,
+        });
+        send(200, saved);
+      } catch (error) {
+        if (isContactEditorError(error, "contact_missing")) {
+          send(404, { error: "not_found" });
+          return;
+        }
+        throw error;
+      }
     },
   },
   {
@@ -273,13 +279,13 @@ export const API_ROUTES: Route[] = [
       }
       const body = await readBody();
       try {
-        const saved = await createContactForUi(cfg, source, userId, normalizeContactBody(body));
+        const saved = await createContactFromEditor(cfg, source, userId, body);
         await addContactAudit(cfg, source, userId, "create", `Created contact ${source}:${userId}`, {
           permissions: saved.allowed_permissions,
         });
         send(201, saved);
-      } catch (error: any) {
-        if (error?.message === "contact_exists") {
+      } catch (error) {
+        if (isContactEditorError(error, "contact_exists")) {
           send(409, { error: "contact_exists" });
           return;
         }
@@ -393,20 +399,6 @@ function normalizeSkillBody(body: Record<string, unknown>): {
   };
 }
 
-function normalizeContactBody(body: Record<string, unknown>): {
-  display?: string;
-  username?: string;
-  allowed_permissions?: string[];
-  notes?: string;
-} {
-  return {
-    display: typeof body["display"] === "string" ? body["display"] : undefined,
-    username: typeof body["username"] === "string" ? body["username"] : undefined,
-    allowed_permissions: normalizeList(body["allowed_permissions"]),
-    notes: typeof body["notes"] === "string" ? body["notes"] : undefined,
-  };
-}
-
 function normalizeList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
@@ -415,4 +407,8 @@ function normalizeList(value: unknown): string[] {
     return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   }
   return [];
+}
+
+function isContactEditorError(error: unknown, code: string): boolean {
+  return error instanceof ContactEditorError && error.code === code;
 }
