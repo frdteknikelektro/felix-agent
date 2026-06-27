@@ -74,15 +74,19 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
   const checkpoint = await loadCheckpoint(cfg);
   const threads = await listThreadHandles(cfg);
   const now = Date.now();
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  // If no lastIngestedAt, assume 1 day ago so new threads get processed
+  const lastIngestTime = checkpoint.lastIngestedAt
+    ? new Date(checkpoint.lastIngestedAt).getTime()
+    : now - ONE_DAY_MS;
+
   let hasNew = false;
   for (const thread of threads) {
     const sess = await loadSessionState(thread);
     if (!sess.last_event_at) continue;
     const lastEvent = new Date(sess.last_event_at).getTime();
     if (now - lastEvent < 6 * 60 * 60 * 1000) continue;
-    const entry = checkpoint.threads[thread.state.thread_key];
-    const lastIngestAt = entry ? new Date(entry.lastIngestAt).getTime() : 0;
-    if (lastIngestAt < lastEvent) {
+    if (lastIngestTime < lastEvent) {
       hasNew = true;
       break;
     }
@@ -157,11 +161,8 @@ function shouldLint(checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): boo
   const since = Date.now() - lastLint;
   if (since < 24 * 60 * 60 * 1000) return false;
 
-  const newestIngest = Object.values(checkpoint.threads).reduce((max, entry) => {
-    return Math.max(max, new Date(entry.lastIngestAt).getTime());
-  }, 0);
-
-  return newestIngest > lastLint;
+  if (!checkpoint.lastIngestedAt) return true;
+  return new Date(checkpoint.lastIngestedAt).getTime() > lastLint;
 }
 
 function buildLintTurnInput(cfg: AppConfig, thread: ThreadHandle): TurnInput {
