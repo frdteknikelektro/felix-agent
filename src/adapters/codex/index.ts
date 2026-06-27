@@ -208,7 +208,8 @@ export class CodexHarness implements Harness {
     ].join("\n");
 
     const args = [
-      "exec",
+      sessionId,
+      summarizationPrompt,
       "--json",
       "--output-last-message", path.join(this.cfg.paths.root, `compact_${sessionId}.txt`),
       ...(this.cfg.CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
@@ -216,11 +217,10 @@ export class CodexHarness implements Harness {
       `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
       "--model",
       this.cfg.CODEX_MODEL,
-      summarizationPrompt,
     ];
 
     try {
-      const child = spawn(this.cfg.CODEX_BIN, ["resume", ...args, sessionId], {
+      const child = spawn(this.cfg.CODEX_BIN, ["resume", ...args], {
         cwd: this.cfg.paths.root,
         env: {
           ...process.env,

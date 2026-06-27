@@ -256,6 +256,7 @@ export class ClaudeCodeHarness implements Harness {
     ].join("\n");
 
     const args = [
+      "-r", sessionId,
       "-p",
       "--dangerously-skip-permissions",
       "--model", this.cfg.CLAUDE_CODE_MODEL,
