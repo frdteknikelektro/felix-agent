@@ -117,6 +117,10 @@ async function classifyViaOpencode(
   text: string,
   cfg: AppConfig,
 ): Promise<"once" | "always" | "reject" | null> {
+  // Return null if no API keys are available (avoids spawning opencode unnecessarily)
+  const hasApiKey = cfg.OPENAI_API_KEY || cfg.OPENCODE_API_KEY || cfg.OPENROUTER_API_KEY || cfg.DEEPSEEK_API_KEY;
+  if (!hasApiKey) return null;
+
   const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
   const workDir = path.join(cfg.paths.approvals, "_classify");
   const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
@@ -144,6 +148,10 @@ async function classifyViaOpencode(
     prompt,
   ];
 
+  // Add a timeout to avoid hanging if opencode is slow
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
   try {
     const { exitCode, assistantText } = await opencodeRun(
       cfg.OPENCODE_BIN,
@@ -151,6 +159,7 @@ async function classifyViaOpencode(
       workDir,
       env,
       logPath,
+      controller.signal,
     );
 
     if (exitCode !== 0) {
@@ -169,6 +178,8 @@ async function classifyViaOpencode(
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

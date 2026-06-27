@@ -29,7 +29,7 @@ describe("parseOwnerDecision", () => {
 });
 
 describe("parseOwnerDecisionAsync", () => {
-  const cfg = loadConfig({ WORKSPACE_DIR: "/tmp/felix-test" });
+  const cfg = loadConfig({ WORKSPACE_DIR: "/tmp/felix-test", SECRET_ENV_FILE: "/tmp/no-secrets" });
 
   it("matches via regex before falling back to Codex", async () => {
     expect(await parseOwnerDecisionAsync("OK once", cfg)).toEqual({ mode: "once" });
