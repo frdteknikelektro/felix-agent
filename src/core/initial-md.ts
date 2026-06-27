@@ -1,5 +1,6 @@
+import fs from "node:fs/promises";
 import path from "node:path";
-import { writeTextAtomic } from "../lib/fs.js";
+import { readText, writeTextAtomic } from "../lib/fs.js";
 import type { AppConfig } from "../config.js";
 
 interface InitialMdInput {
@@ -49,4 +50,34 @@ export async function buildInitialMd(input: InitialMdInput): Promise<string> {
   const content = sections.join("\n");
   await writeTextAtomic(initialPath, content);
   return initialPath;
+}
+
+/**
+ * Append a compacted context section to INITIAL.md. This is used after
+ * compaction to preserve the summary for the next session.
+ */
+export async function appendCompactedContext(threadDir: string, summary: string): Promise<void> {
+  const initialPath = path.join(threadDir, "INITIAL.md");
+  const existing = await readText(initialPath, "");
+  
+  // Remove old compacted context section if it exists
+  const compactedMarker = "\n## Compacted Context\n";
+  const compactedIndex = existing.indexOf(compactedMarker);
+  const baseContent = compactedIndex >= 0 ? existing.substring(0, compactedIndex) : existing.replace(/\n---\n\*INITIAL\.md is written once at session start\. Do not rewrite it\.\*$/, "");
+  
+  // Build new content with compacted context
+  const sections: string[] = [
+    baseContent.trimEnd(),
+    "",
+    "## Compacted Context",
+    "",
+    "The conversation was compacted. Use this summary as context for the new session:",
+    "",
+    summary,
+    "",
+    "---",
+    "*INITIAL.md is written once at session start. Do not rewrite it.*",
+  ];
+  
+  await writeTextAtomic(initialPath, sections.join("\n"));
 }

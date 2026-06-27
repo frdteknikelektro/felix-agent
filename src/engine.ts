@@ -91,6 +91,9 @@ export class FelixEngine {
     }
 
     if (FelixEngine.isStopCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
       const session = await loadSessionState(thread);
       if (session.busy) {
         this.abortThread(thread.state.thread_key);
@@ -98,6 +101,51 @@ export class FelixEngine {
         await this.postThreadReply(thread, event, undefined, "Stopped.");
       } else {
         await this.postThreadReply(thread, event, undefined, "Nothing running.");
+      }
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
+      }
+      return;
+    }
+
+    if (FelixEngine.isCompactCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
+      const session = await loadSessionState(thread);
+      if (session.harness_session_id && this.harness.compact) {
+        await this.postThreadReply(thread, event, undefined, "Compacting context...");
+        const success = await this.harness.compact(session.harness_session_id, thread.dir);
+        if (success) {
+          await clearHarnessSession(thread);
+          await this.postThreadReply(thread, event, undefined, "Context compacted successfully. Starting new session.");
+        } else {
+          await this.postThreadReply(thread, event, undefined, "Failed to compact context.");
+        }
+      } else {
+        await this.postThreadReply(thread, event, undefined, "No active session to compact.");
+      }
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
+      }
+      return;
+    }
+
+    if (FelixEngine.isNewCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
+      await this.postThreadReply(thread, event, undefined, "Starting fresh session...");
+      await clearHarnessSession(thread);
+      // Clear INITIAL.md so next turn generates fresh context
+      const initialMdPath = path.join(thread.dir, "INITIAL.md");
+      await fs.promises.unlink(initialMdPath).catch(() => {});
+      // Clear transcript
+      const transcriptPath = path.join(thread.dir, "transcript.md");
+      await fs.promises.unlink(transcriptPath).catch(() => {});
+      await this.postThreadReply(thread, event, undefined, "Session cleared. Starting fresh.");
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
       }
       return;
     }
@@ -132,6 +180,14 @@ export class FelixEngine {
 
   private static isStopCommand(event: UniversalEvent): boolean {
     return event.text.trim().toLowerCase() === "/stop";
+  }
+
+  private static isCompactCommand(event: UniversalEvent): boolean {
+    return event.text.trim().toLowerCase() === "/compact";
+  }
+
+  private static isNewCommand(event: UniversalEvent): boolean {
+    return event.text.trim().toLowerCase() === "/new";
   }
 
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
