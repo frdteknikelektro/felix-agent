@@ -603,6 +603,10 @@ class WhatsAppAdapter implements SourceAdapter {
 
     // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
     const reaction = input.status === "processing" ? "⏳" : "";
+    const isGroup = chatJid.endsWith("@g.us");
+    const senderArgs = isGroup && this.botJid
+      ? ["--sender", this.botJid]
+      : [];
     await waitForSendSlot();
     try {
       spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
@@ -611,6 +615,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "--id", eventId,
         "--reaction", reaction,
         "--post-send-wait", "0",
+        ...senderArgs,
       ], { stdio: "ignore", timeout: 10_000 });
     } catch {
       // best-effort
