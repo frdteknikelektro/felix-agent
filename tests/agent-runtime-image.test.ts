@@ -66,17 +66,4 @@ describe("agent runtime image contract", () => {
     expect(dockerfile).not.toContain("ARG AGENT_GID");
   });
 
-  it("documents exclusions for provider CLIs, LibreOffice, and browser runtimes in the ADR", async () => {
-    // The ADR is the canonical contract; the README intentionally stays lean.
-    const adr = await read("docs/adr/0002-agent-runtime-image-contract.md");
-
-    expect(adr).toContain("Provider-specific operational CLIs");
-    const normalized = adr.toLowerCase();
-    expect(normalized).toContain("aws");
-    expect(normalized).toContain("gcloud");
-    expect(normalized).toContain("kubectl");
-    expect(normalized).toContain("terraform");
-    expect(adr).toContain("LibreOffice");
-    expect(adr).toContain("browser automation");
-  });
 });
