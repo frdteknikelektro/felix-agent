@@ -30,12 +30,12 @@ describe("memory checkpoint", () => {
     expect(result.lastLintAt).toBeUndefined();
   });
 
-  it("saves and loads checkpoint data with threads", async () => {
+  it("saves and loads checkpoint data with threads (simplified format)", async () => {
     const cfg = makeConfig(tmp);
     const data = {
       threads: {
-        "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" },
-        "discord:c2:m2": { lastIngestAt: "2026-06-19T15:00:00Z" },
+        "mattermost:c1:m1": "2026-06-19T14:00:00Z",
+        "discord:c2:m2": "2026-06-19T15:00:00Z",
       },
     };
     await saveCheckpoint(cfg, data);
@@ -56,26 +56,26 @@ describe("memory checkpoint", () => {
   it("updates thread entry in checkpoint", async () => {
     const cfg = makeConfig(tmp);
     await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" } },
+      threads: { "mattermost:c1:m1": "2026-06-19T14:00:00Z" },
     });
 
     await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": { lastIngestAt: "2026-06-19T16:00:00Z" } },
+      threads: { "mattermost:c1:m1": "2026-06-19T16:00:00Z" },
     });
     const result = await loadCheckpoint(cfg);
-    expect(result.threads["mattermost:c1:m1"].lastIngestAt).toBe("2026-06-19T16:00:00Z");
+    expect(result.threads["mattermost:c1:m1"]).toBe("2026-06-19T16:00:00Z");
   });
 
   it("adds new thread entry to existing checkpoint", async () => {
     const cfg = makeConfig(tmp);
     await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" } },
+      threads: { "mattermost:c1:m1": "2026-06-19T14:00:00Z" },
     });
 
     await saveCheckpoint(cfg, {
       threads: {
-        "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" },
-        "discord:c2:m2": { lastIngestAt: "2026-06-19T15:00:00Z" },
+        "mattermost:c1:m1": "2026-06-19T14:00:00Z",
+        "discord:c2:m2": "2026-06-19T15:00:00Z",
       },
     });
     const result = await loadCheckpoint(cfg);
@@ -83,7 +83,32 @@ describe("memory checkpoint", () => {
     expect(result.threads["discord:c2:m2"]).toBeDefined();
   });
 
-  it("handles legacy checkpoint format gracefully", async () => {
+  it("migrates legacy format (object with lastIngestAt) to simplified format", async () => {
+    const cfg = makeConfig(tmp);
+    // Write legacy format directly
+    fs.writeFileSync(
+      path.join(tmp, "memory", "checkpoint.json"),
+      JSON.stringify({
+        threads: {
+          "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" },
+          "discord:c2:m2": { lastIngestAt: "2026-06-19T15:00:00Z" },
+        },
+        lastLintAt: "2026-06-19T16:00:00Z",
+      }),
+    );
+    const result = await loadCheckpoint(cfg);
+    expect(result.threads["mattermost:c1:m1"]).toBe("2026-06-19T14:00:00Z");
+    expect(result.threads["discord:c2:m2"]).toBe("2026-06-19T15:00:00Z");
+    expect(result.lastLintAt).toBe("2026-06-19T16:00:00Z");
+
+    // Verify saving persists in new format
+    await saveCheckpoint(cfg, result);
+    const raw = JSON.parse(fs.readFileSync(path.join(tmp, "memory", "checkpoint.json"), "utf-8"));
+    expect(typeof raw.threads["mattermost:c1:m1"]).toBe("string");
+    expect(raw.threads["mattermost:c1:m1"]).toBe("2026-06-19T14:00:00Z");
+  });
+
+  it("handles legacy checkpoint without threads wrapper gracefully", async () => {
     const cfg = makeConfig(tmp);
     fs.writeFileSync(
       path.join(tmp, "memory", "checkpoint.json"),
@@ -94,5 +119,19 @@ describe("memory checkpoint", () => {
     const result = await loadCheckpoint(cfg);
     expect(result.threads).toEqual({});
     expect(result.lastLintAt).toBeUndefined();
+  });
+
+  it("handles empty legacy threads object", async () => {
+    const cfg = makeConfig(tmp);
+    fs.writeFileSync(
+      path.join(tmp, "memory", "checkpoint.json"),
+      JSON.stringify({
+        threads: {},
+        lastLintAt: "2026-06-19T14:00:00Z",
+      }),
+    );
+    const result = await loadCheckpoint(cfg);
+    expect(result.threads).toEqual({});
+    expect(result.lastLintAt).toBe("2026-06-19T14:00:00Z");
   });
 });

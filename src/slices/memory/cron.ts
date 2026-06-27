@@ -80,9 +80,9 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
     if (!sess.last_event_at) continue;
     const lastEvent = new Date(sess.last_event_at).getTime();
     if (now - lastEvent < 6 * 60 * 60 * 1000) continue;
-    const entry = checkpoint.threads[thread.state.thread_key];
-    const lastIngestAt = entry ? new Date(entry.lastIngestAt).getTime() : 0;
-    if (lastIngestAt < lastEvent) {
+    const lastIngestAt = checkpoint.threads[thread.state.thread_key];
+    const lastIngestTime = lastIngestAt ? new Date(lastIngestAt).getTime() : 0;
+    if (lastIngestTime < lastEvent) {
       hasNew = true;
       break;
     }
@@ -157,8 +157,8 @@ function shouldLint(checkpoint: Awaited<ReturnType<typeof loadCheckpoint>>): boo
   const since = Date.now() - lastLint;
   if (since < 24 * 60 * 60 * 1000) return false;
 
-  const newestIngest = Object.values(checkpoint.threads).reduce((max, entry) => {
-    return Math.max(max, new Date(entry.lastIngestAt).getTime());
+  const newestIngest = Object.values(checkpoint.threads).reduce((max, lastIngestAt) => {
+    return Math.max(max, new Date(lastIngestAt).getTime());
   }, 0);
 
   return newestIngest > lastLint;
