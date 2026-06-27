@@ -23,64 +23,40 @@ describe("memory checkpoint", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("returns empty threads and no lastLintAt when file does not exist", async () => {
+  it("returns undefined timestamps when file does not exist", async () => {
     const cfg = makeConfig(tmp);
     const result = await loadCheckpoint(cfg);
-    expect(result.threads).toEqual({});
+    expect(result.lastIngestedAt).toBeUndefined();
     expect(result.lastLintAt).toBeUndefined();
   });
 
-  it("saves and loads checkpoint data with threads", async () => {
+  it("saves and loads lastIngestedAt", async () => {
     const cfg = makeConfig(tmp);
-    const data = {
-      threads: {
-        "mattermost:c1:m1": "2026-06-19T14:00:00Z",
-        "discord:c2:m2": "2026-06-19T15:00:00Z",
-      },
-    };
-    await saveCheckpoint(cfg, data);
+    await saveCheckpoint(cfg, {
+      lastIngestedAt: "2026-06-19T14:00:00Z",
+    });
     const result = await loadCheckpoint(cfg);
-    expect(result.threads).toEqual(data.threads);
+    expect(result.lastIngestedAt).toBe("2026-06-19T14:00:00Z");
   });
 
   it("saves and loads lastLintAt", async () => {
     const cfg = makeConfig(tmp);
     await saveCheckpoint(cfg, {
-      threads: {},
       lastLintAt: "2026-06-19T14:00:00Z",
     });
     const result = await loadCheckpoint(cfg);
     expect(result.lastLintAt).toBe("2026-06-19T14:00:00Z");
   });
 
-  it("updates thread entry in checkpoint", async () => {
+  it("saves and loads both timestamps", async () => {
     const cfg = makeConfig(tmp);
     await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": "2026-06-19T14:00:00Z" },
-    });
-
-    await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": "2026-06-19T16:00:00Z" },
+      lastIngestedAt: "2026-06-19T14:00:00Z",
+      lastLintAt: "2026-06-19T15:00:00Z",
     });
     const result = await loadCheckpoint(cfg);
-    expect(result.threads["mattermost:c1:m1"]).toBe("2026-06-19T16:00:00Z");
-  });
-
-  it("adds new thread entry to existing checkpoint", async () => {
-    const cfg = makeConfig(tmp);
-    await saveCheckpoint(cfg, {
-      threads: { "mattermost:c1:m1": "2026-06-19T14:00:00Z" },
-    });
-
-    await saveCheckpoint(cfg, {
-      threads: {
-        "mattermost:c1:m1": "2026-06-19T14:00:00Z",
-        "discord:c2:m2": "2026-06-19T15:00:00Z",
-      },
-    });
-    const result = await loadCheckpoint(cfg);
-    expect(Object.keys(result.threads)).toHaveLength(2);
-    expect(result.threads["discord:c2:m2"]).toBeDefined();
+    expect(result.lastIngestedAt).toBe("2026-06-19T14:00:00Z");
+    expect(result.lastLintAt).toBe("2026-06-19T15:00:00Z");
   });
 
   it("handles empty checkpoint file", async () => {
@@ -90,7 +66,7 @@ describe("memory checkpoint", () => {
       JSON.stringify({}),
     );
     const result = await loadCheckpoint(cfg);
-    expect(result.threads).toEqual({});
+    expect(result.lastIngestedAt).toBeUndefined();
     expect(result.lastLintAt).toBeUndefined();
   });
 });

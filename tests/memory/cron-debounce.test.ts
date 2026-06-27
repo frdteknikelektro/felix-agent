@@ -42,14 +42,16 @@ describe("memory cron debounce logic", () => {
     expect(now - new Date(lastEvent).getTime() >= 6 * 60 * 60 * 1000).toBe(true);
   });
 
-  it("save and reload checkpoint preserves thread entries", async () => {
+  it("save and reload checkpoint preserves timestamps", async () => {
     const cfg = makeConfig(tmp);
     await saveCheckpoint(cfg, {
-      threads: { "mattermost:c:m": "2026-06-19T14:00:00Z" },
+      lastIngestedAt: "2026-06-19T14:00:00Z",
+      lastLintAt: "2026-06-19T15:00:00Z",
     });
 
     const result = await loadCheckpoint(cfg);
-    expect(result.threads["mattermost:c:m"]).toBe("2026-06-19T14:00:00Z");
+    expect(result.lastIngestedAt).toBe("2026-06-19T14:00:00Z");
+    expect(result.lastLintAt).toBe("2026-06-19T15:00:00Z");
   });
 
   it("lint runs when lastLintAt is missing (first run)", () => {

@@ -3,26 +3,22 @@ import type { AppConfig } from "../../config.js";
 import { readJson, writeJsonAtomic } from "../../lib/fs.js";
 
 /**
- * Simplified checkpoint format: thread_key → ISO timestamp string directly.
- * This reduces the checkpoint file size by ~50% compared to the old format
- * where each entry was an object: { thread_key: { lastIngestAt: "..." } }.
+ * Minimal checkpoint: just two timestamps.
+ * - lastIngestedAt: when the last successful ingestion run completed
+ * - lastLintAt: when the last wiki lint run completed
  */
 export interface Checkpoint {
-  threads: Record<string, string>;
+  lastIngestedAt?: string;
   lastLintAt?: string;
 }
 
 export async function loadCheckpoint(cfg: AppConfig): Promise<Checkpoint> {
-  const raw = await readJson<Partial<Checkpoint>>(path.join(cfg.paths.memoryDir, "checkpoint.json"), {});
-  return {
-    threads: raw.threads ?? {},
-    lastLintAt: raw.lastLintAt,
-  };
+  return readJson<Checkpoint>(path.join(cfg.paths.memoryDir, "checkpoint.json"), {});
 }
 
 export async function saveCheckpoint(cfg: AppConfig, data: Checkpoint): Promise<void> {
   await writeJsonAtomic(path.join(cfg.paths.memoryDir, "checkpoint.json"), {
-    threads: data.threads,
+    lastIngestedAt: data.lastIngestedAt,
     lastLintAt: data.lastLintAt,
   });
 }
