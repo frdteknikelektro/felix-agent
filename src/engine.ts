@@ -106,9 +106,10 @@ export class FelixEngine {
       const session = await loadSessionState(thread);
       if (session.harness_session_id && this.harness.compact) {
         await this.postThreadReply(thread, event, undefined, "Compacting context...");
-        const success = await this.harness.compact(session.harness_session_id);
+        const success = await this.harness.compact(session.harness_session_id, thread.dir);
         if (success) {
-          await this.postThreadReply(thread, event, undefined, "Context compacted successfully.");
+          await clearHarnessSession(thread);
+          await this.postThreadReply(thread, event, undefined, "Context compacted successfully. Starting new session.");
         } else {
           await this.postThreadReply(thread, event, undefined, "Failed to compact context.");
         }

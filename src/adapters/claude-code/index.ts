@@ -17,6 +17,7 @@ import {
   buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
+import { appendCompactedContext } from "../../core/initial-md.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 // ─── Shared spawn ─────────────────────────────────────────────────────────
@@ -238,6 +239,56 @@ export class ClaudeCodeHarness implements Harness {
         error: error instanceof Error ? error.message : String(error),
       });
       return fallbackNotification(input.mode);
+    }
+  }
+
+  async compact(sessionId: string, threadDir?: string): Promise<boolean> {
+    const logPath = path.join(this.cfg.paths.root, `compact_claude_${sessionId}.log`);
+    const summarizationPrompt = [
+      "Please summarize our conversation so far.",
+      "Focus on:",
+      "- Key decisions made",
+      "- Important context and facts",
+      "- Current task status",
+      "- Any pending items",
+      "",
+      "Provide a concise summary that can be used as context for continuing the conversation.",
+    ].join("\n");
+
+    const args = [
+      "-p",
+      "--dangerously-skip-permissions",
+      "--model", this.cfg.CLAUDE_CODE_MODEL,
+      summarizationPrompt,
+    ];
+
+    try {
+      const { assistantText } = await claudeCodeRun(
+        this.cfg.CLAUDE_CODE_BIN,
+        args,
+        this.cfg.paths.root,
+        this.buildEnv(),
+        logPath,
+      );
+
+      const summary = assistantText.trim();
+      if (!summary) {
+        log.warn("claude-code.compact_empty_summary", { session_id: sessionId });
+        return false;
+      }
+
+      // Append summary to INITIAL.md
+      if (threadDir) {
+        await appendCompactedContext(threadDir, summary);
+      }
+
+      return true;
+    } catch (error) {
+      log.warn("claude-code.compact_failed", {
+        session_id: sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 }
