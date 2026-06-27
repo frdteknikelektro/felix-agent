@@ -18,6 +18,7 @@ import {
   buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
+import { appendCompactedContext } from "../../core/initial-md.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 export class CodexHarness implements Harness {
@@ -190,6 +191,93 @@ export class CodexHarness implements Harness {
         error: error instanceof Error ? error.message : String(error),
       });
       return fallbackNotification(input.mode);
+    }
+  }
+
+  async compact(sessionId: string, threadDir?: string): Promise<boolean> {
+    const logPath = path.join(this.cfg.paths.root, `compact_${sessionId}.log`);
+    const summarizationPrompt = [
+      "Please summarize our conversation so far.",
+      "Focus on:",
+      "- Key decisions made",
+      "- Important context and facts",
+      "- Current task status",
+      "- Any pending items",
+      "",
+      "Provide a concise summary that can be used as context for continuing the conversation.",
+    ].join("\n");
+
+    const args = [
+      sessionId,
+      summarizationPrompt,
+      "--json",
+      "--output-last-message", path.join(this.cfg.paths.root, `compact_${sessionId}.txt`),
+      ...(this.cfg.CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
+      "-c",
+      `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
+      "--model",
+      this.cfg.CODEX_MODEL,
+    ];
+
+    try {
+      const child = spawn(this.cfg.CODEX_BIN, ["resume", ...args], {
+        cwd: this.cfg.paths.root,
+        env: {
+          ...process.env,
+          WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
+          ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
+          OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
+          OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
+          OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
+          PATH: buildSpawnPath(this.cfg),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      await ensureDir(path.dirname(logPath));
+      const logStream = await fs.open(logPath, "a");
+
+      const exitCode = await new Promise<number>((resolve) => {
+        child.stdout.on("data", async (chunk: Buffer) => {
+          await appendText(logPath, chunk.toString("utf8"));
+        });
+        child.stderr.on("data", async (chunk: Buffer) => {
+          await appendText(`${logPath}.stderr`, chunk.toString("utf8"));
+        });
+        child.on("close", (code) => resolve(code ?? -1));
+        child.on("error", (error) => {
+          log.error("codex.compact_spawn_error", { error: error.message });
+          resolve(-1);
+        });
+      });
+
+      await logStream.close();
+
+      if (exitCode !== 0) {
+        log.warn("codex.compact_failed", { session_id: sessionId, exit_code: exitCode });
+        return false;
+      }
+
+      // Read the summary from the output file
+      const summaryPath = path.join(this.cfg.paths.root, `compact_${sessionId}.txt`);
+      const summary = await readText(summaryPath, "");
+      if (!summary.trim()) {
+        log.warn("codex.compact_empty_summary", { session_id: sessionId });
+        return false;
+      }
+
+      // Append summary to INITIAL.md
+      if (threadDir) {
+        await appendCompactedContext(threadDir, summary);
+      }
+
+      return true;
+    } catch (error) {
+      log.warn("codex.compact_failed", {
+        session_id: sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 }
