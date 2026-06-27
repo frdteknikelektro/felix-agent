@@ -30,7 +30,7 @@ describe("memory checkpoint", () => {
     expect(result.lastLintAt).toBeUndefined();
   });
 
-  it("saves and loads checkpoint data with threads (simplified format)", async () => {
+  it("saves and loads checkpoint data with threads", async () => {
     const cfg = makeConfig(tmp);
     const data = {
       threads: {
@@ -83,55 +83,14 @@ describe("memory checkpoint", () => {
     expect(result.threads["discord:c2:m2"]).toBeDefined();
   });
 
-  it("migrates legacy format (object with lastIngestAt) to simplified format", async () => {
-    const cfg = makeConfig(tmp);
-    // Write legacy format directly
-    fs.writeFileSync(
-      path.join(tmp, "memory", "checkpoint.json"),
-      JSON.stringify({
-        threads: {
-          "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" },
-          "discord:c2:m2": { lastIngestAt: "2026-06-19T15:00:00Z" },
-        },
-        lastLintAt: "2026-06-19T16:00:00Z",
-      }),
-    );
-    const result = await loadCheckpoint(cfg);
-    expect(result.threads["mattermost:c1:m1"]).toBe("2026-06-19T14:00:00Z");
-    expect(result.threads["discord:c2:m2"]).toBe("2026-06-19T15:00:00Z");
-    expect(result.lastLintAt).toBe("2026-06-19T16:00:00Z");
-
-    // Verify saving persists in new format
-    await saveCheckpoint(cfg, result);
-    const raw = JSON.parse(fs.readFileSync(path.join(tmp, "memory", "checkpoint.json"), "utf-8"));
-    expect(typeof raw.threads["mattermost:c1:m1"]).toBe("string");
-    expect(raw.threads["mattermost:c1:m1"]).toBe("2026-06-19T14:00:00Z");
-  });
-
-  it("handles legacy checkpoint without threads wrapper gracefully", async () => {
+  it("handles empty checkpoint file", async () => {
     const cfg = makeConfig(tmp);
     fs.writeFileSync(
       path.join(tmp, "memory", "checkpoint.json"),
-      JSON.stringify({
-        "mattermost:c1:m1": { lastIngestAt: "2026-06-19T14:00:00Z" },
-      }),
+      JSON.stringify({}),
     );
     const result = await loadCheckpoint(cfg);
     expect(result.threads).toEqual({});
     expect(result.lastLintAt).toBeUndefined();
-  });
-
-  it("handles empty legacy threads object", async () => {
-    const cfg = makeConfig(tmp);
-    fs.writeFileSync(
-      path.join(tmp, "memory", "checkpoint.json"),
-      JSON.stringify({
-        threads: {},
-        lastLintAt: "2026-06-19T14:00:00Z",
-      }),
-    );
-    const result = await loadCheckpoint(cfg);
-    expect(result.threads).toEqual({});
-    expect(result.lastLintAt).toBe("2026-06-19T14:00:00Z");
   });
 });
