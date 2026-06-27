@@ -74,6 +74,7 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
   const checkpoint = await loadCheckpoint(cfg);
   const threads = await listThreadHandles(cfg);
   const now = Date.now();
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
   let hasNew = false;
   for (const thread of threads) {
     const sess = await loadSessionState(thread);
@@ -81,7 +82,8 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
     const lastEvent = new Date(sess.last_event_at).getTime();
     if (now - lastEvent < 6 * 60 * 60 * 1000) continue;
     const lastIngestAt = checkpoint.threads[thread.state.thread_key];
-    const lastIngestTime = lastIngestAt ? new Date(lastIngestAt).getTime() : 0;
+    // If no checkpoint entry exists, assume ingested 1 day ago so new threads get processed
+    const lastIngestTime = lastIngestAt ? new Date(lastIngestAt).getTime() : now - ONE_DAY_MS;
     if (lastIngestTime < lastEvent) {
       hasNew = true;
       break;
