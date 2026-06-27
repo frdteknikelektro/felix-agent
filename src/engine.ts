@@ -119,6 +119,19 @@ export class FelixEngine {
       return;
     }
 
+    if (FelixEngine.isNewCommand(event)) {
+      await this.postThreadReply(thread, event, undefined, "Starting fresh session...");
+      await clearHarnessSession(thread);
+      // Clear INITIAL.md so next turn generates fresh context
+      const initialMdPath = path.join(thread.dir, "INITIAL.md");
+      await fs.promises.unlink(initialMdPath).catch(() => {});
+      // Clear transcript
+      const transcriptPath = path.join(thread.dir, "transcript.md");
+      await fs.promises.unlink(transcriptPath).catch(() => {});
+      await this.postThreadReply(thread, event, undefined, "Session cleared. Starting fresh.");
+      return;
+    }
+
     event.attachments = await this.prepareAttachments(thread, event, adapter);
 
     const eventFile = await appendEventToThread(thread, event);
@@ -153,6 +166,10 @@ export class FelixEngine {
 
   private static isCompactCommand(event: UniversalEvent): boolean {
     return event.text.trim().toLowerCase() === "/compact";
+  }
+
+  private static isNewCommand(event: UniversalEvent): boolean {
+    return event.text.trim().toLowerCase() === "/new";
   }
 
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
