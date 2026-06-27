@@ -116,4 +116,6 @@ export interface DecisionNotificationInput {
 export interface Harness {
   run(input: TurnInput): Promise<TurnResult>;
   generateDecisionNotification?(input: DecisionNotificationInput): Promise<string>;
+  /** Trigger compaction for the given session to reduce context size. */
+  compact?(sessionId: string): Promise<boolean>;
 }

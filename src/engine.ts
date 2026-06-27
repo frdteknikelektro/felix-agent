@@ -102,6 +102,22 @@ export class FelixEngine {
       return;
     }
 
+    if (FelixEngine.isCompactCommand(event)) {
+      const session = await loadSessionState(thread);
+      if (session.harness_session_id && this.harness.compact) {
+        await this.postThreadReply(thread, event, undefined, "Compacting context...");
+        const success = await this.harness.compact(session.harness_session_id);
+        if (success) {
+          await this.postThreadReply(thread, event, undefined, "Context compacted successfully.");
+        } else {
+          await this.postThreadReply(thread, event, undefined, "Failed to compact context.");
+        }
+      } else {
+        await this.postThreadReply(thread, event, undefined, "No active session to compact.");
+      }
+      return;
+    }
+
     event.attachments = await this.prepareAttachments(thread, event, adapter);
 
     const eventFile = await appendEventToThread(thread, event);
@@ -132,6 +148,10 @@ export class FelixEngine {
 
   private static isStopCommand(event: UniversalEvent): boolean {
     return event.text.trim().toLowerCase() === "/stop";
+  }
+
+  private static isCompactCommand(event: UniversalEvent): boolean {
+    return event.text.trim().toLowerCase() === "/compact";
   }
 
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {

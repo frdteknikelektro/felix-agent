@@ -265,6 +265,32 @@ export class OpencodeHarness implements Harness {
       return fallbackNotification(input.mode);
     }
   }
+
+  async compact(sessionId: string): Promise<boolean> {
+    const logPath = path.join(this.cfg.paths.root, `compact_${sessionId}.log`);
+    const args = [
+      "compact",
+      "--dir", this.cfg.paths.root,
+      "--session", sessionId,
+    ];
+
+    try {
+      const { exitCode } = await opencodeRun(
+        this.cfg.OPENCODE_BIN,
+        args,
+        this.cfg.paths.root,
+        await this.buildEnv(),
+        logPath,
+      );
+      return exitCode === 0;
+    } catch (error) {
+      log.warn("opencode.compact_failed", {
+        session_id: sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
 }
 
 export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
