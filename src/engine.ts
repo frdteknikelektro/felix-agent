@@ -103,6 +103,9 @@ export class FelixEngine {
     }
 
     if (FelixEngine.isCompactCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
       const session = await loadSessionState(thread);
       if (session.harness_session_id && this.harness.compact) {
         await this.postThreadReply(thread, event, undefined, "Compacting context...");
@@ -116,10 +119,16 @@ export class FelixEngine {
       } else {
         await this.postThreadReply(thread, event, undefined, "No active session to compact.");
       }
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
+      }
       return;
     }
 
     if (FelixEngine.isNewCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
       await this.postThreadReply(thread, event, undefined, "Starting fresh session...");
       await clearHarnessSession(thread);
       // Clear INITIAL.md so next turn generates fresh context
@@ -129,6 +138,9 @@ export class FelixEngine {
       const transcriptPath = path.join(thread.dir, "transcript.md");
       await fs.promises.unlink(transcriptPath).catch(() => {});
       await this.postThreadReply(thread, event, undefined, "Session cleared. Starting fresh.");
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
+      }
       return;
     }
 
