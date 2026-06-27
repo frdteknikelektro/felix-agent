@@ -3,7 +3,8 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../src/core/source-intake.js";
-import { createOrLoadThread, appendEventToThread, setPendingPermission } from "../src/slices/sessions/index.js";
+import { requestApproval } from "../src/slices/approvals/index.js";
+import { createOrLoadThread, appendEventToThread } from "../src/slices/sessions/index.js";
 import type { SessionPermissionRequest, UniversalEvent } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -54,7 +55,7 @@ async function seedPending(
       message_id: anchor.messageId,
     },
   };
-  await setPendingPermission(thread, request);
+  await requestApproval(cfg, thread, request);
 }
 
 describe("Source intake", () => {

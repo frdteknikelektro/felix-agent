@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import {
   isOwnerDecisionReactionToken,
+  requestApproval,
   routeOwnerDecisionFromEvent,
   routeOwnerDecisionFromReaction,
 } from "../src/slices/approvals/index.js";
-import { createOrLoadThread, setPendingPermission, type ThreadHandle } from "../src/slices/sessions/index.js";
+import { createOrLoadThread, type ThreadHandle } from "../src/slices/sessions/index.js";
 import type { SessionPermissionRequest, UniversalEvent } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -40,7 +41,7 @@ async function seedPending(
       message_id: anchor.messageId,
     },
   };
-  await setPendingPermission(thread, request);
+  await requestApproval(cfg, thread, request);
   return thread;
 }
 

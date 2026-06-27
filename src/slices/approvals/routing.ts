@@ -2,7 +2,7 @@ import type { AppConfig } from "../../config.js";
 import type { OwnerDecision, SourceMessageAnchor, UniversalEvent } from "../../types.js";
 import { parseDecisionToken } from "../../core/decision.js";
 import { parseOwnerDecisionAsync } from "./decision.js";
-import { resolvePendingPermissionThreadExact } from "./resolve.js";
+import { hasPendingApproval } from "./registry.js";
 
 export type OwnerDecisionRoute =
   | { kind: "routed"; decision: OwnerDecision }
@@ -70,8 +70,7 @@ export async function routeOwnerDecisionCandidate(
   cfg: AppConfig,
   decision: OwnerDecision,
 ): Promise<OwnerDecisionRoute> {
-  const found = await resolvePendingPermissionThreadExact(cfg, decision.target);
-  if (!found) return { kind: "no_pending_approval" };
+  if (!(await hasPendingApproval(cfg, decision.target))) return { kind: "no_pending_approval" };
   return { kind: "routed", decision };
 }
 

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { requestApproval, resolvePendingPermissionThread, resolvePendingPermissionThreadExact } from "../src/slices/approvals/index.js";
-import { createOrLoadThread, setPendingPermission, type ThreadHandle } from "../src/slices/sessions/index.js";
+import { createOrLoadThread, type ThreadHandle } from "../src/slices/sessions/index.js";
 import type { AppConfig } from "../src/config.js";
 import type { SessionPermissionRequest } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
@@ -34,7 +34,7 @@ async function seedPending(
       ? { source: "mattermost", message_id: anchor.postId, conversation_id: anchor.channelId }
       : undefined,
   };
-  await setPendingPermission(thread, request);
+  await requestApproval(cfg, thread, request);
   return thread;
 }
 

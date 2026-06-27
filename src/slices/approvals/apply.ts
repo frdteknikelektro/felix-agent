@@ -1,9 +1,8 @@
 import type { AppConfig } from "../../config.js";
 import type { OwnerDecision } from "../../types.js";
-import { decideApproval, type ApprovalRecord, type PermissionGrant } from "./registry.js";
+import { decideApproval, findPendingApproval, type ApprovalRecord, type PermissionGrant } from "./registry.js";
 import { grantPermissions } from "../contacts/index.js";
-import { resolvePendingPermissionThreadExact } from "./resolve.js";
-import { loadSessionState, type ThreadHandle } from "../sessions/index.js";
+import type { ThreadHandle } from "../sessions/index.js";
 import { log } from "../../lib/log.js";
 
 export interface AppliedOwnerDecision {
@@ -29,21 +28,17 @@ export async function applyOwnerDecision(
   cfg: AppConfig,
   decision: OwnerDecision,
 ): Promise<AppliedOwnerDecision | null> {
-  const thread = await resolvePendingPermissionThreadExact(cfg, decision.target);
-  if (!thread) {
+  const pendingApproval = await findPendingApproval(cfg, decision.target);
+  if (!pendingApproval) {
     log.warn("owner.permission_thread_not_found", { target: decision.target });
     return null;
   }
-  const session = await loadSessionState(thread);
-  const pending = session.pending_permission;
-  if (!pending) {
-    return null;
-  }
+  const { thread, request } = pendingApproval;
   const at = new Date().toISOString();
   const { decisionFile, record, grant } = await decideApproval(
     cfg,
     thread,
-    pending,
+    request,
     { mode: decision.mode },
     decision.decidedBy,
     at,

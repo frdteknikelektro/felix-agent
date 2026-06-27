@@ -1,10 +1,15 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { decideApproval, listApprovalRecords, requestApproval } from "../src/slices/approvals/index.js";
+import {
+  decideApproval,
+  findPendingApproval,
+  listApprovalRecords,
+  listPendingApprovals,
+  requestApproval,
+} from "../src/slices/approvals/index.js";
 import { loadContact } from "../src/slices/contacts/index.js";
-import { createOrLoadThread, loadSessionState } from "../src/slices/sessions/index.js";
+import { createOrLoadThread, loadSessionState, setPendingPermission } from "../src/slices/sessions/index.js";
 import type { AppConfig } from "../src/config.js";
 import type { SessionPermissionRequest } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
@@ -47,6 +52,45 @@ describe("approval lifecycle", () => {
     expect(records).toHaveLength(1);
     expect(records[0]?.status).toBe("pending");
     expect(records[0]?.skillId).toBe("test-skill");
+  });
+
+  it("lists pending approvals from registry records", async () => {
+    const cfg = await makeCfg("felix-approval-pending-list-");
+    const { thread } = await seedPending(cfg);
+
+    const pending = await listPendingApprovals(cfg);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.thread.state.thread_key).toBe(thread.state.thread_key);
+    expect(pending[0]?.record.status).toBe("pending");
+    expect(pending[0]?.request).toMatchObject({
+      request_id: "req-1",
+      skill_id: "test-skill",
+      requester_event_file: path.join(thread.eventsDir, "req_permission_request.md"),
+    });
+  });
+
+  it("does not treat a session-only pending permission as a pending approval", async () => {
+    const cfg = await makeCfg("felix-approval-session-only-");
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:chan:session-only",
+      source_thread_ref: mattermostThreadRef("chan", "session-only"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    await setPendingPermission(thread, {
+      request_id: "session-only",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "test-skill",
+      permissions: ["net:fetch"],
+      reason: "needs network",
+      owner_message: "Owner approval required.",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "user-7", display: "Jala" },
+      requester_event_file: path.join(thread.eventsDir, "session_only_permission_request.md"),
+    });
+
+    await expect(findPendingApproval(cfg, { kind: "thread", threadKey: thread.state.thread_key })).resolves.toBeNull();
   });
 
   it("reject decision clears pending, marks rejected, grants nothing", async () => {

@@ -2,11 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { AppConfig } from "./config.js";
-import { requestApproval } from "./slices/approvals/index.js";
+import { hasPendingApproval, requestApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, createOrLoadThread, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, saveSessionState, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
-import { applyOwnerDecision, resolvePendingPermissionThreadExact, type ApprovalRecord } from "./slices/approvals/index.js";
+import { applyOwnerDecision, type ApprovalRecord } from "./slices/approvals/index.js";
 import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import { appendUsageRecord, deltaCumulative, resolveContactId } from "./slices/usage/index.js";
@@ -584,10 +584,7 @@ export class FelixEngine {
   }
 
   async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
-    const thread = await resolvePendingPermissionThreadExact(this.cfg, target);
-    if (!thread) return false;
-    const session = await loadSessionState(thread);
-    return Boolean(session.pending_permission);
+    return hasPendingApproval(this.cfg, target);
   }
 
   async handleOwnerDecision(decision: OwnerDecision): Promise<boolean> {
