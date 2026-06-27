@@ -91,6 +91,9 @@ export class FelixEngine {
     }
 
     if (FelixEngine.isStopCommand(event)) {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
       const session = await loadSessionState(thread);
       if (session.busy) {
         this.abortThread(thread.state.thread_key);
@@ -98,6 +101,9 @@ export class FelixEngine {
         await this.postThreadReply(thread, event, undefined, "Stopped.");
       } else {
         await this.postThreadReply(thread, event, undefined, "Nothing running.");
+      }
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "replied" });
       }
       return;
     }
