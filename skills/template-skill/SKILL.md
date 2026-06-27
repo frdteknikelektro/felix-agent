@@ -11,16 +11,16 @@ enabled: false
 kind: general
 # └───────────────────────────────────────────────────────────────────┘
 
-# ┌─ permissions — use {skill-id}.{action} naming ───────────────────┐
+# ┌─ permissions — use bare {domain}.{action} names ─────────────────┐
 #  | Format                   | Example               |
 #  |--------------------------|-----------------------|
-#  | `{id}.read`              | `github.read`         |
-#  | `{id}.write`             | `github.write`        |
-#  | `{id}.review`            | `github.review`       |
-#  | `{id}.run`               | `install.run`         |
-#  | `{id}.{action}`          | `felix-browser.navigate` |
-#  | `{id}.create` / `.read`  | `task.create`         |
-#  The runtime auto‑prefixes with `{id}:` at load time.
+#  | `{domain}.read`          | `github.read`         |
+#  | `{domain}.write`         | `github.write`        |
+#  | `{domain}.review`        | `github.review`       |
+#  | `{domain}.run`           | `install.run`         |
+#  | `{domain}.{action}`      | `felix-browser.navigate`|
+#  | `{domain}.create`        | `task.create`         |
+#  The runtime namespaces these as `{skill-id}:{permission}` at load time.
 permissions: []
 # └───────────────────────────────────────────────────────────────────┘
 
@@ -92,9 +92,9 @@ Concrete end‑to‑end scenarios this skill handles.
 
 ## Permissions
 
-List every permission this skill needs, one per line. Use the
-`{skill-id}.{action}` naming convention from the frontmatter.
-The runtime auto‑prefixes with `{id}:` at load time.
+List every permission this skill needs, one per line. Use bare
+`{domain}.{action}` permission names in frontmatter. The runtime namespaces
+these as `{skill-id}:{permission}` at load time.
 
 **For this example skill:**
 > - `deploy.run` — execute the deployment
