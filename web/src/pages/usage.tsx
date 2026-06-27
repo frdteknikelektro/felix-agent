@@ -10,10 +10,6 @@ import { compactNumber, formatNumber, sourceLabel, threadLabel } from "@/lib/for
 import { cn } from "@/lib/utils";
 import type { UsageBreakdownRow, UsageView, UsageWindow } from "@/lib/types";
 
-// Max breakdown rows shown per card — must match report.mjs's cap so the web
-// console and the chat skill agree on how many rows they surface.
-const ROW_LIMIT = 20;
-
 const WINDOWS: { key: UsageWindow; label: string }[] = [
   { key: "today", label: "Today" },
   { key: "week", label: "This week" },
@@ -75,10 +71,10 @@ export function Usage() {
           )}
 
           <div className="grid gap-6 lg:grid-cols-2">
-            <BreakdownCard title="By contact" icon={Users} rows={data.byContact} labelOf={(k) => k} />
-            <BreakdownCard title="By source" icon={MessagesSquare} rows={data.bySource} labelOf={sourceLabel} />
-            <BreakdownCard title="By model" icon={Cpu} rows={data.byModel} labelOf={(k) => k} />
-            <BreakdownCard title="By thread" icon={Hash} rows={data.byThread} labelOf={threadLabel} />
+            <BreakdownCard title="By contact" icon={Users} rows={data.byContact} rowLimit={data.breakdownLimit} labelOf={(k) => k} />
+            <BreakdownCard title="By source" icon={MessagesSquare} rows={data.bySource} rowLimit={data.breakdownLimit} labelOf={sourceLabel} />
+            <BreakdownCard title="By model" icon={Cpu} rows={data.byModel} rowLimit={data.breakdownLimit} labelOf={(k) => k} />
+            <BreakdownCard title="By thread" icon={Hash} rows={data.byThread} rowLimit={data.breakdownLimit} labelOf={threadLabel} />
           </div>
         </>
       )}
@@ -90,11 +86,13 @@ function BreakdownCard({
   title,
   icon: Icon,
   rows,
+  rowLimit,
   labelOf,
 }: {
   title: string;
   icon: typeof Users;
   rows: UsageBreakdownRow[];
+  rowLimit: number;
   labelOf: (key: string) => string;
 }) {
   const max = rows.reduce((m, r) => Math.max(m, r.total), 0) || 1;
@@ -111,7 +109,7 @@ function BreakdownCard({
           <EmptyState icon={Icon} title="No data" />
         ) : (
           <ul className="space-y-2.5">
-            {rows.slice(0, ROW_LIMIT).map((r) => (
+            {rows.slice(0, rowLimit).map((r) => (
               <li key={r.key}>
                 <div className="flex items-baseline justify-between gap-2 text-sm">
                   <span className="min-w-0 flex-1 truncate" title={r.key}>
@@ -129,8 +127,8 @@ function BreakdownCard({
                 </div>
               </li>
             ))}
-            {rows.length > ROW_LIMIT && (
-              <li className="pt-1 text-xs text-muted-foreground">+{rows.length - ROW_LIMIT} more</li>
+            {rows.length > rowLimit && (
+              <li className="pt-1 text-xs text-muted-foreground">+{rows.length - rowLimit} more</li>
             )}
           </ul>
         )}

@@ -13,9 +13,8 @@ import {
   addSkillAudit,
   addContactAudit,
   addApprovalAudit,
-  usageView,
 } from "../owner-data.js";
-import type { UsageWindow } from "../slices/usage/index.js";
+import { parseUsageWindow, usageView } from "../slices/usage/index.js";
 import { listApprovalRecords } from "../slices/approvals/index.js";
 import {
   ContactEditorError,
@@ -357,9 +356,7 @@ export const API_ROUTES: Route[] = [
     method: "GET",
     pattern: "/api/usage",
     async handler({ cfg, searchParams, send }) {
-      const requested = searchParams.get("window") ?? "today";
-      const allowed = ["today", "week", "month", "all"];
-      const window = (allowed.includes(requested) ? requested : "today") as UsageWindow;
+      const window = parseUsageWindow(searchParams.get("window")) ?? "today";
       send(200, await usageView(cfg, window));
     },
   },

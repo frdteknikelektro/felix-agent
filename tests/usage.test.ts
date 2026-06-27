@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { normalizeUsage } from "../src/core/harness-common.js";
 import { tzDateKey, weekStartKey, monthStartKey, dateKeyRange } from "../src/lib/time.js";
-import { aggregateRecords, deltaCumulative, resolveContactId } from "../src/slices/usage/index.js";
-// @ts-expect-error — report.mjs is an untyped ESM skill script, imported to assert parity.
-import { aggregate as reportAggregate } from "../skills/usage-report/report.mjs";
+import {
+  aggregateRecords,
+  aggregateUsageFromDirectory,
+  deltaCumulative,
+  parseUsageWindow,
+  renderUsageReport,
+  resolveContactId,
+  usageReportFromDirectory,
+} from "../src/slices/usage/index.js";
 import type { UsageRecord } from "../src/types.js";
 import type { TurnUsage } from "../src/core/ports.js";
 
@@ -93,6 +102,7 @@ describe("aggregateRecords", () => {
     const v = aggregateRecords(records, "all", tz, now);
     expect(v.totals.turns).toBe(4);
     expect(v.totals.total).toBe(1654);
+    expect(v.breakdownLimit).toBe(20);
   });
 
   it("groups breakdowns and sorts by total desc", () => {
@@ -113,15 +123,40 @@ describe("aggregateRecords", () => {
     expect(v.totals.turns).toBe(0);
   });
 
-  it("matches the usage-report skill's aggregation (parity)", () => {
-    for (const window of ["today", "week", "month", "all"] as const) {
-      const server = aggregateRecords(records, window, "UTC", now);
-      const skill = reportAggregate(records, window, now); // report.mjs defaults to UTC
-      expect(skill.totals.total).toBe(server.totals.total);
-      expect(skill.byContact.map((r: [string, number]) => r[0])).toEqual(
-        server.byContact.map((r) => r.key),
-      );
-    }
+  it("parses known windows only", () => {
+    expect(parseUsageWindow("today")).toBe("today");
+    expect(parseUsageWindow("bogus")).toBeNull();
+    expect(parseUsageWindow(null)).toBeNull();
+  });
+
+  it("reads windowed records from a usage directory and skips malformed rows", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-usage-"));
+    await fs.writeFile(
+      path.join(dir, "2026-06-26.jsonl"),
+      `${JSON.stringify(records[0])}\nnot-json\n${JSON.stringify(records[1])}\n`,
+      "utf8",
+    );
+    await fs.writeFile(path.join(dir, "2026-05-30.jsonl"), `${JSON.stringify(records[3])}\n`, "utf8");
+
+    const view = await aggregateUsageFromDirectory(dir, "UTC", "week", now);
+    expect(view.totals.turns).toBe(2);
+    expect(view.totals.total).toBe(355);
+  });
+
+  it("renders the same read model used by the usage-report skill", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-usage-report-"));
+    await fs.writeFile(path.join(dir, "2026-06-26.jsonl"), `${JSON.stringify(records[0])}\n`, "utf8");
+
+    const report = await usageReportFromDirectory(dir, "UTC", ["today"], now);
+    expect(report).toContain("## Token usage (timezone: UTC)");
+    expect(report).toContain("- Total: **155** tokens over 1 turn");
+    expect(report).toContain("- By contact: c1 (155)");
+  });
+
+  it("renders empty windows without breakdowns", () => {
+    const report = renderUsageReport([aggregateRecords([], "today", "UTC", now)]);
+    expect(report).toContain("No usage recorded.");
+    expect(report).not.toContain("By contact");
   });
 });
 

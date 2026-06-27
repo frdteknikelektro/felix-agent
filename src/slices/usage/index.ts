@@ -8,6 +8,8 @@ import type { AppConfig } from "../../config.js";
 export { deltaCumulative, resolveContactId, type CumulativeTotals } from "../sessions/index.js";
 
 export type UsageWindow = "today" | "week" | "month" | "all";
+export const USAGE_WINDOWS: UsageWindow[] = ["today", "week", "month", "all"];
+export const USAGE_BREAKDOWN_ROW_LIMIT = 20;
 
 export interface UsageTotals {
   input: number;
@@ -26,6 +28,7 @@ export interface UsageView {
   window: UsageWindow;
   tz: string;
   generatedAt: string;
+  breakdownLimit: number;
   totals: UsageTotals;
   byContact: UsageBreakdownRow[];
   bySource: UsageBreakdownRow[];
@@ -33,18 +36,25 @@ export interface UsageView {
   byThread: UsageBreakdownRow[];
 }
 
+const TOKENS_TODAY_TTL_MS = 5000;
+let tokensTodayCache: { dayKey: string; value: number; expiresAt: number } | null = null;
+
 function usageDir(cfg: AppConfig): string {
   return cfg.paths.usage;
 }
 
-function usageFile(cfg: AppConfig, dateKey: string): string {
-  return path.join(usageDir(cfg), `${dateKey}.jsonl`);
+function usageFile(usageDirectory: string, dateKey: string): string {
+  return path.join(usageDirectory, `${dateKey}.jsonl`);
 }
 
 /** Append one usage record, partitioned into the day file for its TZ-local date. */
 export async function appendUsageRecord(cfg: AppConfig, record: UsageRecord): Promise<void> {
   const dateKey = tzDateKey(record.at, cfg.USAGE_TZ);
-  await appendText(usageFile(cfg, dateKey), `${JSON.stringify(record)}\n`);
+  await appendText(usageFile(usageDir(cfg), dateKey), `${JSON.stringify(record)}\n`);
+}
+
+export function parseUsageWindow(input: string | null | undefined): UsageWindow | null {
+  return USAGE_WINDOWS.includes(input as UsageWindow) ? (input as UsageWindow) : null;
 }
 
 function shiftKey(dateKey: string, days: number): string {
@@ -117,6 +127,7 @@ export function aggregateRecords(
     window,
     tz,
     generatedAt: now.toISOString(),
+    breakdownLimit: USAGE_BREAKDOWN_ROW_LIMIT,
     totals,
     byContact: breakdown(filtered, (r) => r.contact_id),
     bySource: breakdown(filtered, (r) => r.source),
@@ -125,8 +136,8 @@ export function aggregateRecords(
   };
 }
 
-async function readDayFile(cfg: AppConfig, dateKey: string): Promise<UsageRecord[]> {
-  const raw = await readText(usageFile(cfg, dateKey), "");
+async function readDayFile(usageDirectory: string, dateKey: string): Promise<UsageRecord[]> {
+  const raw = await readText(usageFile(usageDirectory, dateKey), "");
   if (!raw) return [];
   const out: UsageRecord[] = [];
   for (const line of raw.split(/\r?\n/)) {
@@ -142,11 +153,25 @@ async function readDayFile(cfg: AppConfig, dateKey: string): Promise<UsageRecord
   return out;
 }
 
-async function allDayKeys(cfg: AppConfig): Promise<string[]> {
-  const entries = await fs.readdir(usageDir(cfg), { withFileTypes: true }).catch(() => []);
+async function allDayKeys(usageDirectory: string): Promise<string[]> {
+  const entries = await fs.readdir(usageDirectory, { withFileTypes: true }).catch(() => []);
   return entries
     .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
     .map((e) => e.name.slice(0, -".jsonl".length));
+}
+
+export async function aggregateUsageFromDirectory(
+  usageDirectory: string,
+  tz: string,
+  window: UsageWindow,
+  now: Date = new Date(),
+): Promise<UsageView> {
+  const keys = window === "all" ? await allDayKeys(usageDirectory) : candidateKeys(window, now, tz);
+  const records: UsageRecord[] = [];
+  for (const key of keys) {
+    records.push(...(await readDayFile(usageDirectory, key)));
+  }
+  return aggregateRecords(records, window, tz, now);
 }
 
 /** Read the day files a window needs and aggregate them into a {@link UsageView}. */
@@ -155,11 +180,86 @@ export async function aggregateUsage(
   window: UsageWindow,
   now: Date = new Date(),
 ): Promise<UsageView> {
-  const tz = cfg.USAGE_TZ;
-  const keys = window === "all" ? await allDayKeys(cfg) : candidateKeys(window, now, tz);
-  const records: UsageRecord[] = [];
-  for (const key of keys) {
-    records.push(...(await readDayFile(cfg, key)));
+  return aggregateUsageFromDirectory(usageDir(cfg), cfg.USAGE_TZ, window, now);
+}
+
+/** Windowed token-usage read model for the owner console Usage page. */
+export async function usageView(cfg: AppConfig, window: UsageWindow, now: Date = new Date()): Promise<UsageView> {
+  return aggregateUsage(cfg, window, now);
+}
+
+/** Cached dashboard read model for the live "tokens today" counter. */
+export async function tokensToday(cfg: AppConfig, now: Date = new Date()): Promise<number> {
+  const dayKey = tzDateKey(now, cfg.USAGE_TZ);
+  if (tokensTodayCache && tokensTodayCache.dayKey === dayKey && now.getTime() < tokensTodayCache.expiresAt) {
+    return tokensTodayCache.value;
   }
-  return aggregateRecords(records, window, tz, now);
+  const view = await aggregateUsage(cfg, "today", now);
+  tokensTodayCache = { dayKey, value: view.totals.total, expiresAt: now.getTime() + TOKENS_TODAY_TTL_MS };
+  return view.totals.total;
+}
+
+const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
+
+function usageWindowTitle(window: UsageWindow): string {
+  switch (window) {
+    case "today":
+      return "Today";
+    case "week":
+      return "This week";
+    case "month":
+      return "This month";
+    case "all":
+      return "All time";
+  }
+}
+
+function renderBreakdown(label: string, rows: UsageBreakdownRow[], limit: number): string | null {
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, limit).map((row) => `${row.key} (${fmt(row.total)})`);
+  const suffix = rows.length > limit ? ` ... +${rows.length - limit} more` : "";
+  return `- ${label}: ${shown.join(", ")}${suffix}`;
+}
+
+export function renderUsageWindow(view: UsageView): string {
+  const lines = [`### ${usageWindowTitle(view.window)}`];
+  const t = view.totals;
+  if (t.turns === 0) {
+    lines.push("No usage recorded.");
+    return lines.join("\n");
+  }
+  const turnLabel = t.turns === 1 ? "turn" : "turns";
+  lines.push(
+    `- Total: **${fmt(t.total)}** tokens over ${fmt(t.turns)} ${turnLabel} (input ${fmt(t.input)}, output ${fmt(t.output)}` +
+      (t.cache_read || t.cache_write ? `, cache ${fmt(t.cache_read)} read / ${fmt(t.cache_write)} write` : "") +
+      ")",
+  );
+  const limit = view.breakdownLimit;
+  for (const line of [
+    renderBreakdown("By contact", view.byContact, limit),
+    renderBreakdown("By source", view.bySource, limit),
+    renderBreakdown("By model", view.byModel, limit),
+    renderBreakdown("By thread", view.byThread, limit),
+  ]) {
+    if (line) lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+export function renderUsageReport(views: UsageView[]): string {
+  const tz = views[0]?.tz ?? "UTC";
+  return [`## Token usage (timezone: ${tz})`, ...views.map(renderUsageWindow)].join("\n\n");
+}
+
+export async function usageReportFromDirectory(
+  usageDirectory: string,
+  tz: string,
+  windows: UsageWindow[],
+  now: Date = new Date(),
+): Promise<string> {
+  const views: UsageView[] = [];
+  for (const window of windows) {
+    views.push(await aggregateUsageFromDirectory(usageDirectory, tz, window, now));
+  }
+  return renderUsageReport(views);
 }

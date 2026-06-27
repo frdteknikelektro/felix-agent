@@ -11,7 +11,7 @@ import { findThreadHandle, listThreadHandles, loadSessionState, loadThreadState,
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
-import { aggregateUsage, type UsageView, type UsageWindow } from "./slices/usage/index.js";
+import { tokensToday } from "./slices/usage/index.js";
 import { tzDateKey } from "./lib/time.js";
 
 export interface SessionSummary {
@@ -207,35 +207,15 @@ export function chatMessageFromEvent(
  * Build the live dashboard snapshot. Reads session summaries, approvals and the
  * audit log, then delegates to the pure {@link buildDashboardSnapshot}.
  */
-// The dashboard SSE stream polls once per second; re-reading + Zod-parsing today's
-// usage file every tick is wasteful. Cache the "tokens today" total briefly.
-const TOKENS_TODAY_TTL_MS = 5000;
-let tokensTodayCache: { dayKey: string; value: number; expiresAt: number } | null = null;
-
-async function cachedTokensToday(cfg: AppConfig, now: Date): Promise<number> {
-  const dayKey = tzDateKey(now, cfg.USAGE_TZ);
-  if (tokensTodayCache && tokensTodayCache.dayKey === dayKey && now.getTime() < tokensTodayCache.expiresAt) {
-    return tokensTodayCache.value;
-  }
-  const view = await aggregateUsage(cfg, "today", now);
-  tokensTodayCache = { dayKey, value: view.totals.total, expiresAt: now.getTime() + TOKENS_TODAY_TTL_MS };
-  return view.totals.total;
-}
-
 export async function dashboardSnapshot(cfg: AppConfig): Promise<DashboardSnapshot> {
   const now = new Date();
-  const [summaries, approvals, audit, tokensToday] = await Promise.all([
+  const [summaries, approvals, audit, todayTokens] = await Promise.all([
     listSessionSummaries(cfg),
     listApprovalRecords(cfg),
     listAuditForUi(cfg),
-    cachedTokensToday(cfg, now),
+    tokensToday(cfg, now),
   ]);
-  return buildDashboardSnapshot(summaries, approvals, audit, now, tokensToday, cfg.USAGE_TZ);
-}
-
-/** Windowed token-usage view for the owner console Usage page. */
-export async function usageView(cfg: AppConfig, window: UsageWindow): Promise<UsageView> {
-  return aggregateUsage(cfg, window);
+  return buildDashboardSnapshot(summaries, approvals, audit, now, todayTokens, cfg.USAGE_TZ);
 }
 
 /**

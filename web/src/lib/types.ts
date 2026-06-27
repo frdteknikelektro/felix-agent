@@ -187,6 +187,7 @@ export interface UsageView {
   window: UsageWindow;
   tz: string;
   generatedAt: string;
+  breakdownLimit: number;
   totals: UsageTotals;
   byContact: UsageBreakdownRow[];
   bySource: UsageBreakdownRow[];
