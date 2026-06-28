@@ -16,6 +16,7 @@ import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, Univers
 import { createSourceHost } from "../../core/source-host.js";
 import {
   AttachmentRejectedError,
+  formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
 import {
@@ -51,7 +52,10 @@ let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
 let ownerSharesNumber = true;
 let lastSendAt = 0;
-const SEND_MIN_GAP_MS = 5000;
+// Typing presence is per-conversation: a typing indicator in one chat must not
+// suppress one in another. Sends stay globally rate-limited (see lastSendAt).
+const lastTypingAtByChat = new Map<string, number>();
+const WHATSAPP_OUTBOUND_MIN_GAP_MS = 6000;
 
 // Webhook intake is module-level (registered by app.ts), so its dedup lives here
 // alongside the other module-level webhook state rather than on the adapter
@@ -153,8 +157,8 @@ async function cleanupExpiredBotMessages(cfg: AppConfig): Promise<void> {
 
 async function waitForSendSlot(): Promise<void> {
   const elapsed = Date.now() - lastSendAt;
-  if (elapsed < SEND_MIN_GAP_MS) {
-    await new Promise((r) => setTimeout(r, SEND_MIN_GAP_MS - elapsed));
+  if (elapsed < WHATSAPP_OUTBOUND_MIN_GAP_MS) {
+    await new Promise((r) => setTimeout(r, WHATSAPP_OUTBOUND_MIN_GAP_MS - elapsed));
   }
   lastSendAt = Date.now();
 }
@@ -177,6 +181,7 @@ interface WacliMessageShowData {
   MediaCaption?: string;
   Filename?: string;
   MimeType?: string;
+  LocalPath?: string;
 }
 
 interface WacliMessageShowResponse {
@@ -240,6 +245,47 @@ async function resolveWacliWebhookMessage(
   meta.resolvedChatJid = resolved.Chat;
   meta.resolvedSenderJid = resolved.SenderJID;
   return { payload: resolved, meta };
+}
+
+// Looks up a message's media location via `messages show`. Unlike `media
+// download`, the `show` query is LID-tolerant — it resolves the supplied chat
+// JID in both directions and returns the canonical (phone-number) ChatJID the
+// store actually keys media under, plus the LocalPath that `sync
+// --download-media` recorded once the background download completed.
+function resolveWacliMediaLocation(
+  cfg: AppConfig,
+  chatJid: string,
+  msgId: string,
+): { canonicalChatJid: string; localPath: string } {
+  const fallback = { canonicalChatJid: chatJid, localPath: "" };
+  if (!chatJid || !msgId) return fallback;
+
+  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
+    "messages", "show",
+    "--chat", chatJid,
+    "--id", msgId,
+    "--json",
+  ], {
+    encoding: "utf8",
+    timeout: 10_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) return fallback;
+
+  let parsed: WacliMessageShowResponse;
+  try {
+    parsed = JSON.parse(result.stdout || "{}") as WacliMessageShowResponse;
+  } catch {
+    return fallback;
+  }
+
+  const data = parsed.data;
+  if (!parsed.success || !data || data.MsgID !== msgId) return fallback;
+
+  return {
+    canonicalChatJid: nonEmpty(data.ChatJID) ?? chatJid,
+    localPath: nonEmpty(data.LocalPath) ?? "",
+  };
 }
 
 function enrichParsedMessageFromWacli(payload: ParsedMessage, data: WacliMessageShowData): ParsedMessage {
@@ -842,7 +888,7 @@ class WhatsAppAdapter implements SourceAdapter {
         `  --caption "${prefix}<optional caption>"`,
         "```",
         ...(this.sameNumber ? [`Always include the *[${botName}]* prefix in file captions.`] : []),
-        "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. Use `file <path>` to identify the media type, `identify <path>` for image metadata, `exiftool <path>` for detailed EXIF, and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
+        "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering — do NOT describe an image from metadata alone. Use `identify <path>` / `exiftool <path>` only for supplementary metadata (dimensions, EXIF). For other files use `file <path>` to identify the type and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
         "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
       ],
     };
@@ -874,7 +920,10 @@ class WhatsAppAdapter implements SourceAdapter {
   async sendTyping(input: { event: UniversalEvent }): Promise<void> {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid || this.typingInFlight) return;
+    const elapsed = Date.now() - (lastTypingAtByChat.get(chatJid) ?? 0);
+    if (elapsed < WHATSAPP_OUTBOUND_MIN_GAP_MS) return;
 
+    lastTypingAtByChat.set(chatJid, Date.now());
     this.typingInFlight = true;
     await new Promise<void>((resolve) => {
       let settled = false;
@@ -1085,40 +1134,78 @@ class WhatsAppAdapter implements SourceAdapter {
     );
     await ensureDir(path.dirname(dest));
 
-    const args = [
-      "media", "download",
-      "--chat", chatJid,
-      "--id", input.attachment.file_id,
-      "--output", dest,
-      "--read-only",
-    ];
+    // `media download` keys media on the canonical phone-number JID and rejects
+    // the LID/raw form a webhook may carry; `messages show` is LID-tolerant and
+    // also surfaces the file `sync --download-media` already fetched. Prefer the
+    // synced copy (no second server fetch) and fall back to a download against
+    // the canonical JID.
+    const { canonicalChatJid, localPath } = resolveWacliMediaLocation(
+      this.cfg,
+      chatJid,
+      input.attachment.file_id,
+    );
 
-    try {
-      const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
-        encoding: "utf8",
-        timeout: 120_000,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      if (result.status !== 0) {
-        const err = result.stderr || `exit ${result.status}`;
-        throw new Error(`media download failed: ${err.trim()}`);
+    let copiedFromStore = false;
+    if (localPath) {
+      try {
+        await fs.copyFile(localPath, dest);
+        copiedFromStore = true;
+      } catch (error) {
+        log.warn("whatsapp.media_store_copy_failed", {
+          chat_jid: canonicalChatJid,
+          msg_id: input.attachment.file_id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-    } catch (error) {
-      log.warn("whatsapp.media_download_failed", {
-        chat_jid: chatJid,
-        msg_id: input.attachment.file_id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    }
+
+    if (!copiedFromStore) {
+      const args = [
+        "media", "download",
+        "--chat", canonicalChatJid,
+        "--id", input.attachment.file_id,
+        "--output", dest,
+        "--read-only",
+      ];
+
+      try {
+        const result = spawnSync(this.cfg.WHATSAPP_WACLI_BIN, args, {
+          encoding: "utf8",
+          timeout: 120_000,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        if (result.status !== 0) {
+          const err = result.stderr || `exit ${result.status}`;
+          throw new Error(`media download failed: ${err.trim()}`);
+        }
+      } catch (error) {
+        log.warn("whatsapp.media_download_failed", {
+          chat_jid: canonicalChatJid,
+          msg_id: input.attachment.file_id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw new AttachmentRejectedError(
+          "Media download failed",
+          error instanceof Error ? error.message : "Unknown error",
+        );
+      }
+    }
+
+    // The size gate above trusts the declared size; enforce the real limit on
+    // the file actually written, whether copied from the store or downloaded.
+    const stat = await fs.stat(dest);
+    if (stat.size > input.maxBytes) {
+      await fs.rm(dest, { force: true });
       throw new AttachmentRejectedError(
-        "Media download failed",
-        error instanceof Error ? error.message : "Unknown error",
+        `attachment exceeds ${formatBytes(input.maxBytes)}`,
+        `File is ${formatBytes(stat.size)}, above the ${formatBytes(input.maxBytes)} limit.`,
       );
     }
 
     return {
       ...input.attachment,
       filename,
-      size_bytes: input.attachment.size_bytes,
+      size_bytes: stat.size,
       local_path: dest,
       status: "available",
     };

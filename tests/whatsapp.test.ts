@@ -317,6 +317,183 @@ describe("WhatsAppAdapter downloadAttachment argument shape", () => {
       }),
     ).rejects.toThrow("missing conversation_id");
   });
+
+  it("copies the synced store file and skips a second media download", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-dl-copy-"));
+    const logFile = path.join(root, "log.txt");
+    const storeFile = path.join(root, "store-media.png");
+    await fs.writeFile(storeFile, "real-image-bytes");
+    const destDir = path.join(root, "attachments");
+    await fs.mkdir(destDir, { recursive: true });
+    const bin = path.join(root, "wacli");
+    // messages show is LID-tolerant and returns the canonical ChatJID + the
+    // LocalPath that `sync --download-media` recorded.
+    await fs.writeFile(
+      bin,
+      `#!/usr/bin/env node
+const fs = require("fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logFile)}, args.join(" ") + "\\n");
+const get = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
+if (args[0] === "messages" && args[1] === "show") {
+  process.stdout.write(JSON.stringify({ success: true, data: { MsgID: get("--id"), ChatJID: "447356168511@s.whatsapp.net", LocalPath: ${JSON.stringify(storeFile)} } }));
+  process.exit(0);
+}
+process.exit(0);
+`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-dl-copy-cfg-", { WHATSAPP_WACLI_BIN: bin });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    const result = await adapter.downloadAttachment({
+      event: {
+        source: "whatsapp",
+        event_id: "msg-1",
+        thread_key: "whatsapp:a:a",
+        received_at: "2026-01-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "sender", display: "S" },
+        text: "",
+        attachments: [],
+        raw_path: "",
+        // webhook may hand us the raw @lid form
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "152527844733129@lid",
+          rootMessageId: "a",
+          messageId: "msg-1",
+        }),
+      },
+      attachment: { file_id: "wamid-1", filename: "photo.png", content_type: "image/png" },
+      destinationDir: destDir,
+      maxBytes: 10_000_000,
+    });
+
+    expect(result.status).toBe("available");
+    expect(await fs.readFile(result.local_path!, "utf8")).toBe("real-image-bytes");
+    const log = await fs.readFile(logFile, "utf8");
+    expect(log).toContain("messages show");
+    expect(log).not.toContain("media download");
+  });
+
+  it("falls back to media download against the canonical JID when no synced file exists", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-dl-fallback-"));
+    const logFile = path.join(root, "log.txt");
+    const destDir = path.join(root, "attachments");
+    await fs.mkdir(destDir, { recursive: true });
+    const bin = path.join(root, "wacli");
+    // messages show resolves @lid → canonical PN but reports no LocalPath yet.
+    await fs.writeFile(
+      bin,
+      `#!/usr/bin/env node
+const fs = require("fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(logFile)}, args.join(" ") + "\\n");
+const get = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
+if (args[0] === "messages" && args[1] === "show") {
+  process.stdout.write(JSON.stringify({ success: true, data: { MsgID: get("--id"), ChatJID: "447356168511@s.whatsapp.net", LocalPath: "" } }));
+  process.exit(0);
+}
+if (args[0] === "media" && args[1] === "download") {
+  fs.writeFileSync(get("--output"), "fetched-bytes");
+  process.exit(0);
+}
+process.exit(0);
+`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-dl-fallback-cfg-", { WHATSAPP_WACLI_BIN: bin });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    const result = await adapter.downloadAttachment({
+      event: {
+        source: "whatsapp",
+        event_id: "msg-1",
+        thread_key: "whatsapp:a:a",
+        received_at: "2026-01-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "sender", display: "S" },
+        text: "",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "152527844733129@lid",
+          rootMessageId: "a",
+          messageId: "msg-1",
+        }),
+      },
+      attachment: { file_id: "wamid-1", filename: "photo.png", content_type: "image/png" },
+      destinationDir: destDir,
+      maxBytes: 10_000_000,
+    });
+
+    expect(result.status).toBe("available");
+    expect(await fs.readFile(result.local_path!, "utf8")).toBe("fetched-bytes");
+    const log = (await fs.readFile(logFile, "utf8")).trim().split("\n");
+    const dlLine = log.find((l) => l.startsWith("media download"));
+    expect(dlLine).toBeDefined();
+    // download must use the canonical PN JID, not the raw @lid from the webhook
+    expect(dlLine).toContain("--chat 447356168511@s.whatsapp.net");
+    expect(dlLine).not.toContain("@lid");
+  });
+
+  it("rejects a synced file that exceeds maxBytes despite a small declared size", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-dl-oversize-"));
+    const storeFile = path.join(root, "store-media.bin");
+    await fs.writeFile(storeFile, "x".repeat(5000));
+    const destDir = path.join(root, "attachments");
+    await fs.mkdir(destDir, { recursive: true });
+    const bin = path.join(root, "wacli");
+    await fs.writeFile(
+      bin,
+      `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const get = (f) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
+if (args[0] === "messages" && args[1] === "show") {
+  process.stdout.write(JSON.stringify({ success: true, data: { MsgID: get("--id"), ChatJID: "447356168511@s.whatsapp.net", LocalPath: ${JSON.stringify(storeFile)} } }));
+}
+process.exit(0);
+`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-dl-oversize-cfg-", { WHATSAPP_WACLI_BIN: bin });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    await expect(
+      adapter.downloadAttachment({
+        event: {
+          source: "whatsapp",
+          event_id: "msg-1",
+          thread_key: "whatsapp:a:a",
+          received_at: "2026-01-01T00:00:00.000Z",
+          visibility: "channel",
+          mentions_bot: true,
+          sender: { source: "whatsapp", id: "sender", display: "S" },
+          text: "",
+          attachments: [],
+          raw_path: "",
+          source_thread_ref: whatsappSourceThreadRef({
+            chatJid: "447356168511@s.whatsapp.net",
+            rootMessageId: "a",
+            messageId: "msg-1",
+          }),
+        },
+        // declared size under the limit, but the real file is 5000 bytes
+        attachment: { file_id: "wamid-1", filename: "big.bin", size_bytes: 4 },
+        destinationDir: destDir,
+        maxBytes: 1000,
+      }),
+    ).rejects.toThrow("exceeds");
+
+    // the oversized copy must not be left behind in the session dir
+    const left = await fs.readdir(destDir);
+    expect(left).toEqual([]);
+  });
 });
 
 // ─── sendThreadReply and sendUserMessage interface ──────────────────────────
@@ -379,13 +556,13 @@ describe("WhatsAppAdapter send methods exist", () => {
     expect(args).not.toContain("--sender");
   });
 
-  it("sends WhatsApp typing presence through wacli", async () => {
+  it("sends WhatsApp typing presence through wacli and throttles repeats", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-typing-"));
     const argsFile = path.join(root, "args.txt");
     const bin = path.join(root, "wacli");
     await fs.writeFile(
       bin,
-      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argsFile)}\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(argsFile)}\n`,
       { mode: 0o755 },
     );
 
@@ -394,27 +571,27 @@ describe("WhatsAppAdapter send methods exist", () => {
       WHATSAPP_WACLI_BIN: bin,
     });
     const adapter = createWhatsAppAdapter(cfg);
+    const event = {
+      source: "whatsapp" as const,
+      event_id: "msg-1",
+      thread_key: "whatsapp:1234567890@s.whatsapp.net:1234567890@s.whatsapp.net",
+      received_at: "2026-01-01T00:00:00.000Z",
+      visibility: "dm" as const,
+      mentions_bot: true,
+      sender: { source: "whatsapp", id: "sender@s.whatsapp.net" },
+      text: "hello",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: whatsappSourceThreadRef({
+        chatJid: "1234567890@s.whatsapp.net",
+        rootMessageId: "1234567890@s.whatsapp.net",
+        messageId: "msg-1",
+        senderJid: "sender@s.whatsapp.net",
+      }),
+    };
 
-    await adapter.sendTyping({
-      event: {
-        source: "whatsapp",
-        event_id: "msg-1",
-        thread_key: "whatsapp:1234567890@s.whatsapp.net:1234567890@s.whatsapp.net",
-        received_at: "2026-01-01T00:00:00.000Z",
-        visibility: "dm",
-        mentions_bot: true,
-        sender: { source: "whatsapp", id: "sender@s.whatsapp.net" },
-        text: "hello",
-        attachments: [],
-        raw_path: "",
-        source_thread_ref: whatsappSourceThreadRef({
-          chatJid: "1234567890@s.whatsapp.net",
-          rootMessageId: "1234567890@s.whatsapp.net",
-          messageId: "msg-1",
-          senderJid: "sender@s.whatsapp.net",
-        }),
-      },
-    });
+    await adapter.sendTyping({ event });
+    await adapter.sendTyping({ event });
 
     const args = (await fs.readFile(argsFile, "utf8")).trim().split("\n");
     expect(args).toEqual([
@@ -423,5 +600,50 @@ describe("WhatsAppAdapter send methods exist", () => {
       "--to",
       "1234567890@s.whatsapp.net",
     ]);
+  });
+
+  it("throttles typing per-chat, not globally", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-typing-perchat-"));
+    const argsFile = path.join(root, "args.txt");
+    const bin = path.join(root, "wacli");
+    await fs.writeFile(
+      bin,
+      `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(argsFile)}\n`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-typing-perchat-cfg-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_WACLI_BIN: bin,
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+    const eventFor = (chatJid: string, eventId: string) => ({
+      source: "whatsapp" as const,
+      event_id: eventId,
+      thread_key: `whatsapp:${chatJid}:${chatJid}`,
+      received_at: "2026-01-01T00:00:00.000Z",
+      visibility: "dm" as const,
+      mentions_bot: true,
+      sender: { source: "whatsapp", id: "sender@s.whatsapp.net" },
+      text: "hello",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: whatsappSourceThreadRef({
+        chatJid,
+        rootMessageId: chatJid,
+        messageId: eventId,
+        senderJid: "sender@s.whatsapp.net",
+      }),
+    });
+
+    // Two distinct chats — neither should throttle the other.
+    await adapter.sendTyping({ event: eventFor("111@s.whatsapp.net", "a") });
+    await adapter.sendTyping({ event: eventFor("222@s.whatsapp.net", "b") });
+
+    const targets = (await fs.readFile(argsFile, "utf8"))
+      .trim()
+      .split("\n")
+      .filter((_, i, arr) => arr[i - 1] === "--to");
+    expect(targets).toEqual(["111@s.whatsapp.net", "222@s.whatsapp.net"]);
   });
 });
