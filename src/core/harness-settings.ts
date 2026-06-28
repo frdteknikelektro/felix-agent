@@ -10,18 +10,18 @@ export interface HarnessSettings {
 export function ninerouterEnabled(cfg: AppConfig): boolean {
   return Boolean(
     cfg.NINEROUTER_ENABLED &&
-    cfg.NINEROUTER_API_KEY &&
+    cfg.NINEROUTER_KEY &&
     cfg.NINEROUTER_MODEL &&
     ninerouterOpenAiBaseUrl(cfg),
   );
 }
 
 export function ninerouterOpenAiBaseUrl(cfg: AppConfig): string {
-  return withOpenAiV1(cfg.NINEROUTER_OPENAI_BASE_URL || cfg.NINEROUTER_BASE_URL || "");
+  return withOpenAiV1(cfg.NINEROUTER_OPENAI_BASE_URL || cfg.NINEROUTER_URL || "");
 }
 
 export function ninerouterAnthropicBaseUrl(cfg: AppConfig): string {
-  return cfg.NINEROUTER_ANTHROPIC_BASE_URL || cfg.NINEROUTER_BASE_URL || "";
+  return cfg.NINEROUTER_ANTHROPIC_BASE_URL || cfg.NINEROUTER_URL || "";
 }
 
 export function withOpenAiV1(raw: string): string {
@@ -39,9 +39,9 @@ export function codexSettings(cfg: AppConfig): HarnessSettings {
       model: cfg.NINEROUTER_MODEL!,
       env: {
         WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-        OPENAI_API_KEY: cfg.NINEROUTER_API_KEY,
+        OPENAI_API_KEY: cfg.NINEROUTER_KEY,
         OPENAI_BASE_URL: baseUrl,
-        NINEROUTER_API_KEY: cfg.NINEROUTER_API_KEY,
+        NINEROUTER_KEY: cfg.NINEROUTER_KEY,
         OPENAI_ORGANIZATION: "",
         OPENAI_PROJECT: "",
         PATH: buildSpawnPath(cfg),
@@ -51,7 +51,7 @@ export function codexSettings(cfg: AppConfig): HarnessSettings {
         "-c", `model_provider=${tomlString("9router")}`,
         "-c", `model_providers.9router.name=${tomlString("9router")}`,
         "-c", `model_providers.9router.base_url=${tomlString(baseUrl)}`,
-        "-c", `model_providers.9router.env_key=${tomlString("NINEROUTER_API_KEY")}`,
+        "-c", `model_providers.9router.env_key=${tomlString("NINEROUTER_KEY")}`,
         "-c", `model_providers.9router.wire_api=${tomlString("responses")}`,
       ],
     };
@@ -81,7 +81,7 @@ export function opencodeSettings(cfg: AppConfig): HarnessSettings {
       model: `9router/${model}`,
       env: {
         WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-        NINEROUTER_API_KEY: cfg.NINEROUTER_API_KEY,
+        NINEROUTER_KEY: cfg.NINEROUTER_KEY,
         NINEROUTER_OPENAI_BASE_URL: ninerouterOpenAiBaseUrl(cfg),
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           "$schema": "https://opencode.ai/config.json",
@@ -91,7 +91,7 @@ export function opencodeSettings(cfg: AppConfig): HarnessSettings {
               name: "9router",
               options: {
                 baseURL: "{env:NINEROUTER_OPENAI_BASE_URL}",
-                apiKey: "{env:NINEROUTER_API_KEY}",
+                apiKey: "{env:NINEROUTER_KEY}",
               },
               models: {
                 [model]: {
@@ -126,7 +126,7 @@ export function claudeCodeSettings(cfg: AppConfig): HarnessSettings {
       env: {
         WORKSPACE_DIR: cfg.WORKSPACE_DIR,
         ANTHROPIC_API_KEY: "",
-        ANTHROPIC_AUTH_TOKEN: cfg.NINEROUTER_API_KEY,
+        ANTHROPIC_AUTH_TOKEN: cfg.NINEROUTER_KEY,
         ANTHROPIC_BASE_URL: ninerouterAnthropicBaseUrl(cfg),
         PATH: buildSpawnPath(cfg),
       },

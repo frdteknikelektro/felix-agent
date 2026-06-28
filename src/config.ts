@@ -27,9 +27,9 @@ const Env = z.object({
   OPENROUTER_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   NINEROUTER_ENABLED: BoolString.default(false),
-  NINEROUTER_API_KEY: z.string().optional(),
+  NINEROUTER_KEY: z.string().optional(),
   NINEROUTER_MODEL: z.string().optional(),
-  NINEROUTER_BASE_URL: z.string().url().optional().or(z.literal("")),
+  NINEROUTER_URL: z.string().url().optional().or(z.literal("")),
   NINEROUTER_OPENAI_BASE_URL: z.string().url().optional().or(z.literal("")),
   NINEROUTER_ANTHROPIC_BASE_URL: z.string().url().optional().or(z.literal("")),
   CLAUDE_CODE_BIN: z.string().default("claude"),
@@ -81,9 +81,9 @@ const Env = z.object({
 }).superRefine((env, ctx) => {
   if (!env.NINEROUTER_ENABLED) return;
   const required: Array<keyof typeof env> = [
-    "NINEROUTER_API_KEY",
+    "NINEROUTER_KEY",
     "NINEROUTER_MODEL",
-    "NINEROUTER_BASE_URL",
+    "NINEROUTER_URL",
   ];
   for (const key of required) {
     const value = env[key];

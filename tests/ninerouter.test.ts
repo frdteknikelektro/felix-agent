@@ -44,7 +44,7 @@ describe("9router config", () => {
     await withSecretEnv(
       [
         "NINEROUTER_ENABLED=false",
-        "NINEROUTER_BASE_URL=https://9router.jala.tech",
+        "NINEROUTER_URL=https://9router.jala.tech",
       ],
       async (secretEnv, workspace) => {
         const cfg = loadConfig({
@@ -61,9 +61,9 @@ describe("9router config", () => {
     await withSecretEnv(
       [
         "NINEROUTER_ENABLED=true",
-        "NINEROUTER_API_KEY=nr-secret",
+        "NINEROUTER_KEY=nr-secret",
         "NINEROUTER_MODEL=gpt-router",
-        "NINEROUTER_BASE_URL=https://9router.jala.tech",
+        "NINEROUTER_URL=https://9router.jala.tech",
       ],
       async (secretEnv, workspace) => {
         const cfg = loadConfig({
@@ -90,7 +90,7 @@ describe("9router config", () => {
       expect(() => loadConfig({
         WORKSPACE_DIR: workspace,
         SECRET_ENV_FILE: secretEnv,
-      })).toThrow(/NINEROUTER_API_KEY/);
+      })).toThrow(/NINEROUTER_KEY/);
     });
   });
 });
@@ -99,9 +99,9 @@ describe("9router harness settings", () => {
   async function cfg() {
     return makeTestConfig("felix-ninerouter-settings-", {
       NINEROUTER_ENABLED: true,
-      NINEROUTER_API_KEY: "nr-secret",
+      NINEROUTER_KEY: "nr-secret",
       NINEROUTER_MODEL: "router-model",
-      NINEROUTER_BASE_URL: "https://9router.jala.tech",
+      NINEROUTER_URL: "https://9router.jala.tech",
       NINEROUTER_OPENAI_BASE_URL: "https://9router.jala.tech/openai",
       NINEROUTER_ANTHROPIC_BASE_URL: "https://9router.jala.tech/anthropic",
       OPENAI_API_KEY: "openai-secret",
@@ -117,7 +117,7 @@ describe("9router harness settings", () => {
     expect(settings.model).toBe("router-model");
     expect(settings.env.OPENAI_API_KEY).toBe("nr-secret");
     expect(settings.env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
-    expect(settings.env.NINEROUTER_API_KEY).toBe("nr-secret");
+    expect(settings.env.NINEROUTER_KEY).toBe("nr-secret");
     expect(settings.env.OPENAI_ORGANIZATION).toBe("");
     expect(settings.env.OPENAI_PROJECT).toBe("");
     expect(settings.codexConfigArgs).toEqual([
@@ -125,7 +125,7 @@ describe("9router harness settings", () => {
       "-c", "model_provider=\"9router\"",
       "-c", "model_providers.9router.name=\"9router\"",
       "-c", "model_providers.9router.base_url=\"https://9router.jala.tech/openai/v1\"",
-      "-c", "model_providers.9router.env_key=\"NINEROUTER_API_KEY\"",
+      "-c", "model_providers.9router.env_key=\"NINEROUTER_KEY\"",
       "-c", "model_providers.9router.wire_api=\"responses\"",
     ]);
   });
@@ -144,11 +144,11 @@ describe("9router harness settings", () => {
     const content = JSON.parse(settings.env.OPENCODE_CONFIG_CONTENT ?? "{}");
 
     expect(settings.model).toBe("9router/router-model");
-    expect(settings.env.NINEROUTER_API_KEY).toBe("nr-secret");
+    expect(settings.env.NINEROUTER_KEY).toBe("nr-secret");
     expect(settings.env.NINEROUTER_OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
     expect(content.provider["9router"].npm).toBe("@ai-sdk/openai-compatible");
     expect(content.provider["9router"].options.baseURL).toBe("{env:NINEROUTER_OPENAI_BASE_URL}");
-    expect(content.provider["9router"].options.apiKey).toBe("{env:NINEROUTER_API_KEY}");
+    expect(content.provider["9router"].options.apiKey).toBe("{env:NINEROUTER_KEY}");
     expect(content.provider["9router"].models["router-model"].name).toBe("router-model");
   });
 });
@@ -166,9 +166,9 @@ describe("9router Codex auth", () => {
 
     await ensureCodexAuth(await makeTestConfig("felix-ninerouter-codex-auth-", {
       NINEROUTER_ENABLED: true,
-      NINEROUTER_API_KEY: "nr-secret",
+      NINEROUTER_KEY: "nr-secret",
       NINEROUTER_MODEL: "router-model",
-      NINEROUTER_BASE_URL: "https://9router.jala.tech",
+      NINEROUTER_URL: "https://9router.jala.tech",
       OPENAI_API_KEY: "openai-secret",
     }));
 

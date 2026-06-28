@@ -79,7 +79,7 @@ const SECRET_KEYS = new Set([
   "DEEPSEEK_API_KEY",
   "OPENCODE_API_KEY",
   "OPENROUTER_API_KEY",
-  "NINEROUTER_API_KEY",
+  "NINEROUTER_KEY",
   "ANTHROPIC_API_KEY",
   "MATTERMOST_TOKEN",
   "DISCORD_TOKEN",
@@ -441,14 +441,14 @@ async function main() {
       info("  Base URL format: https://host.example or https://host.example/v1.");
       info("  OpenAI-compatible routes append /v1 automatically only when it is missing.\n");
 
-      const nrKey = await promptRequired("NINEROUTER_API_KEY", "9router", existing);
-      if (nrKey) wizard.NINEROUTER_API_KEY = nrKey;
+      const nrKey = await promptRequired("NINEROUTER_KEY", "9router", existing);
+      if (nrKey) wizard.NINEROUTER_KEY = nrKey;
 
       const nrBaseUrl = await input({
-        message: "NINEROUTER_BASE_URL [required] (e.g. https://9router.example.com):",
-        default: existing.NINEROUTER_BASE_URL || "",
+        message: "NINEROUTER_URL [required] (e.g. https://9router.example.com):",
+        default: existing.NINEROUTER_URL || "",
         validate: (v) => {
-          if (!v.trim()) return "NINEROUTER_BASE_URL is required when 9router is enabled";
+          if (!v.trim()) return "NINEROUTER_URL is required when 9router is enabled";
           try {
             new URL(v);
             return true;
@@ -457,10 +457,10 @@ async function main() {
           }
         },
       });
-      wizard.NINEROUTER_BASE_URL = nrBaseUrl;
+      wizard.NINEROUTER_URL = nrBaseUrl;
 
       const nrOpenaiBaseUrl = await input({
-        message: "NINEROUTER_OPENAI_BASE_URL [optional] (OpenAI-compatible endpoint, e.g. https://9router.example.com/v1; Enter to use NINEROUTER_BASE_URL):",
+        message: "NINEROUTER_OPENAI_BASE_URL [optional] (OpenAI-compatible endpoint, e.g. https://9router.example.com/v1; Enter to use NINEROUTER_URL):",
         default: existing.NINEROUTER_OPENAI_BASE_URL || "",
         validate: (v) => {
           if (!v.trim()) return true;
@@ -475,7 +475,7 @@ async function main() {
       wizard.NINEROUTER_OPENAI_BASE_URL = nrOpenaiBaseUrl;
 
       const nrAnthropicBaseUrl = await input({
-        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Anthropic-compatible root, e.g. https://9router.example.com; Enter to use NINEROUTER_BASE_URL):",
+        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Anthropic-compatible root, e.g. https://9router.example.com; Enter to use NINEROUTER_URL):",
         default: existing.NINEROUTER_ANTHROPIC_BASE_URL || "",
         validate: (v) => {
           if (!v.trim()) return true;
@@ -496,7 +496,8 @@ async function main() {
       });
       wizard.NINEROUTER_MODEL = nrModel;
     } else {
-      wizard.NINEROUTER_API_KEY = "";
+      wizard.NINEROUTER_KEY = "";
+      wizard.NINEROUTER_URL = "";
       wizard.NINEROUTER_MODEL = "";
       wizard.NINEROUTER_OPENAI_BASE_URL = "";
       wizard.NINEROUTER_ANTHROPIC_BASE_URL = "";
@@ -514,7 +515,7 @@ async function main() {
       wizard.CODEX_MODEL = codexModel;
 
       if (ninerouterEnabled) {
-        info("  9router is enabled, so Codex will use NINEROUTER_API_KEY at runtime.\n");
+        info("  9router is enabled, so Codex will use NINEROUTER_KEY at runtime.\n");
         const oaiKey = await input({
           message: `OPENAI_API_KEY [optional fallback]:${existingHint(existing, "OPENAI_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
           transformer: secretTransformer,

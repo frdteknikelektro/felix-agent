@@ -64,9 +64,9 @@ Felix can keep the selected harness (`codex`, `opencode`, or `claude-code`) whil
 
 ```bash
 NINEROUTER_ENABLED=true
-NINEROUTER_API_KEY=...
+NINEROUTER_KEY=...
 NINEROUTER_MODEL=...
-NINEROUTER_BASE_URL=https://your-9router-host.example
+NINEROUTER_URL=https://your-9router-host.example
 ```
 
 Optional protocol-specific URLs override the shared base URL:
@@ -80,8 +80,8 @@ OpenAI-compatible URLs automatically receive `/v1` when omitted, so `https://you
 
 Harness behavior when enabled:
 
-- `codex` uses a runtime `model_providers.9router` config and passes `NINEROUTER_API_KEY`, `NINEROUTER_OPENAI_BASE_URL`, and `NINEROUTER_MODEL`.
-- `claude-code` uses `NINEROUTER_API_KEY` as `ANTHROPIC_AUTH_TOKEN`, `NINEROUTER_ANTHROPIC_BASE_URL`, and `NINEROUTER_MODEL`.
+- `codex` uses a runtime `model_providers.9router` config and passes `NINEROUTER_KEY`, `NINEROUTER_OPENAI_BASE_URL`, and `NINEROUTER_MODEL`.
+- `claude-code` uses `NINEROUTER_KEY` as `ANTHROPIC_AUTH_TOKEN`, `NINEROUTER_ANTHROPIC_BASE_URL`, and `NINEROUTER_MODEL`.
 - `opencode` injects a runtime custom provider with `OPENCODE_CONFIG_CONTENT` and runs `--model 9router/<NINEROUTER_MODEL>`.
 
 ## 🐳 Docker
