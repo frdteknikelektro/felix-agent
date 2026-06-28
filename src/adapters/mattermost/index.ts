@@ -16,6 +16,11 @@ import {
   formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
+import {
+  normalizeSourceEvent,
+  sourceThreadKey,
+  sourceThreadRef,
+} from "../../core/source-event-normalization.js";
 
 interface WsPayload {
   event?: string;
@@ -685,14 +690,12 @@ class MattermostAdapter implements SourceAdapter {
     };
     const botIdentity = await this.ensureBotIdentity();
     const rootId = normalizeThreadRootId(record.root_id, record.id);
-    const sourceThreadRef = mattermostSourceThreadRef(record.channel_id, rootId, record.id, record.user_id, teamId);
-    return {
+    return normalizeSourceEvent({
       source: "mattermost",
-      event_id: record.id,
-      thread_key: mattermostThreadKey(record.channel_id, rootId),
-      received_at: new Date(record.create_at ?? Date.now()).toISOString(),
+      eventId: record.id,
+      receivedAt: new Date(record.create_at ?? Date.now()).toISOString(),
       visibility,
-      mentions_bot: isMentioned(message, botIdentity?.mentionTokens),
+      mentionsBot: isMentioned(message, botIdentity?.mentionTokens),
       sender,
       text: message,
       attachments:
@@ -700,9 +703,19 @@ class MattermostAdapter implements SourceAdapter {
           file_id: fileId,
           filename: fileId,
         })) ?? [],
-      raw_path: "",
-      source_thread_ref: sourceThreadRef,
-    };
+      thread: {
+        source: "mattermost",
+        conversationId: record.channel_id,
+        rootMessageId: rootId,
+        messageId: record.id,
+        sourceTeamId: teamId,
+        raw: {
+          channel_id: record.channel_id,
+          root_id: rootId,
+          user_id: record.user_id,
+        },
+      },
+    });
   }
 
   private async prefetchBotTeams(): Promise<void> {
@@ -769,7 +782,7 @@ class MattermostAdapter implements SourceAdapter {
 }
 
 export function mattermostThreadKey(channelId: string, rootPostId: string): string {
-  return `mattermost:${channelId}:${rootPostId}`;
+  return sourceThreadKey("mattermost", channelId, rootPostId);
 }
 
 export function mattermostSourceThreadRef(
@@ -779,19 +792,18 @@ export function mattermostSourceThreadRef(
   userId?: string,
   teamId?: string,
 ): SourceThreadRef {
-  return {
+  return sourceThreadRef({
     source: "mattermost",
-    conversation_id: channelId,
-    thread_id: rootPostId,
-    root_message_id: rootPostId,
-    message_id: messageId,
-    team_id: teamId,
+    conversationId: channelId,
+    rootMessageId: rootPostId,
+    messageId,
+    sourceTeamId: teamId,
     raw: {
       channel_id: channelId,
       root_id: rootPostId,
       user_id: userId,
     },
-  };
+  });
 }
 
 function normalizeThreadRootId(rootId: string | undefined, fallbackId: string): string {

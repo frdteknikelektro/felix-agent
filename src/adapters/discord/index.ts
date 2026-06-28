@@ -13,6 +13,11 @@ import {
   formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
+import {
+  normalizeSourceEvent,
+  sourceThreadKey,
+  sourceThreadRef,
+} from "../../core/source-event-normalization.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -403,21 +408,12 @@ class DiscordAdapter implements SourceAdapter {
     const botId = this.cfg.DISCORD_BOT_USER_ID ?? this.client?.user?.id;
     const mentionsBot = botId ? message.mentions.users.has(botId) : false;
 
-    const sourceThreadRef = discordSourceThreadRef({
-      channelId,
-      rootMessageId,
-      messageId: message.id,
-      guildId,
-      authorId: message.author.id,
-    });
-
-    return {
+    return normalizeSourceEvent({
       source: "discord",
-      event_id: message.id,
-      thread_key: discordThreadKey(channelId, rootMessageId),
-      received_at: new Date(message.createdTimestamp).toISOString(),
+      eventId: message.id,
+      receivedAt: new Date(message.createdTimestamp).toISOString(),
       visibility,
-      mentions_bot: mentionsBot,
+      mentionsBot,
       sender: {
         source: "discord",
         id: message.author.id,
@@ -432,9 +428,19 @@ class DiscordAdapter implements SourceAdapter {
         size_bytes: att.size,
         is_image: att.contentType?.startsWith("image/") ?? undefined,
       })),
-      raw_path: "",
-      source_thread_ref: sourceThreadRef,
-    };
+      thread: {
+        source: "discord",
+        conversationId: channelId,
+        rootMessageId,
+        messageId: message.id,
+        raw: {
+          channel_id: channelId,
+          root_id: rootMessageId,
+          guild_id: guildId,
+          user_id: message.author.id,
+        },
+      },
+    });
   }
 
   // ── Internal: dedup ──────────────────────────────────────────────────────
@@ -497,7 +503,7 @@ class DiscordAdapter implements SourceAdapter {
 // ─── Exported helpers ────────────────────────────────────────────────────────
 
 export function discordThreadKey(channelId: string, rootMessageId: string): string {
-  return `discord:${channelId}:${rootMessageId}`;
+  return sourceThreadKey("discord", channelId, rootMessageId);
 }
 
 export function discordSourceThreadRef(opts: {
@@ -507,19 +513,18 @@ export function discordSourceThreadRef(opts: {
   guildId?: string;
   authorId?: string;
 }): SourceThreadRef {
-  return {
+  return sourceThreadRef({
     source: "discord",
-    conversation_id: opts.channelId,
-    thread_id: opts.rootMessageId,
-    root_message_id: opts.rootMessageId,
-    message_id: opts.messageId,
+    conversationId: opts.channelId,
+    rootMessageId: opts.rootMessageId,
+    messageId: opts.messageId,
     raw: {
       channel_id: opts.channelId,
       root_id: opts.rootMessageId,
       guild_id: opts.guildId,
       user_id: opts.authorId,
     },
-  };
+  });
 }
 
 // ─── Internal utilities ──────────────────────────────────────────────────────

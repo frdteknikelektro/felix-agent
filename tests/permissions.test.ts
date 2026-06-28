@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { namespacePermissions } from "../src/engine.js";
+import { namespacePermissions } from "../src/slices/approvals/index.js";
 
 describe("namespacePermissions", () => {
   it("prepends skill id to bare permissions", () => {

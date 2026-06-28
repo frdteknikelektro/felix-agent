@@ -1,22 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import crypto from "node:crypto";
 import type { AppConfig } from "./config.js";
-import { hasPendingApproval, requestApproval } from "./slices/approvals/index.js";
+import { ApprovalRequestLifecycle, hasPendingApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
-import { applyOwnerDecision, type ApprovalRecord } from "./slices/approvals/index.js";
-import type { ContactRecord, OwnerDecision, SessionPermissionRequest, SessionQueueItem, SessionState, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "./types.js";
+import type { ContactRecord, OwnerDecision, SessionQueueItem, SessionState, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
-import type { Harness, PermissionRequiredOutput, SourceAdapter } from "./core/ports.js";
+import type { Harness, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
-import { fallbackNotification } from "./core/harness-common.js";
-import { decideTurnResult } from "./core/decide-turn.js";
+import { TurnRunner } from "./core/turn-runner.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
-import { fsTimestamp } from "./lib/time.js";
 import { startMemoryCron } from "./slices/memory/index.js";
 import {
   AttachmentRejectedError,
@@ -27,6 +23,7 @@ import {
 
 export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
+  private readonly approvalLifecycle: ApprovalRequestLifecycle;
   private processing = new Map<string, Promise<void>>();
   private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
@@ -41,6 +38,12 @@ export class FelixEngine {
     for (const adapter of adapters) {
       this.sourceAdapters.set(adapter.source, adapter);
     }
+    this.approvalLifecycle = new ApprovalRequestLifecycle(cfg, {
+      sourceAdapter: (source) => this.requireAdapter(source),
+      generateDecisionNotification: async (input) => this.harness.generateDecisionNotification?.(input),
+      ownerDisplayForSource: (source) => this.ownerDisplayForSource(source),
+      warn: (message, data) => { log.warn(message, data); },
+    });
   }
 
   async boot(): Promise<void> {
@@ -218,6 +221,41 @@ export class FelixEngine {
     const controller = new AbortController();
     this.abortControllers.set(thread.state.thread_key, controller);
     const retryCounts = new Map<string, number>();
+    const turnRunner = new TurnRunner(this.harness, {
+      sourceAdapter: (source) => this.requireAdapter(source),
+      clearHarnessSession: async (targetThread) => { await clearHarnessSession(targetThread); },
+      logUsage: async (targetThread, targetEvent, targetResult) => {
+        await this.logUsage(targetThread, targetEvent, targetResult);
+      },
+      recordTurnWithUsage: async (targetThread, targetEvent, targetResult) => {
+        await this.recordTurnWithUsage(targetThread, targetEvent, targetResult);
+      },
+      postThreadError: async (targetThread, targetEvent, errorDetail) => {
+        await this.postThreadError(targetThread, targetEvent, errorDetail);
+      },
+      postThreadReply: async (targetThread, targetEvent, sessionId, text) => {
+        await this.postThreadReply(targetThread, targetEvent, sessionId, text);
+      },
+      requestPermission: async (targetThread, targetEvent, parsed) => {
+        await this.approvalLifecycle.requestPermission({
+          thread: targetThread,
+          event: targetEvent,
+          parsed,
+        });
+      },
+      autoGrantPermission: async (targetThread, targetEvent, sessionId) => {
+        await this.approvalLifecycle.autoGrantPermission({
+          thread: targetThread,
+          event: targetEvent,
+          sessionId,
+        });
+      },
+      requeueEvent: async (targetThread, targetItem) => { await requeueEvent(targetThread, targetItem); },
+      isStopRequested: (threadKey) => this.stopRequested.has(threadKey),
+      clearStopRequested: (threadKey) => { this.stopRequested.delete(threadKey); },
+      warn: (message, data) => { log.warn(message, data); },
+      error: (message, data) => { log.error(message, data); },
+    });
     try {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
@@ -227,182 +265,18 @@ export class FelixEngine {
         if (!trigger) break;
         const { item, session, event } = trigger;
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
-        const adapter = this.requireAdapter(event.source);
-        const sourceContext = await adapter.getTurnContext({ event });
-        let resumed = Boolean(session.harness_session_id);
-        let retriedFreshStart = false;
-        while (true) {
-          if (this.stopRequested.has(thread.state.thread_key)) break;
-          let result;
-          const typingInterval = setInterval(() => {
-            adapter.sendTyping({ event }).catch(() => {});
-          }, 250);
-          try {
-            result = await this.harness.run({
-              thread,
-              event,
-              eventFile: item.event_file,
-              contact,
-              skills: this.skills,
-              sourceContext,
-              resumed,
-              precedingEvents: preceding.length > 0 ? preceding : undefined,
-              signal: controller.signal,
-            });
-          } catch (error) {
-            clearInterval(typingInterval);
-            if (this.stopRequested.has(thread.state.thread_key)) {
-              this.stopRequested.delete(thread.state.thread_key);
-              break;
-            }
-            const retryCount = retryCounts.get(item.source_event_id) ?? 0;
-            if (retryCount >= 2) {
-              const detail = error instanceof Error ? `${error.message}. ` : "";
-              await this.postThreadError(thread, event, detail);
-              break;
-            }
-            retryCounts.set(item.source_event_id, retryCount + 1);
-            await requeueEvent(thread, item);
-            const detail = error instanceof Error ? `${error.message}. ` : "";
-            await this.postThreadError(thread, event, detail);
-            break;
-          }
-          clearInterval(typingInterval);
-          if (this.stopRequested.has(thread.state.thread_key)) break;
-          const decision = decideTurnResult(result, resumed, retriedFreshStart);
-          if (decision.kind === "retry_fresh") {
-            log.warn("harness.resume_fallback", {
-              thread_key: thread.state.thread_key,
-              session_id: result.sessionId,
-              exit_code: result.exitCode,
-              log_path: result.logPath,
-            });
-            await clearHarnessSession(thread);
-            resumed = false;
-            retriedFreshStart = true;
-            continue;
-          }
-          if (decision.kind === "fail") {
-            if (resumed) {
-              await clearHarnessSession(thread);
-            }
-            const detail = result.exitCode !== 0
-              ? exitCodeMessage(result.exitCode)
-              : "The agent produced no usable output. ";
-            await this.postThreadError(thread, event, detail);
-            log.error("harness.empty_output", {
-              thread_key: thread.state.thread_key,
-              session_id: result.sessionId,
-              exit_code: result.exitCode,
-              log_path: result.logPath,
-            });
-            break;
-          }
-          if (decision.kind === "format_retry") {
-            log.warn("harness.format_error", {
-              thread_key: thread.state.thread_key,
-              session_id: result.sessionId,
-              error: result.parsed.text,
-            });
-            // The malformed first attempt already burned tokens — record them
-            // before the correction re-run so the ledger isn't undercounted.
-            await this.logUsage(thread, event, result);
-            const correctionPrompt = [
-              "Your last output had a format error:",
-              "",
-              result.parsed.text,
-              "",
-              "Please re-read the latest event and produce a correctly formatted PERMISSION_REQUIRED block.",
-              "Make sure every field is filled: skill, permissions (with at least one `- <name>` bullet), reason, owner_message, and end with END_PERMISSION_REQUIRED.",
-            ].join("\n");
-            try {
-              result = await this.harness.run({
-                thread,
-                event,
-                eventFile: item.event_file,
-                contact,
-                skills: this.skills,
-                sourceContext,
-                resumed: true,
-                precedingEvents: preceding.length > 0 ? preceding : undefined,
-                promptOverride: correctionPrompt,
-                signal: controller.signal,
-              });
-            } catch (error) {
-              clearInterval(typingInterval);
-              if (this.stopRequested.has(thread.state.thread_key)) {
-                this.stopRequested.delete(thread.state.thread_key);
-                break;
-              }
-              const retryCount = retryCounts.get(item.source_event_id) ?? 0;
-              if (retryCount >= 2) {
-                const detail = error instanceof Error ? `${error.message}. ` : "";
-                await this.postThreadError(thread, event, detail);
-                break;
-              }
-              retryCounts.set(item.source_event_id, retryCount + 1);
-              await requeueEvent(thread, item);
-              const detail = error instanceof Error ? `${error.message}. ` : "";
-              await this.postThreadError(thread, event, detail);
-              break;
-            }
-            if (this.stopRequested.has(thread.state.thread_key)) break;
-            const retriedDecision = decideTurnResult(result, true, retriedFreshStart);
-            if (retriedDecision.kind === "retry_fresh") {
-              await clearHarnessSession(thread);
-              resumed = false;
-              retriedFreshStart = true;
-              continue;
-            }
-            if (retriedDecision.kind === "fail" || retriedDecision.kind === "format_retry") {
-              if (resumed) {
-                await clearHarnessSession(thread);
-              }
-              await this.postThreadError(thread, event, "The agent produced no usable output. ");
-              break;
-            }
-            await this.recordTurnWithUsage(thread, event, result);
-            if (retriedDecision.kind === "permission_required") {
-              const permOutput = result.parsed as PermissionRequiredOutput;
-              const skillId = permOutput.skillId ?? "(unknown)";
-              const bareMissing = (permOutput.permissions ?? []).filter(
-                (bare) => !contact.allowed_permissions.includes(`${skillId}:${bare}`),
-              );
-              if (bareMissing.length === 0) {
-                await this.autoGrantPermission(thread, event, result.sessionId, permOutput, skillId);
-              } else {
-                await this.postThreadReply(thread, event, result.sessionId, permOutput.text);
-                await this.handlePermissionRequired(thread, event, {
-                  ...permOutput,
-                  permissions: bareMissing,
-                });
-              }
-            } else {
-              await this.postThreadReply(thread, event, result.sessionId, result.parsed.text);
-            }
-            break;
-          }
-          await this.recordTurnWithUsage(thread, event, result);
-          if (decision.kind === "permission_required") {
-            const permOutput = result.parsed as PermissionRequiredOutput;
-            const skillId = permOutput.skillId ?? "(unknown)";
-            const bareMissing = (permOutput.permissions ?? []).filter(
-              (bare) => !contact.allowed_permissions.includes(`${skillId}:${bare}`),
-            );
-            if (bareMissing.length === 0) {
-              await this.autoGrantPermission(thread, event, result.sessionId, permOutput, skillId);
-            } else {
-              await this.postThreadReply(thread, event, result.sessionId, permOutput.text);
-              await this.handlePermissionRequired(thread, event, {
-                ...permOutput,
-                permissions: bareMissing,
-              });
-            }
-          } else {
-            await this.postThreadReply(thread, event, result.sessionId, result.parsed.text);
-          }
-          break;
-        }
+        const result = await turnRunner.run({
+          thread,
+          item,
+          session,
+          event,
+          contact,
+          skills: this.skills,
+          precedingEvents: preceding,
+          signal: controller.signal,
+          retryCounts,
+        });
+        if (result.kind === "stopped") break;
       }
     } finally {
       this.abortControllers.delete(thread.state.thread_key);
@@ -538,115 +412,17 @@ export class FelixEngine {
     );
   }
 
-  private async handlePermissionRequired(
-    thread: ThreadHandle,
-    event: UniversalEvent,
-    parsed: PermissionRequiredOutput,
-  ): Promise<void> {
-    const skillId = parsed.skillId ?? "(unknown)";
-    const request: SessionPermissionRequest = {
-      request_id: crypto.randomUUID(),
-      requested_at: new Date().toISOString(),
-      skill_id: skillId,
-      permissions: namespacePermissions(skillId, parsed.permissions ?? []),
-      reason: parsed.reason ?? "permission required",
-      owner_message: parsed.ownerMessage ?? "Owner approval required.",
-      thread_key: thread.state.thread_key,
-      requester: event.sender,
-      requester_event_file: path.join(thread.eventsDir, `${fsTimestamp(new Date())}_permission_request.md`),
-    };
-    const ownerMessage = await this.notifyOwner(thread, event, request);
-    request.owner_message_anchor = ownerMessage ?? undefined;
-    if (!ownerMessage) {
-      // The request is still persisted below so the owner can act on it — an
-      // un-anchored reaction/reply cannot be matched directly, so the owner
-      // console / approval list is the only exact decision path.
-      log.warn("owner.notify_undelivered", {
-        thread_key: thread.state.thread_key,
-        request_id: request.request_id,
-        skill_id: request.skill_id,
-      });
-    }
-    await requestApproval(this.cfg, thread, request);
-    const adapter = this.requireAdapter(event.source);
-    await adapter.updateEventStatus({ event, status: "permission_required" });
-  }
-
-  private async autoGrantPermission(
-    thread: ThreadHandle,
-    event: UniversalEvent,
-    sessionId: string,
-    _permOutput: PermissionRequiredOutput,
-    _skillId: string,
-  ): Promise<void> {
-    const adapter = this.requireAdapter(event.source);
-    const text = fallbackNotification("once");
-    await adapter.sendThreadReply({ event, text });
-    await adapter.updateEventStatus({ event, status: "replied" });
-    await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
-    await this.queueProceedEvent(thread);
-  }
-
-  private async notifyOwner(
-    thread: ThreadHandle,
-    event: UniversalEvent,
-    request: SessionPermissionRequest,
-  ): Promise<SourceMessageAnchor | null> {
-    const targetSource = this.cfg.OWNER_CHANNEL ?? event.source;
-    const adapter = this.requireAdapter(targetSource);
-    const ownerId = adapter.ownerUserId;
-    if (!ownerId) {
-      log.warn("owner.missing", { source: targetSource, thread_key: thread.state.thread_key });
-      return null;
-    }
-    const threadLink = await adapter.getThreadLink(event.thread_key);
-    const message = await adapter.formatOwnerNotification({
-      skillId: request.skill_id,
-      permissions: request.permissions,
-      reason: request.reason,
-      requesterName: event.sender.display ?? event.sender.id,
-      requesterId: event.sender.id,
-      threadLink,
-      status: "pending",
-    });
-    try {
-      return await adapter.sendUserMessage({ userId: ownerId, text: message });
-    } catch (error) {
-      log.warn("owner.notify_failed", {
-        thread_key: thread.state.thread_key,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
   async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
     return hasPendingApproval(this.cfg, target);
   }
 
   async handleOwnerDecision(decision: OwnerDecision): Promise<boolean> {
     return this.withOwnerDecisionLock(async () => {
-      const outcome = await applyOwnerDecision(this.cfg, decision);
-      if (!outcome) {
+      const outcome = await this.approvalLifecycle.applyOwnerDecision(decision);
+      if (outcome.kind === "not_found") {
         return false;
       }
-      if (outcome.record) {
-        await this.updateOwnerDecisionMessage(outcome.thread, outcome.record, decision.mode);
-      }
-      const notification = await this.harness.generateDecisionNotification?.({
-        thread: outcome.thread,
-        mode: decision.mode,
-        skillId: outcome.record?.skillId ?? "(unknown)",
-        reason: outcome.record?.reason ?? "",
-        ownerDisplay: this.ownerDisplayForSource(outcome.thread.state.source),
-      });
-      if (notification) {
-        await this.postDecisionNotification(outcome.thread, notification);
-      }
-      if (decision.mode !== "reject") {
-        await this.queueProceedEvent(outcome.thread);
-      }
-      await this.processThread(outcome.thread);
+      if (outcome.shouldProcess) await this.processThread(outcome.thread);
       return true;
     });
   }
@@ -668,104 +444,6 @@ export class FelixEngine {
         this.ownerDecisionLock = Promise.resolve();
       }
     }
-  }
-
-  private async postDecisionNotification(thread: ThreadHandle, text: string): Promise<void> {
-    const source = thread.state.source;
-    const ref = thread.state.source_thread_ref;
-    try {
-      const adapter = this.requireAdapter(source);
-      if (!ref) {
-        log.warn("thread.no_source_thread_ref", {
-          thread_key: thread.state.thread_key,
-          source,
-        });
-      } else {
-        const event: UniversalEvent = {
-          source,
-          thread_key: thread.state.thread_key,
-          event_id: `decision-notify-${Date.now()}`,
-          received_at: new Date().toISOString(),
-          visibility: "channel",
-          mentions_bot: false,
-          sender: { source, id: "system" },
-          text,
-          attachments: [],
-          raw_path: "",
-          source_thread_ref: ref,
-        };
-        await adapter.sendThreadReply({ event, text });
-      }
-    } catch (error) {
-      log.warn("thread.decision_notify_post_failed", {
-        thread_key: thread.state.thread_key,
-        source,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    await appendFelixReply(thread, new Date().toISOString(), text);
-  }
-
-  private async updateOwnerDecisionMessage(
-    thread: ThreadHandle,
-    record: ApprovalRecord,
-    mode: OwnerDecision["mode"],
-  ): Promise<void> {
-    const anchor = record.ownerMessageAnchor;
-    if (!anchor) return;
-    const targetSource = this.cfg.OWNER_CHANNEL ?? thread.state.source;
-    const adapter = this.requireAdapter(targetSource);
-    if (!adapter.editUserMessage) return;
-    try {
-      const message = await adapter.formatOwnerNotification({
-        skillId: record.skillId,
-        permissions: record.permissions,
-        reason: record.reason,
-        requesterName: record.requester.display ?? record.requester.username ?? record.requester.id,
-        requesterId: record.requester.id,
-        threadLink: await adapter.getThreadLink(thread.state.thread_key),
-        status: record.status,
-        decisionMode: mode,
-        decidedAt: record.decidedAt,
-      });
-      await adapter.editUserMessage({ anchor, text: message });
-    } catch (error) {
-      log.warn("owner.edit_notification_failed", {
-        thread_key: thread.state.thread_key,
-        source: thread.state.source,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  /**
-   * Queue a synthetic system event that tells the LLM to proceed with the
-   * pending work. Called after auto-grant and after owner approval, so the
-   * LLM gets a turn to actually execute.
-   */
-  private async queueProceedEvent(thread: ThreadHandle): Promise<void> {
-    const ref = thread.state.source_thread_ref;
-    if (!ref) return;
-    const source = thread.state.source;
-    const proceedEvent: UniversalEvent = {
-      source,
-      thread_key: thread.state.thread_key,
-      event_id: `proceed-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-      received_at: new Date().toISOString(),
-      visibility: "channel",
-      mentions_bot: false,
-      sender: { source, id: "system" },
-      text: "Permission granted. Proceed with the pending request.",
-      attachments: [],
-      raw_path: "",
-      source_thread_ref: ref,
-    };
-    const eventFile = await appendEventToThread(thread, proceedEvent);
-    await queueThreadEvent(thread, {
-      received_at: proceedEvent.received_at,
-      event_file: eventFile,
-      source_event_id: proceedEvent.event_id,
-    });
   }
 
   /** Wait for all in-flight thread processing to settle, up to timeoutMs. */
@@ -861,31 +539,5 @@ export class FelixEngine {
       whatsapp: this.cfg.WHATSAPP_OWNER_DISPLAY,
     };
     return map[source];
-  }
-
-}
-
-export function namespacePermissions(skillId: string, permissions: string[]): string[] {
-  return permissions.map((p) => (p.includes(":") ? p : `${skillId}:${p}`));
-}
-
-function exitCodeMessage(exitCode: number): string {
-  switch (exitCode) {
-    case -1:
-      return "The agent process could not start. ";
-    case 1:
-      return "The agent process encountered an error. ";
-    case 2:
-      return "The agent process received invalid input. ";
-    case 126:
-      return "The agent binary is not executable. ";
-    case 127:
-      return "The agent binary was not found. ";
-    case 137:
-      return "The agent process was killed (out of memory or timeout). ";
-    case 143:
-      return "The agent process was terminated. ";
-    default:
-      return `The agent process exited with code ${exitCode}. `;
   }
 }

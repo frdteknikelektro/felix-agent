@@ -334,6 +334,92 @@ describe("FelixEngine Mattermost routing", () => {
     expect(calls.sendThreadReply.mock.calls[0][0].text).toBe("decision posted");
   });
 
+  it("continues draining queued events after a reject decision", async () => {
+    const cfg = await makeTestConfig("felix-owner-reject-drain-");
+    const harnessInputs: TurnInput[] = [];
+    const harness = {
+      async run(input: TurnInput): Promise<TurnResult> {
+        harnessInputs.push(input);
+        return { sessionId: `s${harnessInputs.length}`, exitCode: 0, success: true, parsed: { kind: "reply", text: "ok" }, logPath: "/dev/null" };
+      },
+      async generateDecisionNotification() {
+        return "decision posted";
+      },
+    };
+
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    const ref = mattermostThreadRef("channel", "reject-drain-root");
+    const thread = await createOrLoadThread(cfg, {
+      source: "mattermost",
+      thread_key: "mattermost:channel:reject-drain",
+      source_thread_ref: ref,
+      received_at: "2026-05-25T00:00:00.000Z",
+    });
+    await requestApproval(cfg, thread, {
+      request_id: "req-reject-drain",
+      requested_at: "2026-05-25T00:00:00.000Z",
+      skill_id: "deploy",
+      permissions: ["shell.run"],
+      reason: "ship it",
+      owner_message: "please approve",
+      thread_key: thread.state.thread_key,
+      requester: { source: "mattermost", id: "user-1", display: "User One" },
+      requester_event_file: path.join(thread.eventsDir, "req-reject-drain.md"),
+      owner_message_anchor: {
+        source: "mattermost",
+        conversation_id: "owner-dm",
+        message_id: "owner-post",
+        thread_id: "owner-post",
+      },
+    });
+
+    const queuedEvent = {
+      source: "mattermost",
+      thread_key: thread.state.thread_key,
+      event_id: "queued-after-reject",
+      received_at: "2026-05-25T00:02:00.000Z",
+      visibility: "channel" as const,
+      mentions_bot: true,
+      sender: { source: "mattermost" as const, id: "user-2" },
+      text: "@felix next request",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: { ...ref, message_id: "queued-after-reject" },
+    };
+    const eventFile = await appendEventToThread(thread, queuedEvent);
+    await queueThreadEvent(thread, {
+      received_at: queuedEvent.received_at,
+      event_file: eventFile,
+      source_event_id: queuedEvent.event_id,
+    });
+
+    await engine.handleOwnerDecision({
+      mode: "reject",
+      decidedBy: "owner-1",
+      target: {
+        kind: "owner_message",
+        anchor: {
+          source: "mattermost",
+          conversation_id: "owner-dm",
+          message_id: "owner-post",
+          thread_id: "owner-post",
+        },
+      },
+    });
+
+    expect(harnessInputs).toHaveLength(1);
+    expect(harnessInputs[0].event.event_id).toBe("queued-after-reject");
+  });
+
   it("ignores repeated decisions after the pending status is cleared", async () => {
     const cfg = await makeTestConfig("felix-owner-repeat-");
     const harnessInputs: TurnInput[] = [];

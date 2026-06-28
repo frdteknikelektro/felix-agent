@@ -18,6 +18,11 @@ import {
   formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
+import {
+  normalizeSourceEvent,
+  sourceThreadKey,
+  sourceThreadRef,
+} from "../../core/source-event-normalization.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -886,13 +891,6 @@ function normalizeParsedMessage(
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
     : text;
 
-  const sourceThreadRef = whatsappSourceThreadRef({
-    chatJid,
-    rootMessageId: chatJid, // WhatsApp threads are flat — one chat = one thread
-    messageId: pm.ID ?? "",
-    senderJid,
-  });
-
   const attachments: UniversalAttachment[] = pm.Media
     ? [{
         file_id: pm.ID ?? "",
@@ -903,15 +901,14 @@ function normalizeParsedMessage(
       }]
     : [];
 
-  return {
+  return normalizeSourceEvent({
     source: "whatsapp",
-    event_id: pm.ID ?? "",
-    thread_key: whatsappThreadKey(chatJid),
-    received_at: pm.Timestamp
+    eventId: pm.ID ?? "",
+    receivedAt: pm.Timestamp
       ? new Date(pm.Timestamp).toISOString()
       : new Date().toISOString(),
     visibility,
-    mentions_bot: mentionsBot,
+    mentionsBot,
     sender: {
       source: "whatsapp",
       id: senderJid,
@@ -919,9 +916,17 @@ function normalizeParsedMessage(
     },
     text: displayText,
     attachments,
-    raw_path: "",
-    source_thread_ref: sourceThreadRef,
-  };
+    thread: {
+      source: "whatsapp",
+      conversationId: chatJid,
+      rootMessageId: chatJid,
+      messageId: pm.ID ?? "",
+      raw: {
+        chat_jid: chatJid,
+        sender_jid: senderJid,
+      },
+    },
+  });
 }
 
 // ─── Mention detection ────────────────────────────────────────────────────────
@@ -998,7 +1003,7 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown): void
 // ─── Exported helpers ────────────────────────────────────────────────────────
 
 export function whatsappThreadKey(chatJid: string): string {
-  return `whatsapp:${chatJid}:${chatJid}`;
+  return sourceThreadKey("whatsapp", chatJid, chatJid);
 }
 
 export function whatsappSourceThreadRef(opts: {
@@ -1007,15 +1012,14 @@ export function whatsappSourceThreadRef(opts: {
   messageId: string;
   senderJid?: string;
 }): SourceThreadRef {
-  return {
+  return sourceThreadRef({
     source: "whatsapp",
-    conversation_id: opts.chatJid,
-    thread_id: opts.rootMessageId,
-    root_message_id: opts.rootMessageId,
-    message_id: opts.messageId,
+    conversationId: opts.chatJid,
+    rootMessageId: opts.rootMessageId,
+    messageId: opts.messageId,
     raw: {
       chat_jid: opts.chatJid,
       sender_jid: opts.senderJid,
     },
-  };
+  });
 }

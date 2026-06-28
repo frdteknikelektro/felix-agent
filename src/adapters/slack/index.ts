@@ -13,6 +13,11 @@ import {
   formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
+import {
+  normalizeSourceEvent,
+  sourceThreadKey,
+  sourceThreadRef,
+} from "../../core/source-event-normalization.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -424,30 +429,31 @@ class SlackAdapter implements SourceAdapter {
       is_image: (f.mimetype as string)?.startsWith("image/") ? true : undefined,
     }));
 
-    const sourceThreadRef = slackSourceThreadRef({
-      channelId,
-      rootMessageId,
-      messageId: ts,
-      teamId,
-      authorId: userId,
-    });
-
-    return {
+    return normalizeSourceEvent({
       source: "slack",
-      event_id: ts,
-      thread_key: slackThreadKey(channelId, rootMessageId),
-      received_at: new Date(parseFloat(ts) * 1000).toISOString(),
+      eventId: ts,
+      receivedAt: new Date(parseFloat(ts) * 1000).toISOString(),
       visibility,
-      mentions_bot: mentionsBot,
+      mentionsBot,
       sender: {
         source: "slack",
         id: userId ?? "unknown",
       },
       text,
       attachments,
-      raw_path: "",
-      source_thread_ref: sourceThreadRef,
-    };
+      thread: {
+        source: "slack",
+        conversationId: channelId,
+        rootMessageId,
+        messageId: ts,
+        raw: {
+          channel_id: channelId,
+          root_id: rootMessageId,
+          team_id: teamId,
+          user_id: userId,
+        },
+      },
+    });
   }
 
   // ── Internal: dedup ──────────────────────────────────────────────────────
@@ -465,7 +471,7 @@ class SlackAdapter implements SourceAdapter {
 // ─── Exported helpers ────────────────────────────────────────────────────────
 
 export function slackThreadKey(channelId: string, rootMessageId: string): string {
-  return `slack:${channelId}:${rootMessageId}`;
+  return sourceThreadKey("slack", channelId, rootMessageId);
 }
 
 export function slackSourceThreadRef(opts: {
@@ -475,17 +481,16 @@ export function slackSourceThreadRef(opts: {
   teamId?: string;
   authorId?: string;
 }): SourceThreadRef {
-  return {
+  return sourceThreadRef({
     source: "slack",
-    conversation_id: opts.channelId,
-    thread_id: opts.rootMessageId,
-    root_message_id: opts.rootMessageId,
-    message_id: opts.messageId,
+    conversationId: opts.channelId,
+    rootMessageId: opts.rootMessageId,
+    messageId: opts.messageId,
     raw: {
       channel_id: opts.channelId,
       root_id: opts.rootMessageId,
       team_id: opts.teamId,
       user_id: opts.authorId,
     },
-  };
+  });
 }

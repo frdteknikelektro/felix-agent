@@ -15,6 +15,12 @@ export type { PendingPermissionThread } from "./resolve.js";
 export { listPendingPermissionThreads, resolvePendingPermissionThread, resolvePendingPermissionThreadExact } from "./resolve.js";
 export type { AppliedOwnerDecision } from "./apply.js";
 export { applyOwnerDecision } from "./apply.js";
+export {
+  ApprovalRequestLifecycle,
+  namespacePermissions,
+  type ApprovalRequestLifecyclePorts,
+  type ApplyOwnerDecisionLifecycleResult,
+} from "./lifecycle.js";
 export type { OwnerDecisionCandidate, OwnerDecisionRoute } from "./routing.js";
 export {
   isOwnerDecisionReactionToken,
