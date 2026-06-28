@@ -60,7 +60,7 @@ Run `docker compose run --rm --build setup` to configure your `.env` interactive
 
 ### 9router Override
 
-Felix can keep the selected harness (`codex`, `opencode`, or `claude-code`) while routing model calls through `9router.jala.tech`. Enable it in setup, or set:
+Felix can keep the selected harness (`codex`, `opencode`, or `claude-code`) while routing model calls through a [9router](https://github.com/decolua/9router) gateway. Enable it in setup, or set:
 
 ```bash
 NINEROUTER_ENABLED=true
