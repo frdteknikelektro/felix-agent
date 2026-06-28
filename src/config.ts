@@ -72,9 +72,13 @@ const Env = z.object({
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
   SOURCE: z.string().default("mattermost"),
-  OWNER_CHANNEL: z.enum(["mattermost", "discord", "slack", "whatsapp"])
-    .optional()
-    .transform((v) => v || undefined),
+  // Empty string (an unset OWNER_CHANNEL= line in .env) means "route to the
+  // event's own channel" — coerce it to undefined before the enum check, which
+  // would otherwise reject "" and crash boot.
+  OWNER_CHANNEL: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.enum(["mattermost", "discord", "slack", "whatsapp"]).optional(),
+  ),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
   // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
   USAGE_TZ: z.string().default("UTC"),
