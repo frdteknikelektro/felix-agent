@@ -87,12 +87,11 @@ describe("WhatsAppAdapter getTurnContext", () => {
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("WhatsApp");
     expect(joined).toContain("wacli messages list");
-    expect(joined).toContain("wacli send text");
-    expect(joined).toContain("--json");
+    expect(joined).toContain("wacli send file");
+    expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     // Default (no shared number): no name prefix in instructions
     expect(joined).not.toContain("[Felix]");
     expect(joined).toContain("dedicated WhatsApp number");
-    expect(joined).toContain('--message "<your message>"');
   });
 
   it("instructs the name prefix only when the bot shares the owner's number", async () => {
@@ -125,7 +124,7 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("shares a WhatsApp number");
-    expect(joined).toContain('--message "*[Felix]*\n<your message>"');
+    expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     expect(joined).toContain("prefix in file captions");
   });
 });
