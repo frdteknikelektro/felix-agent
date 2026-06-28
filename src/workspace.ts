@@ -103,6 +103,7 @@ export async function ensureMemoryDirs(paths: WorkspacePaths): Promise<void> {
 
 export async function syncBundledSkills(
   paths: WorkspacePaths,
+  options: { skip?: (name: string) => boolean } = {},
   bundledSkillsDir: string = path.resolve(process.cwd(), "skills"),
 ): Promise<void> {
   const entries = await fs.readdir(bundledSkillsDir, { withFileTypes: true }).catch(() => []);
@@ -112,9 +113,14 @@ export async function syncBundledSkills(
     if (!entry.isDirectory()) continue;
     if (entry.name === "memory") continue;
     if (entry.name === "template-skill") continue;
-    const source = path.join(bundledSkillsDir, entry.name);
     const destination = path.join(paths.skills, entry.name);
     await fs.rm(destination, { recursive: true, force: true });
+    // Skipped skills are removed from the catalog too (the rm above), so
+    // toggling a gated skill off (e.g. 9router when NINEROUTER_ENABLED=false)
+    // leaves no stale copy that would clutter the index for users who don't
+    // use it.
+    if (options.skip?.(entry.name)) continue;
+    const source = path.join(bundledSkillsDir, entry.name);
     await fs.cp(source, destination, { recursive: true, force: false, errorOnExist: false, preserveTimestamps: true });
   }
 }

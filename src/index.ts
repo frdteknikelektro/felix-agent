@@ -120,7 +120,11 @@ async function main(): Promise<void> {
   // Runs before ensureWorkspace so rename targets don't pre-exist.
   await migrateWorkspaceLayout(cfg);
   await ensureWorkspace(cfg.paths);
-  await syncBundledSkills(cfg.paths);
+  await syncBundledSkills(cfg.paths, {
+    // 9router skill is only useful when the gateway is configured; hide it
+    // otherwise so non-9router users don't see an irrelevant skill.
+    skip: (name) => name === "9router" && !ninerouterEnabled(cfg),
+  });
   await syncMemorySchema(cfg.paths);
 
   // Write static L1 rulesets once at boot — never overwritten per-turn.
