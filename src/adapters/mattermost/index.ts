@@ -11,9 +11,7 @@ import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js"
 export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
-  AttachmentRejectedError,
   downloadResponseToFile,
-  formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
 import {
@@ -21,6 +19,7 @@ import {
   sourceThreadKey,
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
+import { createSourceHost } from "../../core/source-host.js";
 
 interface WsPayload {
   event?: string;
@@ -91,7 +90,7 @@ class MattermostAdapter implements SourceAdapter {
   private socket?: WebSocket;
   private reconnectTimer?: NodeJS.Timeout;
   private reconnectDelay = 1000;
-  private seenPosts = new Map<string, number>();
+  private readonly host = createSourceHost({ source: "mattermost" });
   private channelTypeCache = new Map<string, string | undefined>();
   private channelTeamIdCache = new Map<string, string | undefined>();
   private channelTeamCache = new Map<string, string | undefined>();
@@ -113,19 +112,18 @@ class MattermostAdapter implements SourceAdapter {
       return { stop: () => undefined, done: Promise.resolve() };
     }
     await this.prefetchBotTeams();
-    let resolveDone!: () => void;
-    const done = new Promise<void>((resolve) => {
-      resolveDone = resolve;
-    });
-    this.connect(engine);
-    return {
-      stop: () => {
-        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-        this.socket?.close();
-        resolveDone();
+    return this.host.run({
+      source: "mattermost",
+      connect: async () => {
+        this.connect(engine);
+        return {
+          disconnect: () => {
+            if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+            this.socket?.close();
+          },
+        };
       },
-      done,
-    };
+    });
   }
 
   async getThreadLink(threadKey: string): Promise<string | undefined> {
@@ -376,12 +374,7 @@ class MattermostAdapter implements SourceAdapter {
     maxBytes: number;
   }): Promise<UniversalAttachment> {
     const fileInfo = await this.fetchFileInfo(input.attachment.file_id).catch(() => null);
-    if (typeof fileInfo?.size === "number" && fileInfo.size > input.maxBytes) {
-      throw new AttachmentRejectedError(
-        `attachment exceeds ${formatBytes(input.maxBytes)}`,
-        `File is ${formatBytes(fileInfo.size)}, above the ${formatBytes(input.maxBytes)} limit.`,
-      );
-    }
+    this.host.gateAttachment({ ...input.attachment, size_bytes: fileInfo?.size }, input.maxBytes);
     const filename = safeFileName(fileInfo?.name ?? input.attachment.filename ?? input.attachment.file_id);
     const dest = storedAttachmentPath(
       input.destinationDir,
@@ -524,8 +517,7 @@ class MattermostAdapter implements SourceAdapter {
           return;
         }
         const postId = post.event_id;
-        if (this.isDuplicate(postId)) return;
-        this.remember(postId);
+        if (!this.host.firstSight(postId)) return;
         await handleSourceEventIntake(this.cfg, {
           event: post,
           owner: this.ownerUserId && this.ownerUserId === post.sender.id
@@ -541,15 +533,6 @@ class MattermostAdapter implements SourceAdapter {
       default:
         return;
     }
-  }
-
-  private remember(postId: string): void {
-    this.seenPosts.set(postId, Date.now());
-  }
-
-  private isDuplicate(postId: string): boolean {
-    const seen = this.seenPosts.get(postId);
-    return Boolean(seen && Date.now() - seen < 6 * 60 * 60 * 1000);
   }
 
   private async postMessage(input: {

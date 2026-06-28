@@ -8,9 +8,7 @@ import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 export { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
-  AttachmentRejectedError,
   downloadResponseToFile,
-  formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
 import {
@@ -18,6 +16,7 @@ import {
   sourceThreadKey,
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
+import { createSourceHost } from "../../core/source-host.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -47,8 +46,8 @@ class DiscordAdapter implements SourceAdapter {
   private client?: Client;
   private guildIdCache = new Map<string, string | undefined>();
   private starterMessageCache = new Map<string, string | undefined>();
-  private seenMessages = new Map<string, number>();
   private channelTypeCache = new Map<string, "dm" | "channel">();
+  private readonly host = createSourceHost({ source: "discord" });
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -57,56 +56,49 @@ class DiscordAdapter implements SourceAdapter {
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
     if (!this.cfg.DISCORD_BOT_TOKEN) {
       log.warn("discord.disabled", { reason: "missing_token" });
-      return { stop: () => undefined, done: Promise.resolve() };
     }
+    return this.host.run({
+      source: "discord",
+      disabled: !this.cfg.DISCORD_BOT_TOKEN,
+      connect: async () => {
+        const client = new Client({
+          intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.GuildMessageReactions,
+            GatewayIntentBits.MessageContent,
+            GatewayIntentBits.DirectMessages,
+            GatewayIntentBits.DirectMessageReactions,
+          ],
+          partials: [Partials.Channel, Partials.Message, Partials.Reaction],
+        });
 
-    const client = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.GuildMessageReactions,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.DirectMessageReactions,
-      ],
-      partials: [Partials.Channel, Partials.Message, Partials.Reaction],
-    });
+        client.once(Events.ClientReady, () => {
+          log.info("discord.ready", { tag: client.user?.tag });
+        });
 
-    let resolveDone!: () => void;
-    const done = new Promise<void>((resolve) => {
-      resolveDone = resolve;
-    });
+        client.on(Events.MessageCreate, (message) => {
+          void this.handleMessage(engine, message).catch((error) => {
+            log.warn("discord.message_handler_error", { error: error.message });
+          });
+        });
 
-    client.once(Events.ClientReady, () => {
-      log.info("discord.ready", { tag: client.user?.tag });
-    });
+        client.on(Events.MessageReactionAdd, (reaction, user) => {
+          void this.handleReactionAdd(engine, reaction, user).catch((error) => {
+            log.warn("discord.reaction_handler_error", { error: error.message });
+          });
+        });
 
-    client.on(Events.MessageCreate, (message) => {
-      void this.handleMessage(engine, message).catch((error) => {
-        log.warn("discord.message_handler_error", { error: error.message });
-      });
-    });
+        client.on(Events.Error, (error) => {
+          log.warn("discord.client_error", { error: error.message });
+        });
 
-    client.on(Events.MessageReactionAdd, (reaction, user) => {
-      void this.handleReactionAdd(engine, reaction, user).catch((error) => {
-        log.warn("discord.reaction_handler_error", { error: error.message });
-      });
-    });
+        await client.login(this.cfg.DISCORD_BOT_TOKEN);
+        this.client = client;
 
-    client.on(Events.Error, (error) => {
-      log.warn("discord.client_error", { error: error.message });
-    });
-
-    await client.login(this.cfg.DISCORD_BOT_TOKEN);
-    this.client = client;
-
-    return {
-      stop: () => {
-        client.destroy();
-        resolveDone();
+        return { disconnect: () => client.destroy() };
       },
-      done,
-    };
+    });
   }
 
   // ── SourceAdapter implementation ─────────────────────────────────────────
@@ -306,12 +298,7 @@ class DiscordAdapter implements SourceAdapter {
     if (!channelId) {
       throw new Error("Discord downloadAttachment: missing conversation_id");
     }
-    if (typeof input.attachment.size_bytes === "number" && input.attachment.size_bytes > input.maxBytes) {
-      throw new AttachmentRejectedError(
-        `attachment exceeds ${formatBytes(input.maxBytes)}`,
-        `File is ${formatBytes(input.attachment.size_bytes)}, above the ${formatBytes(input.maxBytes)} limit.`,
-      );
-    }
+    this.host.gateAttachment(input.attachment, input.maxBytes);
     const url = `https://cdn.discordapp.com/attachments/${encodeURIComponent(channelId)}/${encodeURIComponent(input.attachment.file_id)}/${encodeURIComponent(input.attachment.filename ?? input.attachment.file_id)}`;
     const res = await fetch(url);
     if (!res.ok) {
@@ -347,8 +334,7 @@ class DiscordAdapter implements SourceAdapter {
     if (message.author.bot) return;
 
     const messageId = message.id;
-    if (this.isDuplicate(messageId)) return;
-    this.remember(messageId);
+    if (!this.host.firstSight(messageId)) return;
 
     const event = await this.normalizeDiscordMessage(message);
     if (!event) return;
@@ -441,17 +427,6 @@ class DiscordAdapter implements SourceAdapter {
         },
       },
     });
-  }
-
-  // ── Internal: dedup ──────────────────────────────────────────────────────
-
-  private remember(messageId: string): void {
-    this.seenMessages.set(messageId, Date.now());
-  }
-
-  private isDuplicate(messageId: string): boolean {
-    const seen = this.seenMessages.get(messageId);
-    return Boolean(seen && Date.now() - seen < 6 * 60 * 60 * 1000);
   }
 
   // ── Internal: reactions ──────────────────────────────────────────────────

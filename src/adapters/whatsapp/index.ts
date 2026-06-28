@@ -13,9 +13,9 @@ import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
+import { createSourceHost } from "../../core/source-host.js";
 import {
   AttachmentRejectedError,
-  formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
 import {
@@ -47,6 +47,12 @@ let webhookSecret: string | null = null;
 let ownerSharesNumber = true;
 let lastSendAt = 0;
 const SEND_MIN_GAP_MS = 5000;
+
+// Webhook intake is module-level (registered by app.ts), so its dedup lives here
+// alongside the other module-level webhook state rather than on the adapter
+// instance. wacli posts each message once, but a retried webhook delivery would
+// otherwise be re-ingested; firstSight() drops the redelivery before persistence.
+const webhookDedup = createSourceHost({ source: "whatsapp" });
 
 function setWebhookSecret(secret: string): void {
   webhookSecret = secret;
@@ -187,6 +193,11 @@ export async function handleWhatsAppWebhook(
       sendJson(res, 200, { ignored: "pre_connect_history" });
       return;
     }
+  }
+
+  if (!webhookDedup.firstSight(payload.ID)) {
+    sendJson(res, 200, { ignored: "duplicate" });
+    return;
   }
 
   if (payload.FromMe) {
@@ -477,6 +488,7 @@ class WhatsAppAdapter implements SourceAdapter {
   private process?: ReturnType<typeof spawn>;
   private sameNumber = false;
   private botJid?: string;
+  private readonly host = createSourceHost({ source: "whatsapp" });
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -513,40 +525,44 @@ class WhatsAppAdapter implements SourceAdapter {
       "--max-reconnect", "0",
     ];
 
-    log.info("whatsapp.starting", { webhook_port: port });
-    this.process = spawn(this.cfg.WHATSAPP_WACLI_BIN, args, {
-      stdio: ["ignore", "inherit", "inherit"],
-      env: {
-        ...process.env,
-        PATH: process.env.PATH ?? "",
+    return this.host.run({
+      source: "whatsapp",
+      connect: async () => {
+        log.info("whatsapp.starting", { webhook_port: port });
+        this.process = spawn(this.cfg.WHATSAPP_WACLI_BIN, args, {
+          stdio: ["ignore", "inherit", "inherit"],
+          env: {
+            ...process.env,
+            PATH: process.env.PATH ?? "",
+          },
+        });
+        wacliStartedAt = Date.now();
+
+        this.process!.on("error", (err) => {
+          log.warn("whatsapp.process_error", { error: err.message });
+        });
+
+        let resolveClosed!: () => void;
+        const closed = new Promise<void>((resolve) => {
+          resolveClosed = resolve;
+        });
+        this.process!.on("exit", (code) => {
+          log.info("whatsapp.process_exit", { code });
+          clearWebhookSecret();
+          wacliStartedAt = null;
+          resolveClosed();
+        });
+
+        return {
+          disconnect: () => {
+            clearWebhookSecret();
+            this.process!.kill("SIGTERM");
+            wacliStartedAt = null;
+          },
+          closed,
+        };
       },
     });
-    wacliStartedAt = Date.now();
-
-    this.process!.on("error", (err) => {
-      log.warn("whatsapp.process_error", { error: err.message });
-    });
-
-    let resolveDone!: () => void;
-    const done = new Promise<void>((resolve) => {
-      resolveDone = resolve;
-    });
-    this.process!.on("exit", (code) => {
-      log.info("whatsapp.process_exit", { code });
-      clearWebhookSecret();
-      wacliStartedAt = null;
-      resolveDone();
-    });
-
-    return {
-      stop: () => {
-        clearWebhookSecret();
-        this.process!.kill("SIGTERM");
-        wacliStartedAt = null;
-        resolveDone();
-      },
-      done,
-    };
   }
 
   // ── SourceAdapter implementation ─────────────────────────────────────────
@@ -809,12 +825,7 @@ class WhatsAppAdapter implements SourceAdapter {
     if (!chatJid) {
       throw new Error("WhatsApp downloadAttachment: missing conversation_id");
     }
-    if (typeof input.attachment.size_bytes === "number" && input.attachment.size_bytes > input.maxBytes) {
-      throw new AttachmentRejectedError(
-        `attachment exceeds ${formatBytes(input.maxBytes)}`,
-        `File is ${formatBytes(input.attachment.size_bytes)}, above the ${formatBytes(input.maxBytes)} limit.`,
-      );
-    }
+    this.host.gateAttachment(input.attachment, input.maxBytes);
 
     const filename = input.attachment.filename ?? input.attachment.file_id;
     const dest = storedAttachmentPath(

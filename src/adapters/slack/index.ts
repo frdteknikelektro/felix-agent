@@ -8,9 +8,7 @@ import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 export { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
-  AttachmentRejectedError,
   downloadResponseToFile,
-  formatBytes,
   storedAttachmentPath,
 } from "../../core/attachments.js";
 import {
@@ -18,6 +16,7 @@ import {
   sourceThreadKey,
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
+import { createSourceHost } from "../../core/source-host.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -54,8 +53,8 @@ class SlackAdapter implements SourceAdapter {
   private app?: App;
   private workspaceUrl?: string;
   private discoveredBotUserId?: string;
-  private seenMessages = new Map<string, number>();
   private userDisplayCache = new Map<string, { display: string; username: string }>();
+  private readonly host = createSourceHost({ source: "slack" });
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -64,67 +63,64 @@ class SlackAdapter implements SourceAdapter {
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
     if (!this.cfg.SLACK_BOT_TOKEN || !this.cfg.SLACK_APP_TOKEN) {
       log.warn("slack.disabled", { reason: "missing_token" });
-      return { stop: () => undefined, done: Promise.resolve() };
     }
+    return this.host.run({
+      source: "slack",
+      disabled: !this.cfg.SLACK_BOT_TOKEN || !this.cfg.SLACK_APP_TOKEN,
+      connect: async () => {
+        const app = new App({
+          token: this.cfg.SLACK_BOT_TOKEN,
+          socketMode: true,
+          appToken: this.cfg.SLACK_APP_TOKEN,
+        });
 
-    const app = new App({
-      token: this.cfg.SLACK_BOT_TOKEN,
-      socketMode: true,
-      appToken: this.cfg.SLACK_APP_TOKEN,
-    });
+        app.event("message", async ({ event, client }) => {
+          try {
+            const subtype = (event as any).subtype as string | undefined;
+            if (subtype && SKIP_SUBTYPES.has(subtype)) return;
+            if ((event as any).bot_id) return;
+            if (!(event as any).text && !(event as any).files?.length) return;
+            await this.handleMessage(engine, event as any, client);
+          } catch (error) {
+            log.warn("slack.message_handler_error", { error: (error as Error).message });
+          }
+        });
 
-    let resolveDone!: () => void;
-    const done = new Promise<void>((resolve) => {
-      resolveDone = resolve;
-    });
+        app.event("reaction_added", async ({ event }) => {
+          try {
+            await this.handleReactionAdd(engine, event as any);
+          } catch (error) {
+            log.warn("slack.reaction_handler_error", { error: (error as Error).message });
+          }
+        });
 
-    app.event("message", async ({ event, client }) => {
-      try {
-        const subtype = (event as any).subtype as string | undefined;
-        if (subtype && SKIP_SUBTYPES.has(subtype)) return;
-        if ((event as any).bot_id) return;
-        if (!(event as any).text && !(event as any).files?.length) return;
-        await this.handleMessage(engine, event as any, client);
-      } catch (error) {
-        log.warn("slack.message_handler_error", { error: (error as Error).message });
-      }
-    });
+        app.error(async (error) => {
+          log.warn("slack.app_error", { error: error.message });
+        });
 
-    app.event("reaction_added", async ({ event }) => {
-      try {
-        await this.handleReactionAdd(engine, event as any);
-      } catch (error) {
-        log.warn("slack.reaction_handler_error", { error: (error as Error).message });
-      }
-    });
+        await app.start();
 
-    app.error(async (error) => {
-      log.warn("slack.app_error", { error: error.message });
-    });
+        try {
+          const auth = await app.client.auth.test();
+          this.workspaceUrl = (auth as any).url;
+          this.discoveredBotUserId = (auth as any).user_id as string;
+          log.info("slack.ready", {
+            user_id: this.discoveredBotUserId,
+            workspace: this.workspaceUrl,
+          });
+        } catch (error) {
+          log.warn("slack.auth_test_failed", { error: (error as Error).message });
+        }
 
-    await app.start();
+        this.app = app;
 
-    try {
-      const auth = await app.client.auth.test();
-      this.workspaceUrl = (auth as any).url;
-      this.discoveredBotUserId = (auth as any).user_id as string;
-      log.info("slack.ready", {
-        user_id: this.discoveredBotUserId,
-        workspace: this.workspaceUrl,
-      });
-    } catch (error) {
-      log.warn("slack.auth_test_failed", { error: (error as Error).message });
-    }
-
-    this.app = app;
-
-    return {
-      stop: async () => {
-        await app.stop();
-        resolveDone();
+        return {
+          disconnect: async () => {
+            await app.stop();
+          },
+        };
       },
-      done,
-    };
+    });
   }
 
   // ── SourceAdapter implementation ─────────────────────────────────────────
@@ -323,12 +319,7 @@ class SlackAdapter implements SourceAdapter {
       throw new Error(`Cannot access Slack file ${input.attachment.file_id}`);
     }
     const slackSize = typeof fileInfo.file.size === "number" ? fileInfo.file.size : input.attachment.size_bytes;
-    if (typeof slackSize === "number" && slackSize > input.maxBytes) {
-      throw new AttachmentRejectedError(
-        `attachment exceeds ${formatBytes(input.maxBytes)}`,
-        `File is ${formatBytes(slackSize)}, above the ${formatBytes(input.maxBytes)} limit.`,
-      );
-    }
+    this.host.gateAttachment({ ...input.attachment, size_bytes: slackSize }, input.maxBytes);
     const url = fileInfo.file.url_private;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.cfg.SLACK_BOT_TOKEN}` },
@@ -361,8 +352,7 @@ class SlackAdapter implements SourceAdapter {
     client: unknown,
   ): Promise<void> {
     const ts = event.ts as string;
-    if (this.isDuplicate(ts)) return;
-    this.remember(ts);
+    if (!this.host.firstSight(ts)) return;
 
     const normalized = await this.normalizeSlackEvent(event);
     if (!normalized) return;
@@ -454,17 +444,6 @@ class SlackAdapter implements SourceAdapter {
         },
       },
     });
-  }
-
-  // ── Internal: dedup ──────────────────────────────────────────────────────
-
-  private remember(messageId: string): void {
-    this.seenMessages.set(messageId, Date.now());
-  }
-
-  private isDuplicate(messageId: string): boolean {
-    const seen = this.seenMessages.get(messageId);
-    return Boolean(seen && Date.now() - seen < 6 * 60 * 60 * 1000);
   }
 }
 
