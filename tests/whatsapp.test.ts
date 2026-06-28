@@ -94,6 +94,8 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("https://wacli.sh/");
     expect(joined).toContain("wacli send file");
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
+    expect(joined).toContain("never guess or synthesize the mention target");
+    expect(joined).toContain("exact `.sender_jid`");
     // Default (no shared number): no name prefix in instructions
     expect(joined).not.toContain("[Felix]");
     expect(joined).toContain("dedicated WhatsApp number");
