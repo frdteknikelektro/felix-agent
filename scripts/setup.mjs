@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
@@ -187,14 +187,14 @@ function writeEnv(templatePath, outputPath, answers, existing) {
   });
 
   const extra = new Set([
-    ...Object.keys(answers).filter((k) => !templateKeys.has(k) && answers[k]),
-    ...Object.keys(existing || {}).filter((k) => !templateKeys.has(k) && existing[k]),
+    ...Object.keys(answers).filter((k) => !templateKeys.has(k)),
+    ...Object.keys(existing || {}).filter((k) => !templateKeys.has(k) && !(k in answers) && existing[k]),
   ]);
   if (extra.size > 0) {
     lines.push("");
     lines.push("# ── Extra environment ──────────────────────────");
     for (const key of [...extra].sort()) {
-      let val = key in answers && answers[key] ? answers[key] : existing[key];
+      let val = key in answers ? (answers[key] ?? "") : existing[key];
       if (/[\s"'#]/.test(val) || val.includes("\n")) {
         val = "'" + val.replace(/'/g, "'\\''") + "'";
       }
@@ -321,6 +321,59 @@ async function scanSkillEnv(dirs) {
     }
   }
   return vars;
+}
+
+function isWacliStoreLocked(text) {
+  return /store (is )?locked|store locked|resource temporarily unavailable/i.test(text);
+}
+
+function checkSetupWacliAuth(bin) {
+  try {
+    const result = spawnSync(bin, ["doctor", "--json"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const detail = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    if (isWacliStoreLocked(detail)) {
+      return { status: "locked", detail };
+    }
+    if (result.status !== 0) {
+      return { status: "unknown", detail };
+    }
+
+    const parsed = JSON.parse(result.stdout.trim());
+    const data = parsed?.data ?? {};
+    if (data.linked_jid) {
+      return {
+        status: "authenticated",
+        jid: String(data.linked_jid),
+        connected: Boolean(data.connected),
+      };
+    }
+    return { status: "unauthenticated", detail };
+  } catch (err) {
+    return {
+      status: "unknown",
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function runWacliAuth(bin) {
+  const authChild = spawn(bin, ["auth"], {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+    },
+  });
+  return await new Promise((resolve) => {
+    authChild.on("error", (err) => resolve({
+      exitCode: -1,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    authChild.on("close", (code) => resolve({ exitCode: code ?? -1 }));
+  });
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
@@ -596,8 +649,11 @@ async function main() {
           { value: "", name: "Same as event source (each event notifies its own source)" },
           ...listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
         ],
+        default: listenSources.includes(existing.OWNER_CHANNEL) ? existing.OWNER_CHANNEL : "",
       });
-      if (notifyChannel) wizard.OWNER_CHANNEL = notifyChannel;
+      wizard.OWNER_CHANNEL = notifyChannel;
+    } else {
+      wizard.OWNER_CHANNEL = "";
     }
 
     // ── Clear deselected sources ───────────────────────────────────────────
@@ -725,23 +781,24 @@ async function main() {
           });
           wizard.WHATSAPP_OWNER_DISPLAY = display;
 
-          info("\n  Pairing wacli with WhatsApp...");
-          info("  A QR code will appear. Scan it with WhatsApp on your phone.");
-          info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
-
-          const authChild = spawn("wacli", ["auth"], {
-            stdio: "inherit",
-            env: {
-              ...process.env,
-            },
-          });
-          const exitCode = await new Promise((resolve) => {
-            authChild.on("close", (code) => resolve(code ?? -1));
-          });
-          if (exitCode !== 0) {
-            warn("wacli auth failed. Run `wacli auth` manually.");
+          const wacliBin = existing.WHATSAPP_WACLI_BIN || "wacli";
+          const authStatus = checkSetupWacliAuth(wacliBin);
+          if (authStatus.status === "authenticated") {
+            succeed(`wacli is already paired${authStatus.jid ? ` as ${authStatus.jid}` : ""}.`);
+          } else if (authStatus.status === "locked") {
+            warn("wacli store is locked, likely by the running Felix container. Skipping pairing.");
+            info("  Stop the container before re-pairing, or keep the existing logged-in session.");
           } else {
-            succeed("WhatsApp paired successfully.");
+            info("\n  Pairing wacli with WhatsApp...");
+            info("  A QR code will appear. Scan it with WhatsApp on your phone.");
+            info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
+
+            const { exitCode, error } = await runWacliAuth(wacliBin);
+            if (exitCode !== 0) {
+              warn(`wacli auth failed${error ? `: ${error}` : ""}. Run \`${wacliBin} auth\` manually.`);
+            } else {
+              succeed("WhatsApp paired successfully.");
+            }
           }
         } else {
           info(`\n  ${def.ownerHint}`);
@@ -828,9 +885,9 @@ async function main() {
     // Merge skill env vars not in template
     const skillExtras = [];
     for (const [key, value] of Object.entries(wizard)) {
-      if (!templateKeys.has(key) && value) {
+      if (!templateKeys.has(key)) {
         final[key] = value;
-        skillExtras.push(key);
+        if (value) skillExtras.push(key);
       }
     }
 
