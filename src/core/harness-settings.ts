@@ -17,11 +17,15 @@ export function ninerouterEnabled(cfg: AppConfig): boolean {
 }
 
 export function ninerouterOpenAiBaseUrl(cfg: AppConfig): string {
-  return withOpenAiV1(cfg.NINEROUTER_OPENAI_BASE_URL || cfg.NINEROUTER_URL || "");
+  return withOpenAiV1(cfg.NINEROUTER_URL || "");
 }
 
 export function ninerouterAnthropicBaseUrl(cfg: AppConfig): string {
-  return cfg.NINEROUTER_ANTHROPIC_BASE_URL || cfg.NINEROUTER_URL || "";
+  // Claude Code appends /v1/messages itself, so hand it the bare base. Strip a
+  // trailing /v1 a user may have copied from the OpenAI-style URL, which would
+  // otherwise produce /v1/v1/messages.
+  const trimmed = (cfg.NINEROUTER_URL || "").trim().replace(/\/+$/, "");
+  return trimmed.replace(/\/v1$/i, "");
 }
 
 export function withOpenAiV1(raw: string): string {

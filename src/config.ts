@@ -30,8 +30,6 @@ const Env = z.object({
   NINEROUTER_KEY: z.string().optional(),
   NINEROUTER_MODEL: z.string().optional(),
   NINEROUTER_URL: z.string().url().optional().or(z.literal("")),
-  NINEROUTER_OPENAI_BASE_URL: z.string().url().optional().or(z.literal("")),
-  NINEROUTER_ANTHROPIC_BASE_URL: z.string().url().optional().or(z.literal("")),
   CLAUDE_CODE_BIN: z.string().default("claude"),
   CLAUDE_CODE_MODEL: z.string().default("sonnet"),
   CLAUDE_CODE_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),

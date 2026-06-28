@@ -438,8 +438,8 @@ async function main() {
 
     if (ninerouterEnabled) {
       info("\n  9router will override the active harness API key, base URL, and model.\n");
-      info("  Base URL format: https://host.example or https://host.example/v1.");
-      info("  OpenAI-compatible routes append /v1 automatically only when it is missing.\n");
+      info("  Enter the bare gateway base, e.g. https://host.example (no /v1).");
+      info("  Codex/Opencode append /v1; Claude Code appends /v1/messages.\n");
 
       const nrKey = await promptRequired("NINEROUTER_KEY", "9router", existing);
       if (nrKey) wizard.NINEROUTER_KEY = nrKey;
@@ -459,36 +459,6 @@ async function main() {
       });
       wizard.NINEROUTER_URL = nrBaseUrl;
 
-      const nrOpenaiBaseUrl = await input({
-        message: "NINEROUTER_OPENAI_BASE_URL [optional] (OpenAI-compatible endpoint, e.g. https://9router.example.com/v1; Enter to use NINEROUTER_URL):",
-        default: existing.NINEROUTER_OPENAI_BASE_URL || "",
-        validate: (v) => {
-          if (!v.trim()) return true;
-          try {
-            new URL(v);
-            return true;
-          } catch {
-            return "Enter a valid URL";
-          }
-        },
-      });
-      wizard.NINEROUTER_OPENAI_BASE_URL = nrOpenaiBaseUrl;
-
-      const nrAnthropicBaseUrl = await input({
-        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Anthropic-compatible root, e.g. https://9router.example.com; Enter to use NINEROUTER_URL):",
-        default: existing.NINEROUTER_ANTHROPIC_BASE_URL || "",
-        validate: (v) => {
-          if (!v.trim()) return true;
-          try {
-            new URL(v);
-            return true;
-          } catch {
-            return "Enter a valid URL";
-          }
-        },
-      });
-      wizard.NINEROUTER_ANTHROPIC_BASE_URL = nrAnthropicBaseUrl;
-
       const nrModel = await input({
         message: "NINEROUTER_MODEL [required]:",
         default: existing.NINEROUTER_MODEL || "",
@@ -499,8 +469,6 @@ async function main() {
       wizard.NINEROUTER_KEY = "";
       wizard.NINEROUTER_URL = "";
       wizard.NINEROUTER_MODEL = "";
-      wizard.NINEROUTER_OPENAI_BASE_URL = "";
-      wizard.NINEROUTER_ANTHROPIC_BASE_URL = "";
     }
 
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════

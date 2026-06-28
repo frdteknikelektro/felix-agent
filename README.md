@@ -69,19 +69,14 @@ NINEROUTER_MODEL=...
 NINEROUTER_URL=https://your-9router-host.example
 ```
 
-Optional protocol-specific URLs override the shared base URL:
-
-```bash
-NINEROUTER_OPENAI_BASE_URL=https://your-9router-host.example
-NINEROUTER_ANTHROPIC_BASE_URL=https://your-9router-host.example
-```
-
-OpenAI-compatible URLs automatically receive `/v1` when omitted, so `https://your-9router-host.example` becomes `https://your-9router-host.example/v1` for Codex and Opencode.
+`NINEROUTER_URL` is the bare gateway base (no `/v1`). Each harness derives the
+endpoint it needs: Codex and Opencode append `/v1` for the OpenAI-compatible API,
+and Claude Code appends `/v1/messages` for the Anthropic API.
 
 Harness behavior when enabled:
 
-- `codex` uses a runtime `model_providers.9router` config and passes `NINEROUTER_KEY`, `NINEROUTER_OPENAI_BASE_URL`, and `NINEROUTER_MODEL`.
-- `claude-code` uses `NINEROUTER_KEY` as `ANTHROPIC_AUTH_TOKEN`, `NINEROUTER_ANTHROPIC_BASE_URL`, and `NINEROUTER_MODEL`.
+- `codex` uses a runtime `model_providers.9router` config and passes `NINEROUTER_KEY`, the `/v1` base URL, and `NINEROUTER_MODEL`.
+- `claude-code` uses `NINEROUTER_KEY` as `ANTHROPIC_AUTH_TOKEN`, `NINEROUTER_URL` as `ANTHROPIC_BASE_URL`, and `NINEROUTER_MODEL`.
 - `opencode` injects a runtime custom provider with `OPENCODE_CONFIG_CONTENT` and runs `--model 9router/<NINEROUTER_MODEL>`.
 
 ## 🐳 Docker

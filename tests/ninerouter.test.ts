@@ -102,8 +102,6 @@ describe("9router harness settings", () => {
       NINEROUTER_KEY: "nr-secret",
       NINEROUTER_MODEL: "router-model",
       NINEROUTER_URL: "https://9router.jala.tech",
-      NINEROUTER_OPENAI_BASE_URL: "https://9router.jala.tech/openai",
-      NINEROUTER_ANTHROPIC_BASE_URL: "https://9router.jala.tech/anthropic",
       OPENAI_API_KEY: "openai-secret",
       OPENAI_BASE_URL: "https://api.openai.example",
       ANTHROPIC_API_KEY: "anthropic-secret",
@@ -116,15 +114,15 @@ describe("9router harness settings", () => {
 
     expect(settings.model).toBe("router-model");
     expect(settings.env.OPENAI_API_KEY).toBe("nr-secret");
-    expect(settings.env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
+    expect(settings.env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/v1");
     expect(settings.env.NINEROUTER_KEY).toBe("nr-secret");
     expect(settings.env.OPENAI_ORGANIZATION).toBe("");
     expect(settings.env.OPENAI_PROJECT).toBe("");
     expect(settings.codexConfigArgs).toEqual([
-      "-c", "openai_base_url=\"https://9router.jala.tech/openai/v1\"",
+      "-c", "openai_base_url=\"https://9router.jala.tech/v1\"",
       "-c", "model_provider=\"9router\"",
       "-c", "model_providers.9router.name=\"9router\"",
-      "-c", "model_providers.9router.base_url=\"https://9router.jala.tech/openai/v1\"",
+      "-c", "model_providers.9router.base_url=\"https://9router.jala.tech/v1\"",
       "-c", "model_providers.9router.env_key=\"NINEROUTER_KEY\"",
       "-c", "model_providers.9router.wire_api=\"responses\"",
     ]);
@@ -136,7 +134,7 @@ describe("9router harness settings", () => {
     expect(settings.model).toBe("router-model");
     expect(settings.env.ANTHROPIC_AUTH_TOKEN).toBe("nr-secret");
     expect(settings.env.ANTHROPIC_API_KEY).toBe("");
-    expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://9router.jala.tech/anthropic");
+    expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://9router.jala.tech");
   });
 
   it("injects an Opencode custom provider and model prefix", async () => {
@@ -145,11 +143,24 @@ describe("9router harness settings", () => {
 
     expect(settings.model).toBe("9router/router-model");
     expect(settings.env.NINEROUTER_KEY).toBe("nr-secret");
-    expect(settings.env.NINEROUTER_OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
+    expect(settings.env.NINEROUTER_OPENAI_BASE_URL).toBe("https://9router.jala.tech/v1");
     expect(content.provider["9router"].npm).toBe("@ai-sdk/openai-compatible");
     expect(content.provider["9router"].options.baseURL).toBe("{env:NINEROUTER_OPENAI_BASE_URL}");
     expect(content.provider["9router"].options.apiKey).toBe("{env:NINEROUTER_KEY}");
     expect(content.provider["9router"].models["router-model"].name).toBe("router-model");
+  });
+
+  it("tolerates a trailing /v1 on NINEROUTER_URL across protocols", async () => {
+    const withV1 = await makeTestConfig("felix-ninerouter-v1-", {
+      NINEROUTER_ENABLED: true,
+      NINEROUTER_KEY: "nr-secret",
+      NINEROUTER_MODEL: "router-model",
+      NINEROUTER_URL: "https://9router.jala.tech/v1",
+    });
+
+    // OpenAI side dedupes /v1; Anthropic side strips it (claude appends /v1/messages).
+    expect(codexSettings(withV1).env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/v1");
+    expect(claudeCodeSettings(withV1).env.ANTHROPIC_BASE_URL).toBe("https://9router.jala.tech");
   });
 });
 
