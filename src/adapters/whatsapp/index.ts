@@ -270,8 +270,11 @@ function resolveWacliMediaLocation(
     timeout: 10_000,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  if (result.status !== 0) return fallback;
-
+  // Trust a complete, well-formed payload over the exit status: wacli can emit
+  // valid JSON to stdout and then exit non-zero (or be signal-killed during
+  // teardown). The success/MsgID checks below already reject truncated or error
+  // output, so judging by the parsed body — not the exit code — keeps a good
+  // lookup from being thrown away by a crash that happened after the answer.
   let parsed: WacliMessageShowResponse;
   try {
     parsed = JSON.parse(result.stdout || "{}") as WacliMessageShowResponse;
@@ -1175,8 +1178,21 @@ class WhatsAppAdapter implements SourceAdapter {
           stdio: ["ignore", "pipe", "pipe"],
         });
         if (result.status !== 0) {
-          const err = result.stderr || `exit ${result.status}`;
-          throw new Error(`media download failed: ${err.trim()}`);
+          // wacli can write the output file and still exit non-zero (or be
+          // signal-killed during teardown). Treat a produced, non-empty file as
+          // success — the size gate below validates it — and only fail when
+          // nothing usable landed on disk.
+          const wrote = await fs.stat(dest).then((s) => s.size > 0).catch(() => false);
+          if (!wrote) {
+            const err = result.stderr || result.error?.message || `exit ${result.status}`;
+            throw new Error(`media download failed: ${String(err).trim()}`);
+          }
+          log.warn("whatsapp.media_download_nonzero_exit", {
+            chat_jid: canonicalChatJid,
+            msg_id: input.attachment.file_id,
+            status: result.status,
+            signal: result.signal,
+          });
         }
       } catch (error) {
         log.warn("whatsapp.media_download_failed", {
