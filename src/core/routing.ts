@@ -16,11 +16,12 @@ export function shouldAcceptEvent(
 
 /**
  * Returns true when the event was sent by the bot itself, identified by
- * botUserId and source. The `source:id` compound form handles cases where
- * the adapter prefixes the source name.
+ * botUserId and source. Only the exact `source:id` compound form is treated
+ * as self; other prefixes may mark human/system roles such as WhatsApp's
+ * shared-number `owner:<jid>` sender.
  */
 export function isOwnMessage(event: UniversalEvent, source: string, botUserId?: string): boolean {
   if (event.source !== source) return false;
   if (!botUserId) return false;
-  return event.sender.id === botUserId || event.sender.id.endsWith(`:${botUserId}`);
+  return event.sender.id === botUserId || event.sender.id === `${source}:${botUserId}`;
 }

@@ -63,6 +63,16 @@ describe("isOwnMessage", () => {
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(true);
   });
 
+  it("does not treat owner-prefixed shared-account messages as bot messages", () => {
+    const event = makeEvent({ source: "whatsapp" as never, sender: { source: "whatsapp", id: "owner:bot-123" } });
+    expect(isOwnMessage(event, "whatsapp", "bot-123")).toBe(false);
+  });
+
+  it("does not treat arbitrary prefixed ids as bot messages", () => {
+    const event = makeEvent({ sender: { source: "mattermost", id: "external:bot-123" } });
+    expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(false);
+  });
+
   it("returns false when sender differs from bot user id", () => {
     const event = makeEvent({ sender: { source: "mattermost", id: "other-user" } });
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(false);
