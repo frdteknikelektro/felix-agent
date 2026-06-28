@@ -11,6 +11,7 @@ import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
 import { TurnRunner } from "./core/turn-runner.js";
+import { createTurnCancellation } from "./core/turn-cancellation.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { startMemoryCron } from "./slices/memory/index.js";
@@ -27,8 +28,7 @@ export class FelixEngine {
   private processing = new Map<string, Promise<void>>();
   private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
-  private readonly abortControllers = new Map<string, AbortController>();
-  private readonly stopRequested = new Set<string>();
+  private readonly cancellation = createTurnCancellation();
 
   constructor(
     private readonly cfg: AppConfig,
@@ -53,9 +53,7 @@ export class FelixEngine {
   }
 
   abortThread(threadKey: string): void {
-    this.stopRequested.add(threadKey);
-    const ctrl = this.abortControllers.get(threadKey);
-    if (ctrl) ctrl.abort();
+    this.cancellation.request(threadKey);
   }
 
   async refreshSkills(): Promise<void> {
@@ -218,8 +216,7 @@ export class FelixEngine {
 
   private async processThreadInternal(thread: ThreadHandle): Promise<void> {
     await setThreadBusy(thread, true);
-    const controller = new AbortController();
-    this.abortControllers.set(thread.state.thread_key, controller);
+    const signal = this.cancellation.begin(thread.state.thread_key);
     const retryCounts = new Map<string, number>();
     const turnRunner = new TurnRunner(this.harness, {
       sourceAdapter: (source) => this.requireAdapter(source),
@@ -251,8 +248,8 @@ export class FelixEngine {
         });
       },
       requeueEvent: async (targetThread, targetItem) => { await requeueEvent(targetThread, targetItem); },
-      isStopRequested: (threadKey) => this.stopRequested.has(threadKey),
-      clearStopRequested: (threadKey) => { this.stopRequested.delete(threadKey); },
+      isStopRequested: (threadKey) => this.cancellation.isRequested(threadKey),
+      clearStopRequested: (threadKey) => { this.cancellation.clear(threadKey); },
       warn: (message, data) => { log.warn(message, data); },
       error: (message, data) => { log.error(message, data); },
     });
@@ -273,14 +270,13 @@ export class FelixEngine {
           contact,
           skills: this.skills,
           precedingEvents: preceding,
-          signal: controller.signal,
+          signal,
           retryCounts,
         });
         if (result.kind === "stopped") break;
       }
     } finally {
-      this.abortControllers.delete(thread.state.thread_key);
-      this.stopRequested.delete(thread.state.thread_key);
+      this.cancellation.end(thread.state.thread_key);
       await setThreadBusy(thread, false);
     }
   }

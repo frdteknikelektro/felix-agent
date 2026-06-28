@@ -40,38 +40,8 @@ export interface SessionArtifact {
   truncated: boolean;
 }
 
-export interface SourceThreadRef {
-  source: string;
-  conversation_id?: string;
-  thread_id?: string;
-  root_message_id?: string;
-  message_id?: string;
-  team_id?: string;
-}
-
-export interface ThreadState {
-  thread_key: string;
-  source: string;
-  created_at: string;
-  updated_at: string;
-  managed_by_felix: boolean;
-  source_thread_ref: SourceThreadRef;
-  participants: string[];
-}
-
-export interface SessionState {
-  harness_session_id?: string;
-  busy: boolean;
-  queue: { received_at: string; event_file: string; source_event_id: string }[];
-  pending_permission?: unknown;
-  last_event_at?: string;
-  last_turn_at?: string;
-}
-
 export interface SessionDetail {
   summary: SessionSummary;
-  thread: ThreadState;
-  session: SessionState;
   history: SessionHistoryItem[];
   artifacts: SessionArtifact[];
 }

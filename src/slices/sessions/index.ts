@@ -8,6 +8,7 @@ import { buildEventFile, type EventFileSpec, type OwnerPermissionDetails } from 
 import { ThreadStateSchema, SessionStateSchema } from "../../core/schemas.js";
 import type {
   SourceSender,
+  SourceThreadRef,
   SessionPermissionRequest,
   SessionQueueItem,
   SessionState,
@@ -401,6 +402,31 @@ export async function updateThreadState(
   const state = { ...handle.state, ...patch, updated_at: new Date().toISOString() };
   await saveThreadState(handle, state);
   return state;
+}
+
+export async function retargetThreadKey(
+  cfg: AppConfig,
+  handle: ThreadHandle,
+  input: { threadKey: string; sourceThreadRef: SourceThreadRef },
+): Promise<ThreadHandle> {
+  const oldThreadKey = handle.state.thread_key;
+  const state = {
+    ...handle.state,
+    thread_key: input.threadKey,
+    source_thread_ref: input.sourceThreadRef,
+    updated_at: new Date().toISOString(),
+  };
+  await saveThreadState(handle, state);
+  handle.state = state;
+  await writeThreadKeyIndex(cfg, handle);
+  if (oldThreadKey !== input.threadKey) {
+    const oldIndex = path.join(
+      sourceThreadKeyIndexDir(cfg.paths, handle.state.source),
+      `${safeFileName(oldThreadKey)}.json`,
+    );
+    await fs.unlink(oldIndex).catch(() => {});
+  }
+  return handle;
 }
 
 export async function hasThreadEvent(

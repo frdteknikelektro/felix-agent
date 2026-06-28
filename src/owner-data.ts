@@ -6,8 +6,8 @@ import { renderFrontmatter } from "./lib/markdown.js";
 import { eventAt, historyTitle, parseEventFile, type ParsedEvent } from "./slices/events/index.js";
 import type { AuditEntry } from "./slices/audit/index.js";
 import { listAuditEntries, recordAuditEntry } from "./slices/audit/index.js";
-import type { SessionState, SkillRecord, SourceSender, ThreadState } from "./types.js";
-import { findThreadHandle, listThreadHandles, loadSessionState, loadThreadState, type ThreadHandle } from "./slices/sessions/index.js";
+import type { SessionState, SkillRecord, SourceSender } from "./types.js";
+import { findThreadHandle, listThreadHandles, loadSessionState, type ThreadHandle } from "./slices/sessions/index.js";
 import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
@@ -48,8 +48,6 @@ export interface SessionArtifact {
 
 export interface SessionDetail {
   summary: SessionSummary;
-  thread: ThreadState;
-  session: SessionState;
   history: SessionHistoryItem[];
   artifacts: SessionArtifact[];
 }
@@ -117,8 +115,6 @@ export async function loadSessionDetail(cfg: AppConfig, threadKey: string): Prom
   const artifacts = await loadSessionArtifacts(thread);
   return {
     summary,
-    thread: await loadThreadState(thread),
-    session,
     history,
     artifacts,
   };

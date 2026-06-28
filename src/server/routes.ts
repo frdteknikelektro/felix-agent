@@ -15,7 +15,7 @@ import {
   addApprovalAudit,
 } from "../owner-data.js";
 import { parseUsageWindow, usageView } from "../slices/usage/index.js";
-import { listApprovalRecords } from "../slices/approvals/index.js";
+import { listApprovalRecords, ownerDecisionFromAction } from "../slices/approvals/index.js";
 import {
   ContactEditorError,
   createContactFromEditor,
@@ -307,18 +307,11 @@ export const API_ROUTES: Route[] = [
     async handler({ cfg, engine, params, readBody, searchParams, send }) {
       const approvalId = decodeURIComponent(params["approvalId"] ?? "");
       if (!approvalId) { send(400, { error: "missing_approval_id" }); return; }
-      const action = params["action"];
+      const action = params["action"] ?? "";
       const body = await readBody();
       const scope = String(body["scope"] ?? searchParams.get("scope") ?? "once");
-      const decision =
-        action === "reject"
-          ? "reject"
-          : action === "approve" && scope === "always"
-            ? "always"
-            : action === "approve"
-              ? "once"
-              : action;
-      if (!["once", "always", "reject"].includes(decision!)) {
+      const mode = ownerDecisionFromAction(action, scope);
+      if (!mode) {
         send(400, { error: "invalid_decision" });
         return;
       }
@@ -329,7 +322,7 @@ export const API_ROUTES: Route[] = [
         return;
       }
       const applied = await engine.handleOwnerDecision({
-        mode: decision as "once" | "always" | "reject",
+        mode,
         decidedBy: "owner-ui",
         target: { kind: "approval", approvalId: approval.id },
       });
@@ -337,7 +330,7 @@ export const API_ROUTES: Route[] = [
         send(409, { error: "already_decided" });
         return;
       }
-      await addApprovalAudit(cfg, approval, decision === "reject" ? "reject" : "approve", "owner-ui");
+      await addApprovalAudit(cfg, approval, mode === "reject" ? "reject" : "approve", "owner-ui");
       send(200, { ok: true });
     },
   },

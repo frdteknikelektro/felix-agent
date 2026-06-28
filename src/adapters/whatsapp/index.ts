@@ -23,6 +23,11 @@ import {
   sourceThreadKey,
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
+import {
+  findThreadHandle,
+  loadSessionState,
+  retargetThreadKey,
+} from "../../slices/sessions/index.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -53,6 +58,15 @@ const SEND_MIN_GAP_MS = 5000;
 // instance. wacli posts each message once, but a retried webhook delivery would
 // otherwise be re-ingested; firstSight() drops the redelivery before persistence.
 const webhookDedup = createSourceHost({ source: "whatsapp" });
+
+// Serializes ensureCanonicalWhatsAppThread per old thread key so two concurrent
+// fire-and-forget webhook dispatches for the same @lid chat cannot both retarget.
+const retargetsInFlight = new Set<string>();
+
+// The expired-bot-message sweep is a directory scan; throttle it so it runs at
+// most once per minute rather than on every inbound webhook.
+let lastBotMessageCleanupAt = 0;
+const BOT_MSG_CLEANUP_INTERVAL_MS = 60_000;
 
 function setWebhookSecret(secret: string): void {
   webhookSecret = secret;
@@ -145,6 +159,274 @@ async function waitForSendSlot(): Promise<void> {
   lastSendAt = Date.now();
 }
 
+interface WhatsAppResolveMeta {
+  originalChatJid: string;
+  resolvedChatJid?: string;
+  originalSenderJid?: string;
+  resolvedSenderJid?: string;
+}
+
+interface WacliMessageShowData {
+  ChatJID?: string;
+  MsgID?: string;
+  SenderJID?: string;
+  SenderName?: string;
+  Timestamp?: string;
+  Text?: string;
+  MediaType?: string;
+  MediaCaption?: string;
+  Filename?: string;
+  MimeType?: string;
+}
+
+interface WacliMessageShowResponse {
+  success?: boolean;
+  data?: WacliMessageShowData | null;
+  error?: string | null;
+}
+
+async function resolveWacliWebhookMessage(
+  cfg: AppConfig,
+  payload: ParsedMessage,
+): Promise<{ payload: ParsedMessage; meta: WhatsAppResolveMeta }> {
+  const originalChatJid = payload.Chat ?? "";
+  const originalSenderJid = payload.SenderJID;
+  const meta: WhatsAppResolveMeta = { originalChatJid, originalSenderJid };
+  if (!originalChatJid || !payload.ID) return { payload, meta };
+
+  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
+    "messages", "show",
+    "--chat", originalChatJid,
+    "--id", payload.ID,
+    "--json",
+  ], {
+    encoding: "utf8",
+    timeout: 3_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  if (result.status !== 0) {
+    log.warn("whatsapp.message_resolve_failed", {
+      chat_jid: originalChatJid,
+      msg_id: payload.ID,
+      error: result.error?.message ?? (result.stderr?.trim() || `exit ${result.status}`),
+    });
+    return { payload, meta };
+  }
+
+  let parsed: WacliMessageShowResponse;
+  try {
+    parsed = JSON.parse(result.stdout || "{}") as WacliMessageShowResponse;
+  } catch (error) {
+    log.warn("whatsapp.message_resolve_failed", {
+      chat_jid: originalChatJid,
+      msg_id: payload.ID,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { payload, meta };
+  }
+
+  const data = parsed.data;
+  if (!parsed.success || !data || data.MsgID !== payload.ID) {
+    log.warn("whatsapp.message_resolve_failed", {
+      chat_jid: originalChatJid,
+      msg_id: payload.ID,
+      error: parsed.error ?? "message show returned no matching message",
+    });
+    return { payload, meta };
+  }
+
+  const resolved = enrichParsedMessageFromWacli(payload, data);
+  meta.resolvedChatJid = resolved.Chat;
+  meta.resolvedSenderJid = resolved.SenderJID;
+  return { payload: resolved, meta };
+}
+
+function enrichParsedMessageFromWacli(payload: ParsedMessage, data: WacliMessageShowData): ParsedMessage {
+  const originalChatJid = payload.Chat ?? "";
+  const resolvedChatJid = nonEmpty(data.ChatJID);
+  const chatJid = resolvedChatJid && canReplaceChatJid(originalChatJid, resolvedChatJid)
+    ? resolvedChatJid
+    : originalChatJid;
+  const media = data.MediaType || data.MediaCaption || data.Filename || data.MimeType
+    ? {
+        ...(payload.Media ?? {}),
+        Type: nonEmpty(data.MediaType) ?? payload.Media?.Type,
+        Caption: nonEmpty(data.MediaCaption) ?? payload.Media?.Caption,
+        Filename: nonEmpty(data.Filename) ?? payload.Media?.Filename,
+        MimeType: nonEmpty(data.MimeType) ?? payload.Media?.MimeType,
+      }
+    : payload.Media;
+
+  return {
+    ...payload,
+    Chat: chatJid,
+    SenderJID: nonEmpty(data.SenderJID) ?? payload.SenderJID,
+    PushName: nonEmpty(data.SenderName) ?? payload.PushName,
+    Timestamp: nonEmpty(data.Timestamp) ?? payload.Timestamp,
+    Text: nonEmpty(data.Text) ?? payload.Text,
+    Media: media,
+  };
+}
+
+function canReplaceChatJid(original: string, resolved: string): boolean {
+  if (!original || !resolved) return false;
+  if (isWhatsAppGroupJid(original)) return isWhatsAppGroupJid(resolved);
+  return !isWhatsAppGroupJid(resolved);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+// ─── Tracked owner-decision dispatch ──────────────────────────────────────────
+//
+// WhatsApp has no native link from a reply/reaction back to the bot's original
+// permission message, so the adapter tracks bot messages on disk and resolves an
+// Owner decision against them. A reply and a reaction can each arrive either as a
+// FromMe event (owner shares the bot's number) or from a separate owner number;
+// these dispatch tails are the single home for "tracked bot message → owner
+// decision → clear tracking" so the four webhook call-sites cannot drift.
+
+function ownerDecisionAnchor(cfg: AppConfig, msgId: string): SourceMessageAnchor {
+  return {
+    source: "whatsapp",
+    conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
+    message_id: msgId,
+    thread_id: msgId,
+  };
+}
+
+// Shared tail for both owner-decision dispatch paths: once the decision intake
+// (with its path-specific not-found logging) settles, clear the tracked bot
+// message and swallow any async error. The single home for cleanup + error logging.
+function finishTrackedOwnerDecision(cfg: AppConfig, trackedMsgId: string, settled: Promise<unknown>): void {
+  void settled
+    .then(() => removeTrackedBotMessage(cfg, trackedMsgId))
+    .catch((error) => {
+      log.warn("whatsapp.webhook_async_error", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+function dispatchTrackedOwnerReaction(
+  cfg: AppConfig,
+  engine: FelixEngine,
+  args: { reactionTarget: string; emoji: string; msgId: string; decidedBy: string },
+): void {
+  const anchor = ownerDecisionAnchor(cfg, args.msgId);
+  const settled = handleSourceReactionIntake(cfg, {
+    source: "whatsapp",
+    token: args.emoji,
+    decidedBy: args.decidedBy,
+    anchor,
+    ports: engine,
+  }).then((result) => {
+    if (result.kind === "no_pending_approval") {
+      log.warn("whatsapp.owner_decision_thread_not_found", {
+        reaction_target: args.reactionTarget.slice(0, 40),
+        message_id: args.msgId,
+        target_anchor: { source: anchor.source, message_id: anchor.message_id },
+      });
+    }
+  });
+  finishTrackedOwnerDecision(cfg, args.reactionTarget, settled);
+}
+
+function dispatchTrackedOwnerReply(
+  cfg: AppConfig,
+  engine: FelixEngine,
+  args: { replyTarget: string; event: UniversalEvent; msgId: string; decidedBy: string },
+): void {
+  // An owner reply to a tracked permission message is a decision, resolved by the
+  // owner-message anchor — not a normal conversation message. It must NOT retarget
+  // the thread key: doing so before the decision intake can move the session out
+  // from under the pending-approval lookup. Thread canonicalization happens on
+  // normal messages via dispatchResolvedWhatsAppEvent, symmetric with the reaction path.
+  const anchor = ownerDecisionAnchor(cfg, args.msgId);
+  const settled = handleSourceEventIntake(cfg, {
+    event: args.event,
+    owner: { decidedBy: args.decidedBy, anchor },
+    ports: engine,
+  }).then((result) => {
+    if (result.kind === "owner_non_decision" && result.route === "no_pending_approval") {
+      log.warn("whatsapp.owner_decision_thread_not_found", {
+        reply_target: args.replyTarget.slice(0, 40),
+        message_id: args.msgId,
+      });
+    }
+  });
+  finishTrackedOwnerDecision(cfg, args.replyTarget, settled);
+}
+
+async function dispatchResolvedWhatsAppEvent(
+  cfg: AppConfig,
+  engine: FelixEngine,
+  event: UniversalEvent,
+): Promise<void> {
+  await ensureCanonicalWhatsAppThread(cfg, event);
+  await handleSourceEventIntake(cfg, {
+    event,
+    ports: engine,
+  });
+}
+
+async function ensureCanonicalWhatsAppThread(cfg: AppConfig, event: UniversalEvent): Promise<void> {
+  const raw = event.source_thread_ref.raw as Record<string, unknown> | undefined;
+  const originalChatJid = typeof raw?.original_chat_jid === "string" ? raw.original_chat_jid : undefined;
+  const resolvedChatJid = typeof raw?.resolved_chat_jid === "string" ? raw.resolved_chat_jid : undefined;
+  if (!originalChatJid || !resolvedChatJid || originalChatJid === resolvedChatJid) return;
+
+  const oldKey = whatsappThreadKey(originalChatJid);
+  const canonicalKey = event.thread_key;
+  if (oldKey === canonicalKey) return;
+
+  // Serialize per old key: two concurrent fire-and-forget dispatches for the same
+  // @lid chat must not both pass the check-then-act and double-retarget.
+  if (retargetsInFlight.has(oldKey)) return;
+  retargetsInFlight.add(oldKey);
+  try {
+    const [oldThread, canonicalThread] = await Promise.all([
+      findThreadHandle(cfg, oldKey, "whatsapp"),
+      findThreadHandle(cfg, canonicalKey, "whatsapp"),
+    ]);
+    if (!oldThread) return;
+    if (canonicalThread) {
+      log.warn("whatsapp.thread_alias_conflict", {
+        old_thread_key: oldKey,
+        canonical_thread_key: canonicalKey,
+      });
+      return;
+    }
+
+    // Never retarget a thread with an in-flight turn: the engine keys its
+    // processing/cancellation maps by thread_key string, so renaming the key
+    // mid-turn would orphan the running turn and let a second turn start on the
+    // same session directory. Defer — a later idle message will migrate it.
+    const session = await loadSessionState(oldThread);
+    if (session.busy) {
+      log.info("whatsapp.thread_retarget_deferred", {
+        old_thread_key: oldKey,
+        canonical_thread_key: canonicalKey,
+      });
+      return;
+    }
+
+    await retargetThreadKey(cfg, oldThread, {
+      threadKey: canonicalKey,
+      sourceThreadRef: event.source_thread_ref,
+    });
+    log.info("whatsapp.thread_retargeted", {
+      old_thread_key: oldKey,
+      canonical_thread_key: canonicalKey,
+    });
+  } finally {
+    retargetsInFlight.delete(oldKey);
+  }
+}
+
 export async function handleWhatsAppWebhook(
   cfg: AppConfig,
   engine: FelixEngine,
@@ -153,7 +435,11 @@ export async function handleWhatsAppWebhook(
 ): Promise<void> {
   const body = await readBody(req);
 
-  await cleanupExpiredBotMessages(cfg);
+  const nowMs = Date.now();
+  if (nowMs - lastBotMessageCleanupAt >= BOT_MSG_CLEANUP_INTERVAL_MS) {
+    lastBotMessageCleanupAt = nowMs;
+    await cleanupExpiredBotMessages(cfg);
+  }
 
   const botName = cfg.WHATSAPP_BOT_NAME ?? "Felix";
   const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
@@ -176,8 +462,10 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
-  const chatJid = payload.Chat || "";
-  if (!chatJid || !payload.ID) {
+  const originalChatJid = payload.Chat || "";
+  let chatJid = originalChatJid;
+  const messageId = payload.ID || "";
+  if (!chatJid || !messageId) {
     sendJson(res, 200, { ignored: "missing_fields" });
     return;
   }
@@ -187,6 +475,14 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  // Cheap gates run BEFORE the blocking wacli resolution subprocess
+  // (resolveWacliWebhookMessage spawns `wacli messages show` synchronously):
+  //   - pre-connect history, judged on the raw webhook delivery Timestamp
+  //     (resolution would overwrite it with the stored message timestamp);
+  //   - duplicate redeliveries;
+  //   - the bot's own prefixed messages (highest-volume FromMe traffic),
+  //     recognised on the raw text which carries the prefix as sent.
+  // None of these should pay for a subprocess spawn.
   if (wacliStartedAt !== null && payload.Timestamp) {
     const msgTs = Date.parse(payload.Timestamp);
     if (!Number.isNaN(msgTs) && msgTs < wacliStartedAt) {
@@ -195,20 +491,22 @@ export async function handleWhatsAppWebhook(
     }
   }
 
-  if (!webhookDedup.firstSight(payload.ID)) {
+  if (!webhookDedup.firstSight(messageId)) {
     sendJson(res, 200, { ignored: "duplicate" });
     return;
   }
 
-  if (payload.FromMe) {
-    // ── Self-sent message (Felix prefixes its own messages) ───────────
-    const botPrefix = `*[${botName}]*`;
-    if ((payload.Text ?? "").startsWith(botPrefix)) {
-      if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
-      sendJson(res, 200, { ignored: "self_message" });
-      return;
-    }
+  if (payload.FromMe && (payload.Text ?? "").startsWith(`*[${botName}]*`)) {
+    if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
+    sendJson(res, 200, { ignored: "self_message" });
+    return;
+  }
 
+  const resolved = await resolveWacliWebhookMessage(cfg, payload);
+  payload = resolved.payload;
+  chatJid = payload.Chat || chatJid;
+
+  if (payload.FromMe) {
     // ── Self-sent reaction — unless it's on a bot permission message ──
     if (payload.ReactionToID) {
       const reactionTarget = payload.ReactionToID;
@@ -219,38 +517,17 @@ export async function handleWhatsAppWebhook(
           return;
         }
         const emoji = payload.ReactionEmoji ?? "";
-        if (emoji) {
-          if (!isOwnerDecisionReactionToken(emoji)) {
-            sendJson(res, 200, { ignored: "unrecognized_emoji" });
-            return;
-          }
-          const anchor: SourceMessageAnchor = {
-            source: "whatsapp",
-            conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-            message_id: botMsg.msgId,
-            thread_id: botMsg.msgId,
-          };
-          sendJson(res, 200, { ok: true });
-          void handleSourceReactionIntake(cfg, {
-            source: "whatsapp",
-            token: emoji,
-            decidedBy: payload.SenderJID ?? "unknown",
-            anchor,
-            ports: engine,
-          }).then((result) => {
-            if (result.kind === "no_pending_approval") {
-              log.warn("whatsapp.owner_decision_thread_not_found", {
-                reaction_target: reactionTarget.slice(0, 40),
-                message_id: botMsg.msgId,
-                target_anchor: { source: anchor.source, message_id: anchor.message_id },
-              });
-            }
-          }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
-            log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
-          });
+        if (!emoji || !isOwnerDecisionReactionToken(emoji)) {
+          sendJson(res, 200, { ignored: "unrecognized_emoji" });
           return;
         }
-        sendJson(res, 200, { ignored: "unrecognized_emoji" });
+        sendJson(res, 200, { ok: true });
+        dispatchTrackedOwnerReaction(cfg, engine, {
+          reactionTarget,
+          emoji,
+          msgId: botMsg.msgId,
+          decidedBy: payload.SenderJID ?? "unknown",
+        });
         return;
       }
       log.info("whatsapp.reaction_untracked", { reaction_target: reactionTarget.slice(0, 40) });
@@ -267,36 +544,17 @@ export async function handleWhatsAppWebhook(
           sendJson(res, 200, { ignored: "self_reaction" });
           return;
         }
-        const event = normalizeParsedMessage(payload, botName, botAliases);
+        const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
         if (!event) {
           sendJson(res, 200, { ignored: "empty_event" });
           return;
         }
         sendJson(res, 200, { ok: true });
-        const anchor: SourceMessageAnchor = {
-          source: "whatsapp",
-          conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-          message_id: botMsg.msgId,
-          thread_id: botMsg.msgId,
-        };
-        void handleSourceEventIntake(cfg, {
+        dispatchTrackedOwnerReply(cfg, engine, {
+          replyTarget,
           event,
-          owner: {
-            decidedBy: payload.SenderJID ?? "unknown",
-            anchor,
-          },
-          ports: engine,
-        }).then((result) => {
-            if (result.kind === "owner_non_decision" && result.route === "no_pending_approval") {
-              log.warn("whatsapp.owner_decision_thread_not_found", {
-                reply_target: replyTarget.slice(0, 40),
-                message_id: botMsg.msgId,
-              });
-            }
-          }).then(() => {
-          void removeTrackedBotMessage(cfg, replyTarget);
-        }).catch((error) => {
-          log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+          msgId: botMsg.msgId,
+          decidedBy: payload.SenderJID ?? "unknown",
         });
         return;
       }
@@ -306,12 +564,13 @@ export async function handleWhatsAppWebhook(
     // ── Owner using the same number ──────────────────────────────────
     if (ownerSharesNumber) {
       // Media-only self-message (no text/caption) — bot's own outgoing file
-      if (payload.Media && !(payload.Text ?? "").trim()) {
+      const mediaText = nonEmpty(payload.Text) ?? nonEmpty(payload.Media?.Caption) ?? "";
+      if (payload.Media && !mediaText.trim()) {
         void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
         sendJson(res, 200, { ignored: "self_media" });
         return;
       }
-      const event = normalizeParsedMessage(payload, botName, botAliases);
+      const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
         return;
@@ -320,10 +579,7 @@ export async function handleWhatsAppWebhook(
       // sender ID so isOwnMessage doesn't drop owner messages from queue.
       event.sender.id = `owner:${event.sender.id}`;
       sendJson(res, 200, { ok: true });
-      void handleSourceEventIntake(cfg, {
-        event,
-        ports: engine,
-      }).catch((error) => {
+      void dispatchResolvedWhatsAppEvent(cfg, engine, event).catch((error) => {
         log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
       });
       return;
@@ -339,31 +595,20 @@ export async function handleWhatsAppWebhook(
   // If this is a reply to a tracked bot message, check for owner decision first
   if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
-    const event = normalizeParsedMessage(payload, botName, botAliases);
+    const replyTarget = payload.ReplyToID;
+    const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
     if (!event) {
       sendJson(res, 200, { ignored: "empty_event" });
       return;
     }
     sendJson(res, 200, { ok: true });
-    const botMsg = await getTrackedBotMessage(cfg, payload.ReplyToID!);
+    const botMsg = await getTrackedBotMessage(cfg, replyTarget);
     if (!botMsg) return;
-    const anchor: SourceMessageAnchor = {
-      source: "whatsapp",
-      conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-      message_id: botMsg.msgId,
-      thread_id: botMsg.msgId,
-    };
-    void handleSourceEventIntake(cfg, {
+    dispatchTrackedOwnerReply(cfg, engine, {
+      replyTarget,
       event,
-      owner: {
-        decidedBy: payload.SenderJID ?? "unknown",
-        anchor,
-      },
-      ports: engine,
-    }).then(() => {
-      void removeTrackedBotMessage(cfg, payload.ReplyToID!);
-    }).catch((error) => {
-      log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+      msgId: botMsg.msgId,
+      decidedBy: payload.SenderJID ?? "unknown",
     });
     return;
   }
@@ -382,26 +627,17 @@ export async function handleWhatsAppWebhook(
       sendJson(res, 200, { ignored: "tracked_message_missing" });
       return;
     }
-    const anchor: SourceMessageAnchor = {
-      source: "whatsapp",
-      conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
-      message_id: botMsg.msgId,
-      thread_id: botMsg.msgId,
-    };
     sendJson(res, 200, { ok: true });
-    void handleSourceReactionIntake(cfg, {
-      source: "whatsapp",
-      token: emoji,
+    dispatchTrackedOwnerReaction(cfg, engine, {
+      reactionTarget,
+      emoji,
+      msgId: botMsg.msgId,
       decidedBy: payload.SenderJID ?? "unknown",
-      anchor,
-      ports: engine,
-    }).then(() => removeTrackedBotMessage(cfg, reactionTarget)).catch((error) => {
-      log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
     });
     return;
   }
 
-  const event = normalizeParsedMessage(payload, botName, botAliases);
+  const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
@@ -417,10 +653,7 @@ export async function handleWhatsAppWebhook(
     void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
   }
 
-  void handleSourceEventIntake(cfg, {
-    event,
-    ports: engine,
-  }).catch((error) => {
+  void dispatchResolvedWhatsAppEvent(cfg, engine, event).catch((error) => {
     log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
   });
 }
@@ -908,11 +1141,13 @@ function normalizeParsedMessage(
   pm: ParsedMessage,
   botName: string,
   aliases: string[] = [],
+  resolveMeta?: WhatsAppResolveMeta,
 ): UniversalEvent | null {
   const chatJid = pm.Chat || "";
   if (!chatJid) return null;
 
-  const text = pm.Text ?? "";
+  const text = pm.Text ?? pm.Media?.Caption ?? "";
+  const mentionText = [pm.Text, pm.Media?.Caption].filter(Boolean).join("\n");
   const hasText = text.trim().length > 0;
   const hasMedia = Boolean(pm.Media);
   const hasReaction = Boolean(pm.ReactionToID);
@@ -920,7 +1155,7 @@ function normalizeParsedMessage(
 
   const visibility = "channel"; // all WhatsApp chats require @mention; no auto-answer DMs
   const senderJid = pm.SenderJID ?? "unknown";
-  const mentionsBot = detectsWhatsappMention(text, botName, aliases);
+  const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases);
 
   const displayText = hasReaction
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
@@ -929,7 +1164,7 @@ function normalizeParsedMessage(
   const attachments: UniversalAttachment[] = pm.Media
     ? [{
         file_id: pm.ID ?? "",
-        filename: pm.Media.Filename ?? pm.Media.Caption ?? pm.ID ?? "media",
+        filename: pm.Media.Filename ?? pm.ID ?? "media",
         content_type: pm.Media.MimeType,
         size_bytes: pm.Media.FileLength,
         is_image: pm.Media.MimeType?.startsWith("image/") ? true : undefined,
@@ -959,6 +1194,10 @@ function normalizeParsedMessage(
       raw: {
         chat_jid: chatJid,
         sender_jid: senderJid,
+        ...(resolveMeta?.originalChatJid ? { original_chat_jid: resolveMeta.originalChatJid } : {}),
+        ...(resolveMeta?.resolvedChatJid ? { resolved_chat_jid: resolveMeta.resolvedChatJid } : {}),
+        ...(resolveMeta?.originalSenderJid ? { original_sender_jid: resolveMeta.originalSenderJid } : {}),
+        ...(resolveMeta?.resolvedSenderJid ? { resolved_sender_jid: resolveMeta.resolvedSenderJid } : {}),
       },
     },
   });

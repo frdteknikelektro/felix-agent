@@ -1,4 +1,4 @@
-export type { ApprovalRecord, PendingApproval, PermissionGrant, ApprovalDecisionResult } from "./registry.js";
+export type { ApprovalRecord, PendingApproval, PermissionGrant, ApprovalDecisionResult, PendingPermissionThread } from "./registry.js";
 export {
   saveApprovalRecord,
   loadApprovalRecord,
@@ -9,10 +9,11 @@ export {
   hasPendingApproval,
   requestApproval,
   decideApproval,
+  listPendingPermissionThreads,
+  resolvePendingPermissionThread,
+  resolvePendingPermissionThreadExact,
 } from "./registry.js";
-export { parseOwnerDecision, parseOwnerDecisionAsync } from "./decision.js";
-export type { PendingPermissionThread } from "./resolve.js";
-export { listPendingPermissionThreads, resolvePendingPermissionThread, resolvePendingPermissionThreadExact } from "./resolve.js";
+export { parseOwnerDecision, parseOwnerDecisionAsync, ownerDecisionFromAction } from "./decision.js";
 export type { AppliedOwnerDecision } from "./apply.js";
 export { applyOwnerDecision } from "./apply.js";
 export {

@@ -275,3 +275,38 @@ function approvalRecordIdsMatch(record: ApprovalRecord, approvalId: string): boo
 function safeSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
+
+// ─── Pending-permission thread resolution ─────────────────────────────────────
+//
+// Named query aliases over findPendingApproval/listPendingApprovals for owner-
+// decision call sites that think in terms of "pending permission threads".
+
+export interface PendingPermissionThread {
+  thread: ThreadHandle;
+  pending: SessionPermissionRequest;
+}
+
+export async function listPendingPermissionThreads(cfg: AppConfig): Promise<PendingPermissionThread[]> {
+  return (await listPendingApprovals(cfg)).map((pending) => ({
+    thread: pending.thread,
+    pending: pending.request,
+  }));
+}
+
+/**
+ * Legacy resolver that still allows the owner-message fallback for older
+ * call sites. New decision flows should use {@link resolvePendingPermissionThreadExact}.
+ */
+export async function resolvePendingPermissionThread(
+  cfg: AppConfig,
+  target: OwnerDecisionTarget,
+): Promise<ThreadHandle | null> {
+  return (await findPendingApproval(cfg, target, { allowUnanchoredOwnerMessageFallback: true }))?.thread ?? null;
+}
+
+export async function resolvePendingPermissionThreadExact(
+  cfg: AppConfig,
+  target: OwnerDecisionTarget,
+): Promise<ThreadHandle | null> {
+  return (await findPendingApproval(cfg, target))?.thread ?? null;
+}

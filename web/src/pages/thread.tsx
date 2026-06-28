@@ -25,7 +25,7 @@ export function Thread() {
 
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold">{threadLabel(threadKey)}</h2>
-        {detail.data && <SourceBadge source={detail.data.thread.source} />}
+        {detail.data && <SourceBadge source={detail.data.summary.source} />}
         {detail.data?.summary.busy && <Badge variant="success">active</Badge>}
       </div>
 

@@ -1,6 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { parseOwnerDecision, parseOwnerDecisionAsync } from "../src/slices/approvals/index.js";
+import { parseOwnerDecision, parseOwnerDecisionAsync, ownerDecisionFromAction } from "../src/slices/approvals/index.js";
 import { loadConfig } from "../src/config.js";
+
+describe("ownerDecisionFromAction", () => {
+  it("maps the REST action + scope to a decision mode", () => {
+    expect(ownerDecisionFromAction("approve", "once")).toBe("once");
+    expect(ownerDecisionFromAction("approve", "always")).toBe("always");
+    expect(ownerDecisionFromAction("approve", "anything-else")).toBe("once");
+    expect(ownerDecisionFromAction("reject", "once")).toBe("reject");
+    expect(ownerDecisionFromAction("reject", "always")).toBe("reject");
+  });
+
+  it("accepts a bare valid mode passed as the action", () => {
+    expect(ownerDecisionFromAction("once", "once")).toBe("once");
+    expect(ownerDecisionFromAction("always", "once")).toBe("always");
+  });
+
+  it("returns null for an unrecognised action", () => {
+    expect(ownerDecisionFromAction("", "once")).toBeNull();
+    expect(ownerDecisionFromAction("frobnicate", "once")).toBeNull();
+  });
+});
 
 describe("parseOwnerDecision", () => {
   it("recognises the owner reply grammar, case- and space-insensitively", () => {

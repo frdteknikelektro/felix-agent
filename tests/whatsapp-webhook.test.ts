@@ -3,10 +3,15 @@ import { createServer } from "node:http";
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { handleWhatsAppWebhook } from "../src/adapters/whatsapp/index.js";
+import {
+  handleWhatsAppWebhook,
+  whatsappSourceThreadRef,
+  whatsappThreadKey,
+} from "../src/adapters/whatsapp/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { FelixEngine } from "../src/engine.js";
 import type { AppConfig } from "../src/config.js";
+import { createOrLoadThread, findThreadHandle } from "../src/slices/sessions/index.js";
 
 function makeMockEngine(): { engine: FelixEngine; ingest: ReturnType<typeof vi.fn>; handleOwnerDecision: ReturnType<typeof vi.fn> } {
   const ingest = vi.fn().mockResolvedValue(undefined);
@@ -25,6 +30,9 @@ async function sendWebhook(
   body: string,
   opts: { headers?: Record<string, string> } = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (cfg.WHATSAPP_WACLI_BIN === "wacli") {
+    await installFakeWacli(cfg);
+  }
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       void handleWhatsAppWebhook(cfg, engine as FelixEngine, req, res as never);
@@ -67,6 +75,24 @@ async function sendWebhook(
       req.end();
     });
   });
+}
+
+async function installFakeWacli(
+  cfg: AppConfig,
+  script = `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  exit 0
+fi
+exit 1
+`,
+): Promise<string> {
+  const bin = path.join(cfg.paths.bin, `wacli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  await fs.mkdir(path.dirname(bin), { recursive: true });
+  await fs.writeFile(bin, `#!/bin/sh\n${script}\n`, "utf8");
+  await fs.chmod(bin, 0o755);
+  cfg.WHATSAPP_WACLI_BIN = bin;
+  return bin;
 }
 
 describe("handleWhatsAppWebhook", () => {
@@ -185,6 +211,294 @@ describe("handleWhatsAppWebhook", () => {
     );
     expect(result.status).toBe(200);
     expect(result.body).toHaveProperty("ignored", "empty_event");
+  });
+
+  it("resolves every valid non-broadcast webhook through wacli messages show", async () => {
+    cfg = await makeTestConfig("wa-wh-resolve-all-", { WHATSAPP_BOT_NAME: "Felix" });
+    const argsFile = path.join(cfg.paths.runtime, "wacli-args.txt");
+    await installFakeWacli(cfg, `
+echo "$@" >> "${argsFile}"
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"sender@s.whatsapp.net","Text":"@Felix hi"}}\\n' "$4" "$6"
+  exit 0
+fi
+exit 1
+`);
+
+    const result = await sendWebhook(
+      cfg,
+      engine,
+      JSON.stringify({
+        Chat: "12345@s.whatsapp.net",
+        ID: "resolve-msg-1",
+        SenderJID: "sender@s.whatsapp.net",
+        Text: "@Felix hi",
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(await fs.readFile(argsFile, "utf8")).toContain(
+      "messages show --chat 12345@s.whatsapp.net --id resolve-msg-1 --json",
+    );
+  });
+
+  it("canonicalizes @lid DM chats before ingestion", async () => {
+    cfg = await makeTestConfig("wa-wh-lid-dm-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_BOT_ALIASES: "f",
+    });
+    const { engine: localEngine, ingest } = makeMockEngine();
+    await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"6285878175157@s.whatsapp.net","MsgID":"%s","SenderJID":"6285878175157@s.whatsapp.net","Text":"@f ini gambar apa hayo","MediaType":"image","MediaCaption":"@f ini gambar apa hayo","MimeType":"image/jpeg"}}\\n' "$6"
+  exit 0
+fi
+exit 1
+`);
+
+    const result = await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "264776194232430@lid",
+        ID: "lid-media-1",
+        SenderJID: "264776194232430@lid",
+        Text: "@f ini gambar apa hayo",
+        Media: { Type: "image", MimeType: "image/jpeg" },
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(ingest).toHaveBeenCalled();
+    const event = ingest.mock.calls[0][0];
+    expect(event.thread_key).toBe("whatsapp:6285878175157@s.whatsapp.net:6285878175157@s.whatsapp.net");
+    expect(event.source_thread_ref.conversation_id).toBe("6285878175157@s.whatsapp.net");
+    expect(event.sender.id).toBe("6285878175157@s.whatsapp.net");
+    expect(event.source_thread_ref.raw).toMatchObject({
+      original_chat_jid: "264776194232430@lid",
+      resolved_chat_jid: "6285878175157@s.whatsapp.net",
+      original_sender_jid: "264776194232430@lid",
+      resolved_sender_jid: "6285878175157@s.whatsapp.net",
+    });
+  });
+
+  it("keeps group chat JID when resolver returns an individual chat", async () => {
+    cfg = await makeTestConfig("wa-wh-group-safe-", { WHATSAPP_BOT_NAME: "Felix" });
+    const { engine: localEngine, ingest } = makeMockEngine();
+    await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"6285878175157@s.whatsapp.net","MsgID":"%s","SenderJID":"628111111111@s.whatsapp.net","Text":"@Felix hi"}}\\n' "$6"
+  exit 0
+fi
+exit 1
+`);
+
+    await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "120363428896331672@g.us",
+        ID: "group-msg-1",
+        SenderJID: "sender@lid",
+        Text: "@Felix hi",
+      }),
+    );
+
+    const event = ingest.mock.calls[0][0];
+    expect(event.thread_key).toBe("whatsapp:120363428896331672@g.us:120363428896331672@g.us");
+    expect(event.sender.id).toBe("628111111111@s.whatsapp.net");
+  });
+
+  it("detects caption-only media mentions and does not use captions as filenames", async () => {
+    cfg = await makeTestConfig("wa-wh-caption-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_BOT_ALIASES: "f",
+    });
+    const { engine: localEngine, ingest } = makeMockEngine();
+
+    await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "12345@s.whatsapp.net",
+        ID: "caption-media-1",
+        SenderJID: "sender@s.whatsapp.net",
+        Media: { Type: "image", Caption: "@f ini apa", MimeType: "image/jpeg" },
+      }),
+    );
+
+    const event = ingest.mock.calls[0][0];
+    expect(event.mentions_bot).toBe(true);
+    expect(event.text).toBe("@f ini apa");
+    expect(event.attachments[0].filename).toBe("caption-media-1");
+  });
+
+  it("accepts FromMe caption-only media instead of dropping it as self_media", async () => {
+    cfg = await makeTestConfig("wa-wh-fromme-caption-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_BOT_ALIASES: "f",
+    });
+    const { engine: localEngine, ingest } = makeMockEngine();
+
+    const result = await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "12345@s.whatsapp.net",
+        ID: "fromme-caption-media-1",
+        FromMe: true,
+        SenderJID: "owner@s.whatsapp.net",
+        Media: { Type: "image", Caption: "@f ini apa", MimeType: "image/jpeg" },
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("ok", true);
+    expect(ingest).toHaveBeenCalled();
+    const event = ingest.mock.calls[0][0];
+    expect(event.text).toBe("@f ini apa");
+    expect(event.sender.id).toBe("owner:owner@s.whatsapp.net");
+  });
+
+  it("preserves webhook FromMe instead of taking it from resolver output", async () => {
+    cfg = await makeTestConfig("wa-wh-fromme-preserve-", { WHATSAPP_BOT_NAME: "Felix" });
+    const { engine: localEngine, ingest } = makeMockEngine();
+    await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"sender@s.whatsapp.net","FromMe":true,"Text":"@Felix hi"}}\\n' "$4" "$6"
+  exit 0
+fi
+exit 1
+`);
+
+    const result = await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "12345@s.whatsapp.net",
+        ID: "fromme-preserve-1",
+        FromMe: false,
+        SenderJID: "sender@s.whatsapp.net",
+        Text: "@Felix hi",
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("ok", true);
+    expect(ingest).toHaveBeenCalled();
+    expect(ingest.mock.calls[0][0].sender.id).toBe("sender@s.whatsapp.net");
+  });
+
+  it("falls back to the original payload when resolver fails", async () => {
+    cfg = await makeTestConfig("wa-wh-resolve-fail-", { WHATSAPP_BOT_NAME: "Felix" });
+    const { engine: localEngine, ingest } = makeMockEngine();
+    await installFakeWacli(cfg, "exit 9");
+
+    const result = await sendWebhook(
+      cfg,
+      localEngine,
+      JSON.stringify({
+        Chat: "264776194232430@lid",
+        ID: "resolve-fail-1",
+        SenderJID: "sender@lid",
+        Text: "@Felix hi",
+      }),
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("ok", true);
+    const event = ingest.mock.calls[0][0];
+    expect(event.thread_key).toBe("whatsapp:264776194232430@lid:264776194232430@lid");
+  });
+
+  it("retargets an existing @lid thread to the canonical resolved key", async () => {
+    cfg = await makeTestConfig("wa-wh-retarget-", { WHATSAPP_BOT_NAME: "Felix" });
+    const oldKey = whatsappThreadKey("264776194232430@lid");
+    const canonicalKey = whatsappThreadKey("6285878175157@s.whatsapp.net");
+    await createOrLoadThread(cfg, {
+      source: "whatsapp",
+      thread_key: oldKey,
+      source_thread_ref: whatsappSourceThreadRef({
+        chatJid: "264776194232430@lid",
+        rootMessageId: "264776194232430@lid",
+        messageId: "old-msg",
+      }),
+      received_at: "2026-06-28T00:00:00.000Z",
+    });
+    await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"6285878175157@s.whatsapp.net","MsgID":"%s","SenderJID":"6285878175157@s.whatsapp.net","Text":"@Felix hi"}}\\n' "$6"
+  exit 0
+fi
+exit 1
+`);
+
+    await sendWebhook(
+      cfg,
+      engine,
+      JSON.stringify({
+        Chat: "264776194232430@lid",
+        ID: "retarget-msg-1",
+        SenderJID: "264776194232430@lid",
+        Text: "@Felix hi",
+      }),
+    );
+
+    expect(await findThreadHandle(cfg, oldKey, "whatsapp")).toBeNull();
+    const canonicalThread = await findThreadHandle(cfg, canonicalKey, "whatsapp");
+    expect(canonicalThread?.state.thread_key).toBe(canonicalKey);
+  });
+
+  it("does not merge when old @lid and canonical threads both exist", async () => {
+    cfg = await makeTestConfig("wa-wh-retarget-conflict-", { WHATSAPP_BOT_NAME: "Felix" });
+    const oldKey = whatsappThreadKey("264776194232430@lid");
+    const canonicalKey = whatsappThreadKey("6285878175157@s.whatsapp.net");
+    await createOrLoadThread(cfg, {
+      source: "whatsapp",
+      thread_key: oldKey,
+      source_thread_ref: whatsappSourceThreadRef({
+        chatJid: "264776194232430@lid",
+        rootMessageId: "264776194232430@lid",
+        messageId: "old-msg",
+      }),
+      received_at: "2026-06-28T00:00:00.000Z",
+    });
+    await createOrLoadThread(cfg, {
+      source: "whatsapp",
+      thread_key: canonicalKey,
+      source_thread_ref: whatsappSourceThreadRef({
+        chatJid: "6285878175157@s.whatsapp.net",
+        rootMessageId: "6285878175157@s.whatsapp.net",
+        messageId: "canonical-msg",
+      }),
+      received_at: "2026-06-28T00:01:00.000Z",
+    });
+    await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  printf '{"success":true,"data":{"ChatJID":"6285878175157@s.whatsapp.net","MsgID":"%s","SenderJID":"6285878175157@s.whatsapp.net","Text":"@Felix hi"}}\\n' "$6"
+  exit 0
+fi
+exit 1
+`);
+    const stderrWrite = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await sendWebhook(
+      cfg,
+      engine,
+      JSON.stringify({
+        Chat: "264776194232430@lid",
+        ID: "retarget-conflict-msg-1",
+        SenderJID: "264776194232430@lid",
+        Text: "@Felix hi",
+      }),
+    );
+
+    expect(await findThreadHandle(cfg, oldKey, "whatsapp")).not.toBeNull();
+    expect(await findThreadHandle(cfg, canonicalKey, "whatsapp")).not.toBeNull();
+    expect(stderrWrite.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+      "whatsapp.thread_alias_conflict",
+    );
+    stderrWrite.mockRestore();
   });
 
   describe("owner permission decision via persisted tracking", () => {
