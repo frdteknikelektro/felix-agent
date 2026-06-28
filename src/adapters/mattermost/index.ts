@@ -382,7 +382,7 @@ class MattermostAdapter implements SourceAdapter {
       filename,
       input.attachment.file_id,
     );
-    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(input.attachment.file_id)}/download`;
+    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(input.attachment.file_id)}`;
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
@@ -632,7 +632,7 @@ class MattermostAdapter implements SourceAdapter {
   ): Promise<{ name?: string; mime_type?: string; size?: number } | null> {
     const cached = this.fileInfoCache.get(fileId);
     if (cached !== undefined) return cached;
-    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(fileId)}`;
+    const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/files/${encodeURIComponent(fileId)}/info`;
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,

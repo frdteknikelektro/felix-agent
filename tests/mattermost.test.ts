@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildThreadLink, createMattermostAdapter, isDirectMessageChannelType, mattermostMentionToken, mattermostMentionTokens, mattermostSourceThreadRef, mattermostThreadKey } from "../src/adapters/mattermost/index.js";
+import type { UniversalEvent } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
 describe("Mattermost mention token", () => {
@@ -56,6 +60,71 @@ describe("buildThreadLink", () => {
     expect(buildThreadLink("https://mattermost.jala.tech/", "abc123", "jala")).toBe(
       "https://mattermost.jala.tech/jala/pl/abc123",
     );
+  });
+});
+
+describe("Mattermost attachment download", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  function attachmentEvent(): UniversalEvent {
+    return {
+      source: "mattermost",
+      event_id: "post-1",
+      thread_key: "mattermost:channel:root",
+      received_at: "2026-06-28T00:00:00.000Z",
+      visibility: "channel",
+      mentions_bot: true,
+      sender: { source: "mattermost", id: "user" },
+      text: "look",
+      attachments: [{ file_id: "file-abc", filename: "file-abc" }],
+      raw_path: "",
+      source_thread_ref: mattermostThreadRef("channel", "root", "post-1"),
+    };
+  }
+
+  it("fetches metadata from /info and the file body without a /download suffix", async () => {
+    const cfg = await makeTestConfig("felix-mm-dl-", {
+      MATTERMOST_URL: "https://mm.example.com",
+      MATTERMOST_BOT_TOKEN: "tok",
+    });
+    const adapter = createMattermostAdapter(cfg);
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-mm-dest-"));
+    const calls: string[] = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push(url);
+      if (url.endsWith("/info")) {
+        return new Response(
+          JSON.stringify({ name: "cat.png", mime_type: "image/png", size: 3 }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(Buffer.from("PNG"), {
+        headers: { "content-length": "3", "content-type": "image/png" },
+      });
+    }) as typeof fetch;
+
+    const result = await adapter.downloadAttachment({
+      event: attachmentEvent(),
+      attachment: { file_id: "file-abc", filename: "file-abc" },
+      destinationDir: dir,
+      maxBytes: 25 * 1024 * 1024,
+    });
+
+    expect(calls).toContain("https://mm.example.com/api/v4/files/file-abc/info");
+    expect(calls).toContain("https://mm.example.com/api/v4/files/file-abc");
+    expect(calls).not.toContain("https://mm.example.com/api/v4/files/file-abc/download");
+    expect(result.status).toBe("available");
+    expect(result.filename).toBe("cat.png");
+    expect(result.content_type).toBe("image/png");
+    expect(result.is_image).toBe(true);
+    expect(result.size_bytes).toBe(3);
+    const body = await fs.readFile(result.local_path!, "utf8");
+    expect(body).toBe("PNG");
   });
 });
 
