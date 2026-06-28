@@ -1,9 +1,13 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createWhatsAppAdapter,
   whatsappThreadKey,
   whatsappSourceThreadRef,
   detectsWhatsappMention,
+  isWhatsAppGroupJid,
 } from "../src/adapters/whatsapp/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
@@ -87,6 +91,7 @@ describe("WhatsAppAdapter getTurnContext", () => {
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("WhatsApp");
     expect(joined).toContain("wacli messages list");
+    expect(joined).toContain("https://wacli.sh/");
     expect(joined).toContain("wacli send file");
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     // Default (no shared number): no name prefix in instructions
@@ -148,6 +153,14 @@ describe("detectsWhatsappMention", () => {
 
   it("does not match partial name", () => {
     expect(detectsWhatsappMention("@Felix hi", "FelixBot")).toBe(false);
+  });
+});
+
+describe("isWhatsAppGroupJid", () => {
+  it("detects group JIDs even when wacli decorates the identifier", () => {
+    expect(isWhatsAppGroupJid("123456789@g.us")).toBe(true);
+    expect(isWhatsAppGroupJid("123456789@g.us:extra")).toBe(true);
+    expect(isWhatsAppGroupJid("1234567890@s.whatsapp.net")).toBe(false);
   });
 });
 
@@ -315,5 +328,52 @@ describe("WhatsAppAdapter send methods exist", () => {
     expect(typeof adapter.sendThreadReply).toBe("function");
     expect(adapter.sendUserMessage).toBeDefined();
     expect(typeof adapter.sendUserMessage).toBe("function");
+  });
+
+  it("quotes the triggering sender when sending a final reply to a group chat", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-send-group-"));
+    const argsFile = path.join(root, "args.txt");
+    const bin = path.join(root, "wacli");
+    await fs.writeFile(
+      bin,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argsFile)}\nprintf '{"data":{"id":"sent-1"}}\\n'\n`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-send-group-cfg-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_WACLI_BIN: bin,
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+    (adapter as unknown as { botJid: string }).botJid = "bot@s.whatsapp.net";
+
+    await adapter.sendThreadReply({
+      text: "hello",
+      event: {
+        source: "whatsapp",
+        event_id: "msg-1",
+        thread_key: "whatsapp:123456789@g.us:123456789@g.us",
+        received_at: "2026-01-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "sender@s.whatsapp.net", display: "Sender" },
+        text: "@Felix hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "123456789@g.us",
+          rootMessageId: "123456789@g.us",
+          messageId: "msg-1",
+          senderJid: "sender@s.whatsapp.net",
+        }),
+      },
+    });
+
+    const args = (await fs.readFile(argsFile, "utf8")).trim().split("\n");
+    expect(args).toContain("--reply-to");
+    expect(args[args.indexOf("--reply-to") + 1]).toBe("msg-1");
+    expect(args).toContain("--reply-to-sender");
+    expect(args[args.indexOf("--reply-to-sender") + 1]).toBe("sender@s.whatsapp.net");
+    expect(args).not.toContain("--sender");
   });
 });

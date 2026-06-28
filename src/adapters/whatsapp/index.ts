@@ -410,7 +410,7 @@ export async function handleWhatsAppWebhook(
   sendJson(res, 200, { ok: true });
 
   // Delete media for messages Felix won't use (not mentioned, not DM)
-  const isGroup = chatJid.includes("@g.us");
+  const isGroup = isWhatsAppGroupJid(chatJid);
   const isMentioned = event.mentions_bot;
   const isDM = !isGroup;
   if (payload.Media && !isMentioned && !isDM) {
@@ -593,12 +593,13 @@ class WhatsAppAdapter implements SourceAdapter {
         "```bash",
         `wacli messages list --chat "${chatJid}" --limit 100 --json`,
         "```",
+        "Use the official wacli command reference at https://wacli.sh/ or `wacli --help` when you need flags or subcommands not shown in these instructions.",
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
         w4,
-        "W4b. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., \"Processing...\") before your final `FELIX_REPLY`. If sending to a group chat (@g.us), include `--sender <bot_jid>`.",
-        "To reply to a specific message, add `--reply-to <quoted_msg_id>`. To @mention someone, add `--mention <phone_or_jid>`.",
+        "W4b. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., \"Processing...\") before your final `FELIX_REPLY`.",
+        "To reply to a specific message, add `--reply-to <quoted_msg_id>`. In group chats, also add `--reply-to-sender <sender_jid>` when the sender JID is known. To @mention someone, add `--mention <phone_or_jid>`.",
         "Upload a file:",
         "```bash",
         `wacli send file --to "${chatJid}" \\`,
@@ -619,10 +620,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
     // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
     const reaction = input.status === "processing" ? "⏳" : "";
-    const isGroup = chatJid.endsWith("@g.us");
-    const senderArgs = isGroup && this.botJid
-      ? ["--sender", this.botJid]
-      : [];
+    const senderArgs = this.senderArgsForChat(chatJid, "status");
     await waitForSendSlot();
     try {
       spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
@@ -654,11 +652,6 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];
 
-    const isGroup = chatJid.endsWith("@g.us");
-    const senderArgs = isGroup && this.botJid
-      ? ["--sender", this.botJid]
-      : [];
-
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
@@ -669,7 +662,6 @@ class WhatsAppAdapter implements SourceAdapter {
       "--message", text,
       "--json",
       "--post-send-wait", "0",
-      ...senderArgs,
       ...replyToArg,
     ];
 
@@ -702,11 +694,6 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const isGroup = input.userId.endsWith("@g.us");
-    const senderArgs = isGroup && this.botJid
-      ? ["--sender", this.botJid]
-      : [];
-
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
@@ -717,7 +704,6 @@ class WhatsAppAdapter implements SourceAdapter {
       "--message", text,
       "--json",
       "--post-send-wait", "0",
-      ...senderArgs,
     ];
 
     await waitForSendSlot();
@@ -876,6 +862,14 @@ class WhatsAppAdapter implements SourceAdapter {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
+
+  private senderArgsForChat(chatJid: string, operation: string): string[] {
+    if (!isWhatsAppGroupJid(chatJid)) return [];
+    if (this.botJid) return ["--sender", this.botJid];
+
+    log.warn("whatsapp.group_sender_missing", { chat_jid: chatJid, operation });
+    return [];
+  }
 }
 
 // ─── Message normalization ────────────────────────────────────────────────────
@@ -951,6 +945,10 @@ export function detectsWhatsappMention(text: string, botName: string, aliases: s
     if (a && lower.includes(`@${a}`)) return true;
   }
   return false;
+}
+
+export function isWhatsAppGroupJid(jid: string): boolean {
+  return jid.includes("@g.us");
 }
 
 // ─── wacli helpers ────────────────────────────────────────────────────────────
