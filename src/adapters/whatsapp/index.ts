@@ -633,6 +633,11 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];
 
+    const isGroup = chatJid.endsWith("@g.us");
+    const senderArgs = isGroup && this.botJid
+      ? ["--sender", this.botJid]
+      : [];
+
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
@@ -643,6 +648,7 @@ class WhatsAppAdapter implements SourceAdapter {
       "--message", text,
       "--json",
       "--post-send-wait", "0",
+      ...senderArgs,
       ...replyToArg,
     ];
 
@@ -675,6 +681,11 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
+    const isGroup = input.userId.endsWith("@g.us");
+    const senderArgs = isGroup && this.botJid
+      ? ["--sender", this.botJid]
+      : [];
+
     const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
@@ -685,6 +696,7 @@ class WhatsAppAdapter implements SourceAdapter {
       "--message", text,
       "--json",
       "--post-send-wait", "0",
+      ...senderArgs,
     ];
 
     await waitForSendSlot();
