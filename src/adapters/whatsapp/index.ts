@@ -488,6 +488,7 @@ class WhatsAppAdapter implements SourceAdapter {
   private process?: ReturnType<typeof spawn>;
   private sameNumber = false;
   private botJid?: string;
+  private typingInFlight = false;
   private readonly host = createSourceHost({ source: "whatsapp" });
 
   constructor(private readonly cfg: AppConfig) {}
@@ -636,8 +637,36 @@ class WhatsAppAdapter implements SourceAdapter {
     }
   }
 
-  async sendTyping(_input: { event: UniversalEvent }): Promise<void> {
-    // WhatsApp linked devices have limited presence capabilities
+  async sendTyping(input: { event: UniversalEvent }): Promise<void> {
+    const chatJid = input.event.source_thread_ref.conversation_id;
+    if (!chatJid || this.typingInFlight) return;
+
+    this.typingInFlight = true;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const child = spawn(this.cfg.WHATSAPP_WACLI_BIN, [
+        "presence", "typing",
+        "--to", chatJid,
+      ], {
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          PATH: process.env.PATH ?? "",
+        },
+      });
+      const timer = setTimeout(() => {
+        child.kill("SIGTERM");
+      }, 5_000);
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.typingInFlight = false;
+        resolve();
+      };
+      child.on("error", done);
+      child.on("close", done);
+    });
   }
 
   async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {

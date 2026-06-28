@@ -136,6 +136,23 @@ describe("TurnRunner", () => {
     expect(ports.postThreadReply).toHaveBeenCalledWith(expect.anything(), expect.anything(), "session-1", "done");
   });
 
+  it("refreshes source typing indicators every 100ms while the harness runs", async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const harness: Harness = {
+      run: vi.fn(async () => makeResult({ parsed: { kind: "reply", text: "done" } })),
+    };
+    const ports = makePorts();
+    const runner = new TurnRunner(harness, ports);
+
+    try {
+      await runner.run(makeInput());
+
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 100);
+    } finally {
+      setIntervalSpy.mockRestore();
+    }
+  });
+
   it("retries fresh when a resumed harness attempt fails once", async () => {
     const inputs: TurnInput[] = [];
     const harness: Harness = {

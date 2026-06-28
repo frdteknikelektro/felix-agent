@@ -376,4 +376,50 @@ describe("WhatsAppAdapter send methods exist", () => {
     expect(args[args.indexOf("--reply-to-sender") + 1]).toBe("sender@s.whatsapp.net");
     expect(args).not.toContain("--sender");
   });
+
+  it("sends WhatsApp typing presence through wacli", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "wa-typing-"));
+    const argsFile = path.join(root, "args.txt");
+    const bin = path.join(root, "wacli");
+    await fs.writeFile(
+      bin,
+      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argsFile)}\n`,
+      { mode: 0o755 },
+    );
+
+    const cfg = await makeTestConfig("wa-typing-cfg-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_WACLI_BIN: bin,
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    await adapter.sendTyping({
+      event: {
+        source: "whatsapp",
+        event_id: "msg-1",
+        thread_key: "whatsapp:1234567890@s.whatsapp.net:1234567890@s.whatsapp.net",
+        received_at: "2026-01-01T00:00:00.000Z",
+        visibility: "dm",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "sender@s.whatsapp.net" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "1234567890@s.whatsapp.net",
+          rootMessageId: "1234567890@s.whatsapp.net",
+          messageId: "msg-1",
+          senderJid: "sender@s.whatsapp.net",
+        }),
+      },
+    });
+
+    const args = (await fs.readFile(argsFile, "utf8")).trim().split("\n");
+    expect(args).toEqual([
+      "presence",
+      "typing",
+      "--to",
+      "1234567890@s.whatsapp.net",
+    ]);
+  });
 });

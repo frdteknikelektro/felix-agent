@@ -94,7 +94,7 @@ export class TurnRunner {
   ): Promise<TurnResult> {
     const typingInterval = setInterval(() => {
       adapter.sendTyping({ event: input.event }).catch(() => {});
-    }, 250);
+    }, 100);
     try {
       return await this.harness.run(this.turnInput(input, sourceContext, resumed));
     } finally {
