@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildWorkspacePaths } from "../../src/workspace.js";
 import type { AppConfig } from "../../src/config.js";
+import { DEFAULT_ATTACHMENT_MAX_BYTES } from "../../src/core/attachments.js";
 import type { SourceThreadRef } from "../../src/types.js";
 
 export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> = {}): Promise<AppConfig> {
@@ -34,6 +35,7 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     WHATSAPP_OWNER_DISPLAY: "Owner",
     WHATSAPP_WACLI_BIN: "wacli",
     WHATSAPP_WEBHOOK_SECRET: "",
+    ATTACHMENT_MAX_BYTES: DEFAULT_ATTACHMENT_MAX_BYTES,
     SOURCE: "mattermost",
     paths: buildWorkspacePaths(workspace),
     ...extras,

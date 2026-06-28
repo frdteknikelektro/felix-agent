@@ -265,6 +265,42 @@ describe("FelixEngine Mattermost routing", () => {
     expect(harnessInputs[0].event.attachments[0].rejected_reason).toContain("limit");
   });
 
+  it("handles source commands without downloading their attachments", async () => {
+    const cfg = await makeTestConfig("felix-command-attachment-");
+    const harnessInputs: TurnInput[] = [];
+    const harness = makeRecordHarness(harnessInputs);
+    const calls = {
+      sendThreadReply: vi.fn(),
+      sendUserMessage: vi.fn(),
+      editUserMessage: vi.fn(),
+      updateEventStatus: vi.fn(),
+      downloadAttachment: vi.fn(),
+    };
+    const adapter = makeAdapter(calls);
+    const engine = new FelixEngine(cfg, [adapter], harness);
+
+    await engine.ingest({
+      source: "mattermost",
+      event_id: "stop-with-attachment",
+      thread_key: "mattermost:channel:stop",
+      received_at: "2026-05-25T00:01:00.000Z",
+      visibility: "channel",
+      mentions_bot: true,
+      sender: { source: "mattermost", id: "user-a" },
+      text: "/stop",
+      attachments: [{ file_id: "file-1", filename: "note.txt", size_bytes: 4 }],
+      raw_path: path.join(cfg.paths.intake, "mattermost", "raw", "stop-with-attachment.json"),
+      source_thread_ref: mattermostThreadRef("channel", "stop", "stop-with-attachment"),
+    });
+    await engine.drain();
+
+    // /stop is an abort — it must resolve fast and never block on fetching media
+    // it would only discard.
+    expect(calls.downloadAttachment).not.toHaveBeenCalled();
+    expect(harnessInputs).toHaveLength(0);
+    expect(calls.sendThreadReply).toHaveBeenCalledWith(expect.objectContaining({ text: "Nothing running." }));
+  });
+
   it("edits the owner notification after a decision is applied", async () => {
     const cfg = await makeTestConfig("felix-owner-edit-");
     const harnessInputs: TurnInput[] = [];

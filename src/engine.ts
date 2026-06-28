@@ -151,6 +151,9 @@ export class FelixEngine {
       return;
     }
 
+    // Commands (/stop, /compact, /new) are handled above and return early — only
+    // download attachments for messages that become real turns, so an abort
+    // never blocks on fetching media it would discard.
     event.attachments = await this.prepareAttachments(thread, event, adapter);
 
     const eventFile = await appendEventToThread(thread, event);
