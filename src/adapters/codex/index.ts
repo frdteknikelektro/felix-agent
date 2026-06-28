@@ -15,11 +15,15 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
 import { appendCompactedContext } from "../../core/initial-md.js";
+import { codexSettings, hasCodexAuth, ninerouterEnabled } from "../../core/harness-settings.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
+
+export const codexAuthForTest = {
+  spawnSync,
+};
 
 export class CodexHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
@@ -35,6 +39,7 @@ export class CodexHarness implements Harness {
     const outputLastMessagePath = `${turnPath}.last-message.txt`;
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
+    const settings = codexSettings(this.cfg);
     const baseArgs = [
       "--json",
       "--skip-git-repo-check",
@@ -44,7 +49,7 @@ export class CodexHarness implements Harness {
       "-c",
       `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
       "--model",
-      this.cfg.CODEX_MODEL,
+      settings.model,
     ];
     const args = [
       "exec",
@@ -64,12 +69,7 @@ export class CodexHarness implements Harness {
       cwd: this.cfg.paths.root,
       env: {
         ...process.env,
-        WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-        ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
-        OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-        OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
-        OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-        PATH: buildSpawnPath(this.cfg),
+        ...settings.env,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -151,6 +151,7 @@ export class CodexHarness implements Harness {
 
     const prompt = buildDecisionNotificationPrompt(input);
     await writeTextAtomic(promptPath, prompt);
+    const settings = codexSettings(this.cfg);
 
     const args = [
       "exec",
@@ -160,7 +161,7 @@ export class CodexHarness implements Harness {
       "--output-last-message",
       lastMessagePath,
       "--model",
-      this.cfg.CODEX_MODEL,
+      settings.model,
       ...(this.cfg.CODEX_BYPASS_SANDBOX ? ["--dangerously-bypass-approvals-and-sandbox"] : []),
       prompt,
     ];
@@ -170,12 +171,7 @@ export class CodexHarness implements Harness {
         cwd: this.cfg.paths.root,
         env: {
           ...process.env,
-          WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-          ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
-          OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-          OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
-          OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-          PATH: buildSpawnPath(this.cfg),
+          ...settings.env,
         },
         timeout: 60_000,
         encoding: "utf8",
@@ -206,6 +202,7 @@ export class CodexHarness implements Harness {
       "",
       "Provide a concise summary that can be used as context for continuing the conversation.",
     ].join("\n");
+    const settings = codexSettings(this.cfg);
 
     const args = [
       sessionId,
@@ -216,7 +213,7 @@ export class CodexHarness implements Harness {
       "-c",
       `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
       "--model",
-      this.cfg.CODEX_MODEL,
+      settings.model,
     ];
 
     try {
@@ -224,12 +221,7 @@ export class CodexHarness implements Harness {
         cwd: this.cfg.paths.root,
         env: {
           ...process.env,
-          WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-          ...(this.cfg.OPENAI_API_KEY ? { OPENAI_API_KEY: this.cfg.OPENAI_API_KEY } : {}),
-          OPENAI_BASE_URL: this.cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-          OPENAI_ORGANIZATION: this.cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
-          OPENAI_PROJECT: this.cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-          PATH: buildSpawnPath(this.cfg),
+          ...settings.env,
         },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -319,26 +311,26 @@ function extractCodexUsage(
 }
 
 export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
+  if (ninerouterEnabled(cfg)) {
+    return;
+  }
+
   // OAuth: auth.json already written at startup, skip API key login
   if (cfg.OPENAI_CODEX_AUTH_JSON) {
     return;
   }
 
-  if (!cfg.OPENAI_API_KEY) {
+  if (!hasCodexAuth(cfg)) {
     return;
   }
 
-  const auth = spawnSync(cfg.CODEX_BIN, ["login", "--with-api-key"], {
+  const settings = codexSettings(cfg);
+  const auth = codexAuthForTest.spawnSync(cfg.CODEX_BIN, ["login", "--with-api-key"], {
     cwd: cfg.paths.root,
-    input: `${cfg.OPENAI_API_KEY}\n`,
+    input: `${settings.env.OPENAI_API_KEY ?? ""}\n`,
     env: {
       ...process.env,
-      WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-      OPENAI_API_KEY: cfg.OPENAI_API_KEY,
-      OPENAI_BASE_URL: cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-      OPENAI_ORGANIZATION: cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
-      OPENAI_PROJECT: cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-      PATH: buildSpawnPath(cfg),
+      ...settings.env,
     },
     encoding: "utf8",
     timeout: 60_000,

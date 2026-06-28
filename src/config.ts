@@ -3,6 +3,14 @@ import { z } from "zod";
 import { buildWorkspacePaths, type WorkspacePaths } from "./workspace.js";
 import { DEFAULT_ATTACHMENT_MAX_BYTES } from "./core/attachments.js";
 
+const BoolString = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off", ""].includes(normalized)) return false;
+  return value;
+}, z.boolean());
+
 const Env = z.object({
   WORKSPACE_DIR: z.string().default("./workspace"),
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
@@ -18,6 +26,12 @@ const Env = z.object({
   OPENCODE_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
+  NINEROUTER_ENABLED: BoolString.default(false),
+  NINEROUTER_API_KEY: z.string().optional(),
+  NINEROUTER_MODEL: z.string().optional(),
+  NINEROUTER_BASE_URL: z.string().url().optional().or(z.literal("")),
+  NINEROUTER_OPENAI_BASE_URL: z.string().url().optional().or(z.literal("")),
+  NINEROUTER_ANTHROPIC_BASE_URL: z.string().url().optional().or(z.literal("")),
   CLAUDE_CODE_BIN: z.string().default("claude"),
   CLAUDE_CODE_MODEL: z.string().default("sonnet"),
   CLAUDE_CODE_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),
@@ -64,6 +78,23 @@ const Env = z.object({
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
   // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
   USAGE_TZ: z.string().default("UTC"),
+}).superRefine((env, ctx) => {
+  if (!env.NINEROUTER_ENABLED) return;
+  const required: Array<keyof typeof env> = [
+    "NINEROUTER_API_KEY",
+    "NINEROUTER_MODEL",
+    "NINEROUTER_BASE_URL",
+  ];
+  for (const key of required) {
+    const value = env[key];
+    if (typeof value !== "string" || value.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} is required when NINEROUTER_ENABLED=true`,
+      });
+    }
+  }
 });
 
 export type AppConfig = z.infer<typeof Env> & {

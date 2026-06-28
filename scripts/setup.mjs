@@ -79,6 +79,7 @@ const SECRET_KEYS = new Set([
   "DEEPSEEK_API_KEY",
   "OPENCODE_API_KEY",
   "OPENROUTER_API_KEY",
+  "NINEROUTER_API_KEY",
   "ANTHROPIC_API_KEY",
   "MATTERMOST_TOKEN",
   "DISCORD_TOKEN",
@@ -376,6 +377,76 @@ async function main() {
     });
     wizard.HARNESS = harness;
 
+    const ninerouterEnabled = await confirm({
+      message: "Enable 9router override for the selected harness?",
+      default: existing.NINEROUTER_ENABLED === "true",
+    });
+    wizard.NINEROUTER_ENABLED = ninerouterEnabled ? "true" : "false";
+
+    if (ninerouterEnabled) {
+      info("\n  9router will override the active harness API key, base URL, and model.\n");
+
+      const nrKey = await promptRequired("NINEROUTER_API_KEY", "9router", existing);
+      if (nrKey) wizard.NINEROUTER_API_KEY = nrKey;
+
+      const nrBaseUrl = await input({
+        message: "NINEROUTER_BASE_URL [required]:",
+        default: existing.NINEROUTER_BASE_URL || "https://9router.jala.tech",
+        validate: (v) => {
+          if (!v.trim()) return "NINEROUTER_BASE_URL is required when 9router is enabled";
+          try {
+            new URL(v);
+            return true;
+          } catch {
+            return "Enter a valid URL";
+          }
+        },
+      });
+      wizard.NINEROUTER_BASE_URL = nrBaseUrl;
+
+      const nrOpenaiBaseUrl = await input({
+        message: "NINEROUTER_OPENAI_BASE_URL [optional] (Enter to use NINEROUTER_BASE_URL):",
+        default: existing.NINEROUTER_OPENAI_BASE_URL || "",
+        validate: (v) => {
+          if (!v.trim()) return true;
+          try {
+            new URL(v);
+            return true;
+          } catch {
+            return "Enter a valid URL";
+          }
+        },
+      });
+      wizard.NINEROUTER_OPENAI_BASE_URL = nrOpenaiBaseUrl;
+
+      const nrAnthropicBaseUrl = await input({
+        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Enter to use NINEROUTER_BASE_URL):",
+        default: existing.NINEROUTER_ANTHROPIC_BASE_URL || "",
+        validate: (v) => {
+          if (!v.trim()) return true;
+          try {
+            new URL(v);
+            return true;
+          } catch {
+            return "Enter a valid URL";
+          }
+        },
+      });
+      wizard.NINEROUTER_ANTHROPIC_BASE_URL = nrAnthropicBaseUrl;
+
+      const nrModel = await input({
+        message: "NINEROUTER_MODEL [required]:",
+        default: existing.NINEROUTER_MODEL || "",
+        validate: (v) => v.trim().length > 0 ? true : "NINEROUTER_MODEL is required when 9router is enabled",
+      });
+      wizard.NINEROUTER_MODEL = nrModel;
+    } else {
+      wizard.NINEROUTER_API_KEY = "";
+      wizard.NINEROUTER_MODEL = "";
+      wizard.NINEROUTER_OPENAI_BASE_URL = "";
+      wizard.NINEROUTER_ANTHROPIC_BASE_URL = "";
+    }
+
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
 
     step(2, 6, "API Keys");
@@ -387,53 +458,67 @@ async function main() {
       });
       wizard.CODEX_MODEL = codexModel;
 
-      const authMethod = await select({
-        message: "Codex authentication method:",
-        choices: [
-          { value: "api-key", name: "api-key — Use OpenAI API key" },
-          { value: "oauth", name: "oauth — Login with ChatGPT Plus account (device auth)" },
-        ],
-        default: existing.OPENAI_CODEX_AUTH_JSON ? "oauth" : "api-key",
-      });
-
-      if (authMethod === "api-key") {
-        const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
+      if (ninerouterEnabled) {
+        info("  9router is enabled, so Codex will use NINEROUTER_API_KEY at runtime.\n");
+        const oaiKey = await input({
+          message: `OPENAI_API_KEY [optional fallback]:${existingHint(existing, "OPENAI_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+          transformer: secretTransformer,
+        });
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
       } else {
-        // OAuth: use a temp home under workspace
-        const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
-        mkdirSync(tmpHome, { recursive: true });
-
-        info("\n  Launching device auth...");
-        info("  A browser window will open. Enter the code shown below.\n");
-
-        const child = spawn("codex", ["login", "--device-auth"], {
-          env: { ...process.env, CODEX_HOME: tmpHome },
-          stdio: "inherit",
-        });
-        const exitCode = await new Promise((resolve) => {
-          child.on("close", (code) => resolve(code ?? -1));
+        const authMethod = await select({
+          message: "Codex authentication method:",
+          choices: [
+            { value: "api-key", name: "api-key — Use OpenAI API key" },
+            { value: "oauth", name: "oauth — Login with ChatGPT Plus account (device auth)" },
+          ],
+          default: existing.OPENAI_CODEX_AUTH_JSON ? "oauth" : "api-key",
         });
 
-        if (exitCode !== 0) {
-          warn("codex login failed. Falling back to API key method.");
+        if (authMethod === "api-key") {
           const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
           if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
         } else {
-          const authPath = join(tmpHome, "auth.json");
-          const authContent = readFileSync(authPath, "utf8");
-          wizard.OPENAI_CODEX_AUTH_JSON = JSON.stringify(JSON.parse(authContent));
-          wizard.OPENAI_API_KEY = "";
-          succeed("Logged in via ChatGPT OAuth");
-        }
+          // OAuth: use a temp home under workspace
+          const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
+          mkdirSync(tmpHome, { recursive: true });
 
-        // Clean up temp dir
-        try { rmSync(tmpHome, { recursive: true }); } catch {}
+          info("\n  Launching device auth...");
+          info("  A browser window will open. Enter the code shown below.\n");
+
+          const child = spawn("codex", ["login", "--device-auth"], {
+            env: { ...process.env, CODEX_HOME: tmpHome },
+            stdio: "inherit",
+          });
+          const exitCode = await new Promise((resolve) => {
+            child.on("close", (code) => resolve(code ?? -1));
+          });
+
+          if (exitCode !== 0) {
+            warn("codex login failed. Falling back to API key method.");
+            const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
+            if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+          } else {
+            const authPath = join(tmpHome, "auth.json");
+            const authContent = readFileSync(authPath, "utf8");
+            wizard.OPENAI_CODEX_AUTH_JSON = JSON.stringify(JSON.parse(authContent));
+            wizard.OPENAI_API_KEY = "";
+            succeed("Logged in via ChatGPT OAuth");
+          }
+
+          // Clean up temp dir
+          try { rmSync(tmpHome, { recursive: true }); } catch {}
+        }
       }
     }
 
     if (harness === "opencode") {
-      const ocKey = await promptRequired("OPENCODE_API_KEY", "opencode", existing);
+      const ocKey = ninerouterEnabled
+        ? await input({
+            message: `OPENCODE_API_KEY [optional fallback]:${existingHint(existing, "OPENCODE_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+            transformer: secretTransformer,
+          })
+        : await promptRequired("OPENCODE_API_KEY", "opencode", existing);
       if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
 
       const orKey = await input({
@@ -457,7 +542,12 @@ async function main() {
     }
 
     if (harness === "claude-code") {
-      const ccKey = await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
+      const ccKey = ninerouterEnabled
+        ? await input({
+            message: `ANTHROPIC_API_KEY [optional fallback]:${existingHint(existing, "ANTHROPIC_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+            transformer: secretTransformer,
+          })
+        : await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
       if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
 
       const ccModel = await input({
@@ -713,6 +803,10 @@ async function main() {
     // ═══ Step 6: Review ═════════════════════════════════════════════════════
 
     step(6, 6, "Review");
+
+    if (wizard.NINEROUTER_ENABLED === "true") {
+      info("\n  9router override is enabled — it will replace the selected harness key, base URL, and model at runtime.");
+    }
 
     const template = parseTemplate(EXAMPLE_PATH);
     const templateKeys = new Set();

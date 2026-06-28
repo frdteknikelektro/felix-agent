@@ -5,9 +5,17 @@ import { ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { AppConfig } from "../../config.js";
-import { between, buildSpawnPath } from "../../core/harness-common.js";
+import { between } from "../../core/harness-common.js";
 import { opencodeRun } from "../../adapters/opencode/index.js";
 import { claudeCodeRun } from "../../adapters/claude-code/index.js";
+import {
+  claudeCodeSettings,
+  codexSettings,
+  hasClaudeCodeAuth,
+  hasCodexAuth,
+  hasOpencodeAuth,
+  opencodeSettings,
+} from "../../core/harness-settings.js";
 
 const CLASSIFY_PROMPT = [
   "Classify this message from an owner responding to a permission request.",
@@ -47,12 +55,13 @@ async function classifyViaCodex(
   text: string,
   cfg: AppConfig,
 ): Promise<"once" | "always" | "reject" | null> {
-  if (!cfg.OPENAI_API_KEY) return null;
+  if (!hasCodexAuth(cfg)) return null;
   const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
   const workDir = path.join(cfg.paths.approvals, "_classify");
   const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
   const turnPath = path.join(workDir, `${runId}.md`);
   const outputLastMessagePath = `${turnPath}.last-message.txt`;
+  const settings = codexSettings(cfg);
 
   await ensureDir(workDir);
   await writeTextAtomic(turnPath, prompt);
@@ -63,7 +72,7 @@ async function classifyViaCodex(
     "--skip-git-repo-check",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
-    cfg.CODEX_MODEL,
+    settings.model,
     "--output-last-message",
     outputLastMessagePath,
     prompt,
@@ -73,11 +82,7 @@ async function classifyViaCodex(
     cwd: workDir,
     env: {
       ...process.env,
-      OPENAI_API_KEY: cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-      OPENAI_BASE_URL: cfg.OPENAI_BASE_URL ?? process.env.OPENAI_BASE_URL,
-      OPENAI_ORGANIZATION: cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
-      OPENAI_PROJECT: cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
-      PATH: buildSpawnPath(cfg),
+      ...settings.env,
     },
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 15_000,
@@ -117,32 +122,22 @@ async function classifyViaOpencode(
   text: string,
   cfg: AppConfig,
 ): Promise<"once" | "always" | "reject" | null> {
-  // Return null if no API keys are available (avoids spawning opencode unnecessarily)
-  const hasApiKey = cfg.OPENAI_API_KEY || cfg.OPENCODE_API_KEY || cfg.OPENROUTER_API_KEY || cfg.DEEPSEEK_API_KEY;
-  if (!hasApiKey) return null;
+  if (!hasOpencodeAuth(cfg)) return null;
 
   const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
   const workDir = path.join(cfg.paths.approvals, "_classify");
   const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
   const turnPath = path.join(workDir, `${runId}.md`);
   const logPath = `${turnPath}.log`;
+  const settings = opencodeSettings(cfg);
 
   await ensureDir(workDir);
   await writeTextAtomic(turnPath, prompt);
 
-  const env = {
-    WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-    OPENAI_API_KEY: cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-    OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
-    OPENROUTER_API_KEY: cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
-    DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-    PATH: buildSpawnPath(cfg),
-  };
-
   const args = [
     "run",
     "--dir", workDir,
-    "--model", cfg.OPENCODE_MODEL,
+    "--model", settings.model,
     "--format", "json",
     "--dangerously-skip-permissions",
     prompt,
@@ -157,7 +152,7 @@ async function classifyViaOpencode(
       cfg.OPENCODE_BIN,
       args,
       workDir,
-      env,
+      settings.env,
       logPath,
       controller.signal,
     );
@@ -187,12 +182,13 @@ async function classifyViaClaudeCode(
   text: string,
   cfg: AppConfig,
 ): Promise<"once" | "always" | "reject" | null> {
-  if (!cfg.ANTHROPIC_API_KEY) return null;
+  if (!hasClaudeCodeAuth(cfg)) return null;
   const prompt = CLASSIFY_PROMPT.replace("__MESSAGE__", text);
   const workDir = path.join(cfg.paths.approvals, "_classify");
   const runId = `${fsTimestamp(new Date())}_${crypto.randomUUID().slice(0, 8)}`;
   const turnPath = path.join(workDir, `${runId}.md`);
   const logPath = `${turnPath}.log`;
+  const settings = claudeCodeSettings(cfg);
 
   await ensureDir(workDir);
   await writeTextAtomic(turnPath, prompt);
@@ -201,7 +197,7 @@ async function classifyViaClaudeCode(
     "-p",
     "--output-format", "json",
     "--dangerously-skip-permissions",
-    "--model", cfg.CLAUDE_CODE_MODEL,
+    "--model", settings.model,
     prompt,
   ];
 
@@ -210,11 +206,7 @@ async function classifyViaClaudeCode(
       cfg.CLAUDE_CODE_BIN,
       args,
       workDir,
-      {
-        WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-        ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
-        PATH: buildSpawnPath(cfg),
-      },
+      settings.env,
       logPath,
     );
 
@@ -236,5 +228,4 @@ async function classifyViaClaudeCode(
     return null;
   }
 }
-
 

@@ -14,10 +14,10 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
 import { appendCompactedContext } from "../../core/initial-md.js";
+import { claudeCodeSettings } from "../../core/harness-settings.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 // ─── Shared spawn ─────────────────────────────────────────────────────────
@@ -159,11 +159,7 @@ export class ClaudeCodeHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
 
   private buildEnv(): Record<string, string | undefined> {
-    return {
-      WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-      ANTHROPIC_API_KEY: this.cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
-      PATH: buildSpawnPath(this.cfg),
-    };
+    return claudeCodeSettings(this.cfg).env;
   }
 
   async run(input: TurnInput): Promise<TurnResult> {
@@ -177,6 +173,7 @@ export class ClaudeCodeHarness implements Harness {
     );
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
+    const settings = claudeCodeSettings(this.cfg);
 
     await writeTextAtomic(turnPath, prompt);
 
@@ -184,7 +181,7 @@ export class ClaudeCodeHarness implements Harness {
       "-p",
       "--output-format", "json",
       "--dangerously-skip-permissions",
-      "--model", this.cfg.CLAUDE_CODE_MODEL,
+      "--model", settings.model,
       "--add-dir", this.cfg.WORKSPACE_DIR,
     ];
 
@@ -213,12 +210,13 @@ export class ClaudeCodeHarness implements Harness {
 
     const prompt = buildDecisionNotificationPrompt(input);
     await writeTextAtomic(promptPath, prompt);
+    const settings = claudeCodeSettings(this.cfg);
 
     const args = [
       "-p",
       "--output-format", "json",
       "--dangerously-skip-permissions",
-      "--model", this.cfg.CLAUDE_CODE_MODEL,
+      "--model", settings.model,
       prompt,
     ];
 
@@ -254,12 +252,13 @@ export class ClaudeCodeHarness implements Harness {
       "",
       "Provide a concise summary that can be used as context for continuing the conversation.",
     ].join("\n");
+    const settings = claudeCodeSettings(this.cfg);
 
     const args = [
       "-r", sessionId,
       "-p",
       "--dangerously-skip-permissions",
-      "--model", this.cfg.CLAUDE_CODE_MODEL,
+      "--model", settings.model,
       summarizationPrompt,
     ];
 
@@ -296,13 +295,12 @@ export class ClaudeCodeHarness implements Harness {
 }
 
 export async function ensureClaudeCodeAuth(cfg: AppConfig): Promise<void> {
+  const settings = claudeCodeSettings(cfg);
   const check = spawnSync(cfg.CLAUDE_CODE_BIN, ["--version"], {
     cwd: cfg.paths.root,
     env: {
       ...process.env,
-      WORKSPACE_DIR: cfg.WORKSPACE_DIR,
-      ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
-      PATH: buildSpawnPath(cfg),
+      ...settings.env,
     },
     encoding: "utf8",
     timeout: 10_000,

@@ -14,10 +14,10 @@ import {
   buildDecisionNotificationPrompt,
   between,
   fallbackNotification,
-  buildSpawnPath,
   normalizeUsage,
 } from "../../core/harness-common.js";
 import { appendCompactedContext } from "../../core/initial-md.js";
+import { opencodeSettings } from "../../core/harness-settings.js";
 export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/ports.js";
 
 // ─── Shared spawn ─────────────────────────────────────────────────────────
@@ -174,14 +174,7 @@ export class OpencodeHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
 
   private buildEnv(): Record<string, string | undefined> {
-    return {
-      WORKSPACE_DIR: this.cfg.WORKSPACE_DIR,
-      OPENAI_API_KEY: this.cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
-      OPENCODE_API_KEY: this.cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
-      OPENROUTER_API_KEY: this.cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
-      DEEPSEEK_API_KEY: this.cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
-      PATH: buildSpawnPath(this.cfg),
-    };
+    return opencodeSettings(this.cfg).env;
   }
 
   async run(input: TurnInput): Promise<TurnResult> {
@@ -195,13 +188,14 @@ export class OpencodeHarness implements Harness {
     );
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
+    const settings = opencodeSettings(this.cfg);
 
     await writeTextAtomic(turnPath, prompt);
 
     const baseArgs = [
       "run",
       "--dir", this.cfg.paths.root,
-      "--model", this.cfg.OPENCODE_MODEL,
+      "--model", settings.model,
       "--title", input.thread.state.thread_key,
       "--format", "json",
       "--dangerously-skip-permissions",
@@ -223,7 +217,7 @@ export class OpencodeHarness implements Harness {
 
     const parsed = parseAgentOutput(assistantText);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
-    const usageWithModel = usage ? { ...usage, model: usage.model ?? this.cfg.OPENCODE_MODEL } : null;
+    const usageWithModel = usage ? { ...usage, model: usage.model ?? settings.model } : null;
 
     return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath, usage: usageWithModel };
   }
@@ -236,11 +230,12 @@ export class OpencodeHarness implements Harness {
 
     const prompt = buildDecisionNotificationPrompt(input);
     await writeTextAtomic(promptPath, prompt);
+    const settings = opencodeSettings(this.cfg);
 
     const args = [
       "run",
       "--dir", this.cfg.paths.root,
-      "--model", this.cfg.OPENCODE_MODEL,
+      "--model", settings.model,
       "--title", `decision-notification-${Date.now()}`,
       "--format", "json",
       "--dangerously-skip-permissions",

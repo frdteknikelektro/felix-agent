@@ -14,6 +14,7 @@ import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
 import { ClaudeCodeHarness, ensureClaudeCodeAuth } from "./adapters/claude-code/index.js";
+import { ninerouterEnabled } from "./core/harness-settings.js";
 
 // ---------------------------------------------------------------------------
 // Supervisor — restarts a subsystem with exponential backoff on failure
@@ -165,7 +166,7 @@ async function main(): Promise<void> {
       break;
     case "codex":
     default:
-      if (cfg.OPENAI_CODEX_AUTH_JSON) {
+      if (cfg.OPENAI_CODEX_AUTH_JSON && !ninerouterEnabled(cfg)) {
         const codexHome = path.join(cfg.paths.root, ".codex");
         const authPath = path.join(codexHome, "auth.json");
         try {

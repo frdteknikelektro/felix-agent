@@ -50,12 +50,37 @@ Run `docker compose run --rm --build setup` to configure your `.env` interactive
 | 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` (or use OAuth) |
 | 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
 | 🧠 `ANTHROPIC_API_KEY` | Required when `HARNESS=claude-code` |
+| 🔀 `NINEROUTER_ENABLED` | Optional override that routes the active harness through 9router |
 | 💬 `MATTERMOST_TOKEN` | Enables Mattermost |
 | 🎮 `DISCORD_TOKEN` | Enables Discord |
 | 💼 `SLACK_TOKEN` | Enables Slack |
 | 📱 `WHATSAPP_BOT_NAME` | Enables WhatsApp |
 
 > 💡 See `.env.example` for all defaults.
+
+### 9router Override
+
+Felix can keep the selected harness (`codex`, `opencode`, or `claude-code`) while routing model calls through `9router.jala.tech`. Enable it in setup, or set:
+
+```bash
+NINEROUTER_ENABLED=true
+NINEROUTER_API_KEY=...
+NINEROUTER_MODEL=...
+NINEROUTER_BASE_URL=https://9router.jala.tech
+```
+
+Optional protocol-specific URLs override the shared base URL:
+
+```bash
+NINEROUTER_OPENAI_BASE_URL=https://9router.jala.tech
+NINEROUTER_ANTHROPIC_BASE_URL=https://9router.jala.tech
+```
+
+Harness behavior when enabled:
+
+- `codex` uses `NINEROUTER_API_KEY` as `OPENAI_API_KEY`, `NINEROUTER_OPENAI_BASE_URL`, and `NINEROUTER_MODEL`.
+- `claude-code` uses `NINEROUTER_API_KEY` as `ANTHROPIC_AUTH_TOKEN`, `NINEROUTER_ANTHROPIC_BASE_URL`, and `NINEROUTER_MODEL`.
+- `opencode` injects a runtime custom provider with `OPENCODE_CONFIG_CONTENT` and runs `--model 9router/<NINEROUTER_MODEL>`.
 
 ## 🐳 Docker
 
