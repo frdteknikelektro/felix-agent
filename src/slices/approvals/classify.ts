@@ -70,6 +70,7 @@ async function classifyViaCodex(
     "exec",
     "--json",
     "--skip-git-repo-check",
+    ...(settings.codexConfigArgs ?? []),
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
     settings.model,
@@ -228,4 +229,3 @@ async function classifyViaClaudeCode(
     return null;
   }
 }
-

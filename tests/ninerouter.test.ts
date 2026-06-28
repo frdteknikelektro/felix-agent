@@ -10,6 +10,7 @@ import {
   ninerouterAnthropicBaseUrl,
   ninerouterOpenAiBaseUrl,
   opencodeSettings,
+  withOpenAiV1,
 } from "../src/core/harness-settings.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 
@@ -71,10 +72,17 @@ describe("9router config", () => {
         });
 
         expect(cfg.NINEROUTER_ENABLED).toBe(true);
-        expect(ninerouterOpenAiBaseUrl(cfg)).toBe("https://9router.jala.tech");
+        expect(ninerouterOpenAiBaseUrl(cfg)).toBe("https://9router.jala.tech/v1");
         expect(ninerouterAnthropicBaseUrl(cfg)).toBe("https://9router.jala.tech");
       },
     );
+  });
+
+  it("normalizes OpenAI-compatible 9router URLs to /v1", () => {
+    expect(withOpenAiV1("https://9router.jala.tech")).toBe("https://9router.jala.tech/v1");
+    expect(withOpenAiV1("https://9router.jala.tech/")).toBe("https://9router.jala.tech/v1");
+    expect(withOpenAiV1("https://9router.jala.tech/v1")).toBe("https://9router.jala.tech/v1");
+    expect(withOpenAiV1("https://9router.jala.tech/v1/")).toBe("https://9router.jala.tech/v1");
   });
 
   it("requires key, model, and base URL when enabled", async () => {
@@ -108,9 +116,18 @@ describe("9router harness settings", () => {
 
     expect(settings.model).toBe("router-model");
     expect(settings.env.OPENAI_API_KEY).toBe("nr-secret");
-    expect(settings.env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai");
+    expect(settings.env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
+    expect(settings.env.NINEROUTER_API_KEY).toBe("nr-secret");
     expect(settings.env.OPENAI_ORGANIZATION).toBe("");
     expect(settings.env.OPENAI_PROJECT).toBe("");
+    expect(settings.codexConfigArgs).toEqual([
+      "-c", "openai_base_url=\"https://9router.jala.tech/openai/v1\"",
+      "-c", "model_provider=\"9router\"",
+      "-c", "model_providers.9router.name=\"9router\"",
+      "-c", "model_providers.9router.base_url=\"https://9router.jala.tech/openai/v1\"",
+      "-c", "model_providers.9router.env_key=\"NINEROUTER_API_KEY\"",
+      "-c", "model_providers.9router.wire_api=\"responses\"",
+    ]);
   });
 
   it("overrides Claude Code auth token, base URL, and model", async () => {
@@ -128,7 +145,7 @@ describe("9router harness settings", () => {
 
     expect(settings.model).toBe("9router/router-model");
     expect(settings.env.NINEROUTER_API_KEY).toBe("nr-secret");
-    expect(settings.env.NINEROUTER_OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai");
+    expect(settings.env.NINEROUTER_OPENAI_BASE_URL).toBe("https://9router.jala.tech/openai/v1");
     expect(content.provider["9router"].npm).toBe("@ai-sdk/openai-compatible");
     expect(content.provider["9router"].options.baseURL).toBe("{env:NINEROUTER_OPENAI_BASE_URL}");
     expect(content.provider["9router"].options.apiKey).toBe("{env:NINEROUTER_API_KEY}");

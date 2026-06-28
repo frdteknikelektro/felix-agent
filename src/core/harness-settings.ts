@@ -4,6 +4,7 @@ import { buildSpawnPath } from "./harness-common.js";
 export interface HarnessSettings {
   model: string;
   env: Record<string, string | undefined>;
+  codexConfigArgs?: string[];
 }
 
 export function ninerouterEnabled(cfg: AppConfig): boolean {
@@ -16,25 +17,43 @@ export function ninerouterEnabled(cfg: AppConfig): boolean {
 }
 
 export function ninerouterOpenAiBaseUrl(cfg: AppConfig): string {
-  return cfg.NINEROUTER_OPENAI_BASE_URL || cfg.NINEROUTER_BASE_URL || "";
+  return withOpenAiV1(cfg.NINEROUTER_OPENAI_BASE_URL || cfg.NINEROUTER_BASE_URL || "");
 }
 
 export function ninerouterAnthropicBaseUrl(cfg: AppConfig): string {
   return cfg.NINEROUTER_ANTHROPIC_BASE_URL || cfg.NINEROUTER_BASE_URL || "";
 }
 
+export function withOpenAiV1(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const withoutTrailing = trimmed.replace(/\/+$/, "");
+  if (/\/v1$/i.test(withoutTrailing)) return withoutTrailing;
+  return `${withoutTrailing}/v1`;
+}
+
 export function codexSettings(cfg: AppConfig): HarnessSettings {
   if (ninerouterEnabled(cfg)) {
+    const baseUrl = ninerouterOpenAiBaseUrl(cfg);
     return {
       model: cfg.NINEROUTER_MODEL!,
       env: {
         WORKSPACE_DIR: cfg.WORKSPACE_DIR,
         OPENAI_API_KEY: cfg.NINEROUTER_API_KEY,
-        OPENAI_BASE_URL: ninerouterOpenAiBaseUrl(cfg),
+        OPENAI_BASE_URL: baseUrl,
+        NINEROUTER_API_KEY: cfg.NINEROUTER_API_KEY,
         OPENAI_ORGANIZATION: "",
         OPENAI_PROJECT: "",
         PATH: buildSpawnPath(cfg),
       },
+      codexConfigArgs: [
+        "-c", `openai_base_url=${tomlString(baseUrl)}`,
+        "-c", `model_provider=${tomlString("9router")}`,
+        "-c", `model_providers.9router.name=${tomlString("9router")}`,
+        "-c", `model_providers.9router.base_url=${tomlString(baseUrl)}`,
+        "-c", `model_providers.9router.env_key=${tomlString("NINEROUTER_API_KEY")}`,
+        "-c", `model_providers.9router.wire_api=${tomlString("responses")}`,
+      ],
     };
   }
 
@@ -49,6 +68,10 @@ export function codexSettings(cfg: AppConfig): HarnessSettings {
       PATH: buildSpawnPath(cfg),
     },
   };
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
 }
 
 export function opencodeSettings(cfg: AppConfig): HarnessSettings {

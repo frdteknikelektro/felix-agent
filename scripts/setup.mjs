@@ -385,13 +385,15 @@ async function main() {
 
     if (ninerouterEnabled) {
       info("\n  9router will override the active harness API key, base URL, and model.\n");
+      info("  Base URL format: https://host.example or https://host.example/v1.");
+      info("  OpenAI-compatible routes append /v1 automatically only when it is missing.\n");
 
       const nrKey = await promptRequired("NINEROUTER_API_KEY", "9router", existing);
       if (nrKey) wizard.NINEROUTER_API_KEY = nrKey;
 
       const nrBaseUrl = await input({
-        message: "NINEROUTER_BASE_URL [required]:",
-        default: existing.NINEROUTER_BASE_URL || "https://9router.jala.tech",
+        message: "NINEROUTER_BASE_URL [required] (e.g. https://9router.example.com):",
+        default: existing.NINEROUTER_BASE_URL || "",
         validate: (v) => {
           if (!v.trim()) return "NINEROUTER_BASE_URL is required when 9router is enabled";
           try {
@@ -405,7 +407,7 @@ async function main() {
       wizard.NINEROUTER_BASE_URL = nrBaseUrl;
 
       const nrOpenaiBaseUrl = await input({
-        message: "NINEROUTER_OPENAI_BASE_URL [optional] (Enter to use NINEROUTER_BASE_URL):",
+        message: "NINEROUTER_OPENAI_BASE_URL [optional] (OpenAI-compatible endpoint, e.g. https://9router.example.com/v1; Enter to use NINEROUTER_BASE_URL):",
         default: existing.NINEROUTER_OPENAI_BASE_URL || "",
         validate: (v) => {
           if (!v.trim()) return true;
@@ -420,7 +422,7 @@ async function main() {
       wizard.NINEROUTER_OPENAI_BASE_URL = nrOpenaiBaseUrl;
 
       const nrAnthropicBaseUrl = await input({
-        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Enter to use NINEROUTER_BASE_URL):",
+        message: "NINEROUTER_ANTHROPIC_BASE_URL [optional] (Anthropic-compatible root, e.g. https://9router.example.com; Enter to use NINEROUTER_BASE_URL):",
         default: existing.NINEROUTER_ANTHROPIC_BASE_URL || "",
         validate: (v) => {
           if (!v.trim()) return true;
