@@ -153,6 +153,38 @@ export async function claudeCodeRun(
   return { exitCode, sessionId: capturedSessionId, assistantText, usage };
 }
 
+// ─── Arg builder ──────────────────────────────────────────────────────────
+
+export interface ClaudeTurnArgs {
+  model: string;
+  workspaceDir: string;
+  sessionId: string;
+  hasSession: boolean;
+  prompt: string;
+}
+
+/**
+ * Build the claude CLI argv for a turn.
+ *
+ * The prompt MUST come before `--add-dir`: the Claude Code CLI treats a value
+ * sitting immediately after `--add-dir` as the directory, so a trailing
+ * `--add-dir <dir> <prompt>` swallows the prompt and the CLI aborts with
+ * "Input must be provided either through stdin or as a prompt argument".
+ * Keep `--add-dir` last, after the positional prompt.
+ */
+export function buildClaudeTurnArgs(opts: ClaudeTurnArgs): string[] {
+  const baseArgs = [
+    "-p",
+    "--output-format", "json",
+    "--dangerously-skip-permissions",
+    "--model", opts.model,
+  ];
+  const sessionArgs = opts.hasSession
+    ? ["--resume", opts.sessionId]
+    : ["--session-id", opts.sessionId];
+  return [...baseArgs, ...sessionArgs, opts.prompt, "--add-dir", opts.workspaceDir];
+}
+
 // ─── Harness ──────────────────────────────────────────────────────────────
 
 export class ClaudeCodeHarness implements Harness {
@@ -177,17 +209,13 @@ export class ClaudeCodeHarness implements Harness {
 
     await writeTextAtomic(turnPath, prompt);
 
-    const baseArgs = [
-      "-p",
-      "--output-format", "json",
-      "--dangerously-skip-permissions",
-      "--model", settings.model,
-      "--add-dir", this.cfg.WORKSPACE_DIR,
-    ];
-
-    const args = hasSession
-      ? [...baseArgs, "--resume", sessionId, prompt]
-      : [...baseArgs, "--session-id", sessionId, prompt];
+    const args = buildClaudeTurnArgs({
+      model: settings.model,
+      workspaceDir: this.cfg.WORKSPACE_DIR,
+      sessionId,
+      hasSession,
+      prompt,
+    });
 
     const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
       await claudeCodeRun(this.cfg.CLAUDE_CODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath, input.signal);
