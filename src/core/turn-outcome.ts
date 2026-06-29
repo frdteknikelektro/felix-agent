@@ -62,6 +62,10 @@ export async function handleTurnOutcome(input: TurnOutcomeInput): Promise<TurnOu
     if (input.resumed) {
       await input.ports.clearHarnessSession(input.thread);
     }
+    // A failed turn can still have burned tokens (API succeeded, output was
+    // unusable). Record them so the ledger isn't undercounted — logUsage is a
+    // no-op when result.usage is null (e.g. the harness never reached the API).
+    await input.ports.logUsage(input.thread, input.event, input.result);
     const detail = input.result.exitCode !== 0
       ? exitCodeMessage(input.result.exitCode)
       : "The agent produced no usable output. ";
