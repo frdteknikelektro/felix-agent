@@ -145,6 +145,15 @@ describe("handleTurnOutcome", () => {
     expect(ports.error).toHaveBeenCalledWith("harness.empty_output", expect.objectContaining({ exit_code: 127 }));
   });
 
+  it("records usage for a failed turn so spent tokens are not dropped", async () => {
+    const result = makeResult({ success: false, exitCode: 0 });
+    const { outcome, ports, thread, event } = await runOutcome({ result });
+
+    expect(outcome.kind).toBe("complete");
+    expect(ports.logUsage).toHaveBeenCalledWith(thread, event, result);
+    expect(ports.recordTurnWithUsage).not.toHaveBeenCalled();
+  });
+
   it("returns retry_fresh after a first resumed failure", async () => {
     const result = makeResult({ success: false, exitCode: 1 });
     const { outcome, ports, thread } = await runOutcome({ result, resumed: true });

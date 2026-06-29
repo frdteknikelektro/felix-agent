@@ -1,6 +1,55 @@
 import { describe, expect, it } from "vitest";
 import { parseAgentOutput } from "../src/core/harness-common.js";
-import { buildClaudeTurnArgs } from "../src/adapters/claude-code/index.js";
+import { buildClaudeTurnArgs, parseClaudeStdout } from "../src/adapters/claude-code/index.js";
+
+describe("claude-code stdout parser", () => {
+  // Exact top-level shape emitted by `claude -p --output-format json` (claude 2.1.161).
+  const jsonModeLine = JSON.stringify({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: "FELIX_REPLY\nhello\nEND_FELIX_REPLY",
+    session_id: "539162e7-f5ac-4927-a7e9-d01f44393ff0",
+    total_cost_usd: 0,
+    usage: {
+      input_tokens: 1200,
+      output_tokens: 34,
+      cache_read_input_tokens: 800,
+      cache_creation_input_tokens: 0,
+    },
+    modelUsage: { "claude-sonnet-4-6": {} },
+  });
+
+  it("extracts the top-level result string, session id, and usage (json mode)", () => {
+    const { assistantText, sessionId, usage } = parseClaudeStdout([jsonModeLine]);
+    expect(assistantText).toBe("FELIX_REPLY\nhello\nEND_FELIX_REPLY");
+    expect(assistantText).not.toBe("");
+    expect(sessionId).toBe("539162e7-f5ac-4927-a7e9-d01f44393ff0");
+    expect(usage).not.toBeNull();
+    expect(usage?.input).toBe(1200);
+    expect(usage?.output).toBe(34);
+  });
+
+  it("feeds a parseable reply through parseAgentOutput", () => {
+    const { assistantText } = parseClaudeStdout([jsonModeLine]);
+    expect(parseAgentOutput(assistantText).kind).toBe("reply");
+  });
+
+  it("still handles the nested result.result form", () => {
+    const line = JSON.stringify({ type: "result", result: { result: "FELIX_REPLY\nhi\nEND_FELIX_REPLY" } });
+    expect(parseClaudeStdout([line]).assistantText).toBe("FELIX_REPLY\nhi\nEND_FELIX_REPLY");
+  });
+
+  it("still handles stream-json assistant + system events", () => {
+    const lines = [
+      JSON.stringify({ type: "system", subtype: "init", data: { session_id: "abc" } }),
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-4-6", content: [{ type: "text", text: "hi" }] } }),
+    ];
+    const { assistantText, sessionId } = parseClaudeStdout(lines);
+    expect(assistantText).toBe("hi");
+    expect(sessionId).toBe("abc");
+  });
+});
 
 describe("claude-code turn arg builder", () => {
   const base = { model: "sonnet", workspaceDir: "/home/node/workspace", sessionId: "sess-1", prompt: "do the thing" };

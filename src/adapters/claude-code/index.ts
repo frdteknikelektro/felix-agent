@@ -87,55 +87,105 @@ export async function claudeCodeRun(
 
   await logStream.close();
 
+  const { sessionId, assistantText, usage } = parseClaudeStdout(stdoutLines);
+
+  if (exitCode === 0 && !assistantText) {
+    const lastLine = stdoutLines[stdoutLines.length - 1] ?? "";
+    log.warn("claude-code.empty_after_parse", {
+      lines: stdoutLines.length,
+      snippet: lastLine.slice(0, 200),
+    });
+  }
+
+  return { exitCode, sessionId, assistantText, usage };
+}
+
+// ─── Output parser ────────────────────────────────────────────────────────
+
+export interface ParsedClaudeStdout {
+  sessionId: string;
+  assistantText: string;
+  usage: TurnUsage | null;
+}
+
+/**
+ * Parse the stdout lines of a `claude -p --output-format json` (or stream-json) run.
+ *
+ * The non-streaming `json` mode emits a SINGLE JSON object whose shape (verified
+ * against claude 2.1.161) is:
+ *   { "type":"result", "subtype":"success", "result":"<reply text>",
+ *     "session_id":"<uuid>", "usage":{ input_tokens, output_tokens,
+ *     cache_read_input_tokens, cache_creation_input_tokens, ... }, "modelUsage":{...} }
+ * i.e. `result` is a top-level STRING and `session_id`/`usage` are top-level — there is
+ * no `system`/`init` or `assistant` event. The older nested `result.result` form and the
+ * stream-json `assistant`/`system` events are still handled defensively for compatibility.
+ */
+export function parseClaudeStdout(stdoutLines: string[]): ParsedClaudeStdout {
   let capturedSessionId = "";
   const textParts: string[] = [];
   let usageRaw: Record<string, unknown> | null = null;
   let model: string | null = null;
 
   for (const line of stdoutLines) {
+    let event: Record<string, unknown>;
     try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      const eventType = typeof event.type === "string" ? event.type : null;
-      const eventSubtype = typeof event.subtype === "string" ? event.subtype : null;
+      event = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue; // Not valid JSON, skip
+    }
+    const eventType = typeof event.type === "string" ? event.type : null;
+    const eventSubtype = typeof event.subtype === "string" ? event.subtype : null;
 
-      // Capture session ID from system init message
-      if (eventType === "system" && eventSubtype === "init") {
-        const data = event.data as Record<string, unknown> | undefined;
-        if (data && typeof data.session_id === "string") {
-          capturedSessionId = data.session_id;
-        }
+    // Top-level session_id (json mode) — also seen on stream-json system/init.
+    if (typeof event.session_id === "string") {
+      capturedSessionId = event.session_id;
+    }
+
+    // stream-json: session id may instead live under the init event's data.
+    if (eventType === "system" && eventSubtype === "init") {
+      const data = event.data as Record<string, unknown> | undefined;
+      if (data && typeof data.session_id === "string") {
+        capturedSessionId = data.session_id;
       }
+    }
 
-      // Capture assistant text from assistant messages
-      if (eventType === "assistant") {
-        const message = event.message as Record<string, unknown> | undefined;
-        if (message && typeof message.model === "string") {
-          model = message.model;
-        }
-        if (message && Array.isArray(message.content)) {
-          for (const block of message.content) {
-            if (typeof block === "object" && block !== null) {
-              const b = block as Record<string, unknown>;
-              if (b.type === "text" && typeof b.text === "string") {
-                textParts.push(b.text);
-              }
+    // stream-json: assistant text + model arrive on assistant message events.
+    if (eventType === "assistant") {
+      const message = event.message as Record<string, unknown> | undefined;
+      if (message && typeof message.model === "string") {
+        model = message.model;
+      }
+      if (message && Array.isArray(message.content)) {
+        for (const block of message.content) {
+          if (typeof block === "object" && block !== null) {
+            const b = block as Record<string, unknown>;
+            if (b.type === "text" && typeof b.text === "string") {
+              textParts.push(b.text);
             }
           }
         }
       }
+    }
 
-      // Capture final result + its cumulative usage
-      if (eventType === "result") {
-        const result = event.result as Record<string, unknown> | undefined;
-        if (result && typeof result.result === "string") {
-          textParts.push(result.result);
-        }
-        if (event.usage && typeof event.usage === "object") {
-          usageRaw = event.usage as Record<string, unknown>;
+    // Final result event: reply text + cumulative usage.
+    if (eventType === "result") {
+      // json mode: top-level string. Older/nested form: result.result.
+      if (typeof event.result === "string") {
+        textParts.push(event.result);
+      } else {
+        const nested = event.result as Record<string, unknown> | undefined;
+        if (nested && typeof nested.result === "string") {
+          textParts.push(nested.result);
         }
       }
-    } catch {
-      // Not valid JSON, skip
+      if (event.usage && typeof event.usage === "object") {
+        usageRaw = event.usage as Record<string, unknown>;
+      }
+      // json mode exposes the model under modelUsage keyed by model id.
+      if (!model && event.modelUsage && typeof event.modelUsage === "object") {
+        const keys = Object.keys(event.modelUsage as Record<string, unknown>);
+        if (keys.length > 0) model = keys[0];
+      }
     }
   }
 
@@ -150,7 +200,7 @@ export async function claudeCodeRun(
       })
     : null;
 
-  return { exitCode, sessionId: capturedSessionId, assistantText, usage };
+  return { sessionId: capturedSessionId, assistantText, usage };
 }
 
 // ─── Arg builder ──────────────────────────────────────────────────────────
