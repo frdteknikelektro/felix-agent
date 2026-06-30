@@ -1,61 +1,63 @@
 ---
-name: 9router
-description: Entry point for 9Router — local/remote AI gateway with OpenAI-compatible REST for chat, image, TTS, embeddings, web search, web fetch. Use when the user mentions 9Router, NINEROUTER_URL, or wants AI without writing provider boilerplate. This skill covers setup + indexes capability skills; fetch the relevant capability SKILL.md from the URLs below when needed.
+id: 9router
+name: 9Router
+description: 9Router gateway setup and capability routing. Use when the user mentions 9Router or NINEROUTER_URL, or asks to call an AI capability through the configured 9Router gateway.
+version: 1
+enabled: true
+kind: general
+match:
+  - 9router
+  - NINEROUTER_URL
 ---
 
 # 9Router
 
-Local/remote AI gateway exposing OpenAI-compatible REST. One key, many providers, auto-fallback.
+Treat 9Router as a gateway: verify it, discover a compatible model, then follow the capability contract.
 
-## Setup
+## Execution
+
+1. Require `NINEROUTER_URL`. Use `NINEROUTER_KEY` only when gateway authentication is enabled. Never print either value.
+2. Verify the gateway:
+
+   ```bash
+   curl -fsS "${NINEROUTER_URL%/}/api/health"
+   ```
+
+   Continue only after a successful response containing `"ok": true`.
+3. For a setup-only request, provide the minimum environment configuration and stop:
+
+   ```bash
+   export NINEROUTER_URL="http://localhost:20128"
+   export NINEROUTER_KEY="sk-..." # omit when authentication is disabled
+   ```
+4. For a capability request, fetch the matching upstream `SKILL.md` below and read it completely before making the request.
+5. Discover models from the capability endpoint and use an exact `data[].id`. Completion requires either a valid capability response or an actionable gateway error; do not invent a result.
+
+## Capability contracts
+
+| Capability | Model discovery | Contract |
+|---|---|---|
+| Chat / code | `/v1/models` | [9router-chat](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-chat/SKILL.md) |
+| Image generation | `/v1/models/image` | [9router-image](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-image/SKILL.md) |
+| Text-to-speech | `/v1/models/tts` | [9router-tts](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-tts/SKILL.md) |
+| Speech-to-text | `/v1/models/stt` | [9router-stt](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-stt/SKILL.md) |
+| Embeddings | `/v1/models/embedding` | [9router-embeddings](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-embeddings/SKILL.md) |
+| Web search | `/v1/models/web` | [9router-web-search](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-web-search/SKILL.md) |
+| Web fetch | `/v1/models/web` | [9router-web-fetch](https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-web-fetch/SKILL.md) |
 
 ```bash
-export NINEROUTER_URL="http://localhost:20128"      # or VPS / tunnel URL
-export NINEROUTER_KEY="sk-..."                      # from Dashboard → Keys (only if requireApiKey=true)
+MODEL_PATH="/v1/models" # replace from the table
+if [ -n "${NINEROUTER_KEY:-}" ]; then
+  curl -fsS -H "Authorization: Bearer $NINEROUTER_KEY" "${NINEROUTER_URL%/}${MODEL_PATH}"
+else
+  curl -fsS "${NINEROUTER_URL%/}${MODEL_PATH}"
+fi
 ```
 
-All requests: `${NINEROUTER_URL}/v1/...` with header `Authorization: Bearer ${NINEROUTER_KEY}` (omit if auth disabled).
+Entries with `owned_by: "combo"` provide fallback routing. Web entries use `kind` to distinguish search from fetch.
 
-Verify: `curl $NINEROUTER_URL/api/health` → `{"ok":true}`
+## Failure routing
 
-## Discover models
-
-```bash
-curl $NINEROUTER_URL/v1/models                  # chat/LLM (default)
-curl $NINEROUTER_URL/v1/models/image            # image-gen
-curl $NINEROUTER_URL/v1/models/tts              # text-to-speech
-curl $NINEROUTER_URL/v1/models/embedding        # embeddings
-curl $NINEROUTER_URL/v1/models/web              # web search + fetch (entries have `kind` field)
-curl $NINEROUTER_URL/v1/models/stt              # speech-to-text
-curl $NINEROUTER_URL/v1/models/image-to-text    # vision
-```
-
-Use `data[].id` as `model` field in requests. Combos appear with `owned_by:"combo"`.
-
-Response shape:
-```json
-{ "object": "list", "data": [
-  { "id": "openai/gpt-5", "object": "model", "owned_by": "openai", "created": 1735000000 },
-  { "id": "tavily/search", "object": "model", "kind": "webSearch", "owned_by": "tavily", "created": 1735000000 }
-]}
-```
-
-## Capability skills
-
-When the user needs a specific capability, fetch that skill's `SKILL.md` from its raw URL:
-
-| Capability | Raw URL |
-|---|---|
-| Chat / code-gen | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-chat/SKILL.md |
-| Image generation | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-image/SKILL.md |
-| Text-to-speech | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-tts/SKILL.md |
-| Speech-to-text | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-stt/SKILL.md |
-| Embeddings | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-embeddings/SKILL.md |
-| Web search | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-web-search/SKILL.md |
-| Web fetch (URL → markdown) | https://raw.githubusercontent.com/decolua/9router/refs/heads/master/skills/9router-web-fetch/SKILL.md |
-
-## Errors
-
-- 401 → set/refresh `NINEROUTER_KEY` (Dashboard → Keys)
-- 400 `Invalid model format` → check `model` exists in `/v1/models/<kind>`
-- 503 `All accounts unavailable` → wait `retry-after` or add another provider account
+- `401`: the key is missing or stale.
+- `400 Invalid model format`: rediscover models for the selected capability.
+- `503 All accounts unavailable`: honor `retry-after`; otherwise ask the user to add an available provider account.

@@ -1,7 +1,7 @@
 ---
 id: memory
 name: Memory Wiki
-description: Conventions for maintaining the Felix knowledge wiki. Read by the ingest harness on every run.
+description: Schema and evidence rules for the persistent Felix knowledge wiki. Read by the memory ingest harness on every run.
 version: 1
 enabled: true
 kind: general
@@ -9,167 +9,60 @@ permissions:
   - write
 ---
 
-## What this is
+# Memory Wiki Schema
 
-This is a personal, interlinked knowledge wiki maintained by an LLM. Every conversation
-Felix has is ingested here — entities, concepts, decisions, preferences, and facts are
-extracted and woven into a persistent, compounding knowledge base.
+Capture durable knowledge, not a transcript mirror. Durable knowledge includes explicit decisions and rationale, stable facts, responsibilities, preferences, relationships, and reusable concepts. Exclude greetings, social filler, transient execution detail, secrets, and unsupported inference.
 
-The wiki is meant to be read by both humans (via Obsidian or any markdown editor) and
-by Felix (as context injected into future conversations).
+## Page taxonomy
 
-## Directory structure
-
-| Directory | Purpose |
+| Location | One page per |
 |---|---|
-| `entities/` | People, projects, tools, services — the nouns of the domain |
-| `concepts/` | Ideas, patterns, architectural decisions, trade-offs — the verbs and reasoning |
-| `sessions/` | Per-source-thread conversation summaries — one page per ingested transcript |
-| `comparisons/` | Side-by-side analyses — only when two or more things are explicitly compared |
-| `overview.md` | Synthesis page pulling threads together — active projects, open questions, major themes |
-| `synthesis.md` | The evolving thesis — your best big-picture understanding of what's happening |
+| `entities/` | Person, project, tool, service, or other stable noun |
+| `concepts/` | Idea, pattern, decision, trade-off, or reusable reasoning |
+| `sessions/<source>/` | Ingested source thread |
+| `comparisons/` | Explicit comparison of at least two alternatives |
+| `overview.md` | Current projects, open questions, and major themes |
+| `synthesis.md` | Best supported big-picture interpretation |
 
-Two special files exist at the root:
-- `index.md` — a catalog of every page with a one-line summary, grouped by type
-- `log.md` — an append-only timeline of every ingest, lint, and query operation
+Root files:
 
-## Page conventions
+- `index.md`: every page, grouped by type, with a one-line summary.
+- `log.md`: append-only record of ingest and lint mutations.
 
-Every wiki page starts with YAML frontmatter:
+## Page contract
+
+Every entity, concept, session, and comparison starts with:
 
 ```yaml
 ---
 title: "Human-readable title"
 type: entity | concept | session | comparison
-tags: [tag1, tag2]
-updated_at: "2026-06-19T14:00:00Z"
-sources: [mattermost:channel:thread, ...]
----
-```
-
-### Entity pages (`entities/`)
-
-One page per person, project, tool, or service. Collect facts, preferences,
-responsibilities, and relationships. Template:
-
-```markdown
----
-title: "Alice"
-type: entity
-tags: [person, devops]
+tags: [specific, reusable]
 updated_at: "2026-06-19T14:00:00Z"
 sources: [mattermost:channel:thread]
 ---
-
-# Alice
-
-## Role
-DevOps lead.
-
-## Preferences
-- Always deploy to us-west-2, never us-east-1.
-
-## Related
-- [[concepts/multi-tenant-rls]] — proposed the migration
-- [[entities/auth-service]] — maintains this service
 ```
 
-### Concept pages (`concepts/`)
+Use lowercase kebab-case filenames. Treat identity as semantic: search `index.md` and existing pages for aliases before creating a page.
 
-One page per idea, pattern, architectural decision, or trade-off. These pages
-explain the reasoning, not just the what. Template:
+Write claims specifically and attribute their source in `sources`. When new evidence conflicts with an existing claim, preserve both and add `[CONTRADICTION]` with the relevant source; never silently choose one. Mark superseded claims `[SUPERSEDED]` without erasing history.
 
-```markdown
----
-title: "Multi-tenant RLS"
-type: concept
-tags: [database, postgres, architecture]
-updated_at: "2026-06-19T14:00:00Z"
-sources: [mattermost:channel:thread]
----
+## Page contents
 
-# Multi-tenant Row-Level Security
+- Entity: role or purpose, durable facts/preferences, and related pages.
+- Concept: definition, rationale, trade-offs, decisions, and involved entities.
+- Session: concise durable outcomes and links to every page changed because of the session.
+- Comparison: alternatives, decision criteria, trade-off table, and decision when present.
 
-## What it is
-Using PostgreSQL row-level security to isolate tenant data in a single database.
+Use wiki-root paths such as `[[entities/alice]]` and `[[concepts/row-level-security]]`. Add reciprocal links when the relationship is meaningful.
 
-## Why we chose it
-- Single Postgres instance, no per-tenant databases.
-- Simpler backup and migration story.
-- Trade-off: all tenants share the same connection pool.
+## Maintenance contract
 
-## Related
-- [[entities/auth-service]] — implements the RLS policies
-- [[comparisons/pgvector-vs-chromadb]] — related database decision
-```
+After page mutations:
 
-### Session pages (`sessions/`)
+1. Make `index.md` exactly reflect all pages and refresh changed summaries.
+2. Append a timestamped `log.md` entry listing created, updated, and superseded pages plus the source thread.
+3. Update `overview.md` or `synthesis.md` only when the new evidence materially changes that page.
+4. Write atomically when the ingest prompt requests it.
 
-One page per ingested source transcript. Organized by source platform.
-Summarize what was discussed and link to entities and concepts mentioned.
-
-### Comparison pages (`comparisons/`)
-
-Side-by-side analyses. Only create these when two or more things are explicitly
-compared in a conversation. Include a decision matrix or trade-off table.
-
-## Cross-linking
-
-Use `[[path/to/page]]` wikilinks to connect pages. When updating a page and
-discovering a connection to another concept, add a link. If the target page
-doesn't exist yet, the link signals that a page is needed.
-
-Prefer relative paths from the wiki root: `[[entities/alice]]`, `[[concepts/multi-tenant-rls]]`.
-
-## index.md format
-
-Grouped by type with one line per page:
-
-```markdown
-# Wiki Index
-
-## Entities
-- [[entities/alice]] — DevOps lead, prefers us-west-2 for production (3 sources)
-
-## Concepts
-- [[concepts/multi-tenant-rls]] — Row-level security strategy for multi-tenant database (2 sources)
-
-## Sessions
-- [[sessions/mattermost/2026-06-19_auth-migration]] — Migrated auth service to JWT tokens
-
-## Comparisons
-- [[comparisons/pgvector-vs-chromadb]] — Database decision matrix for vector storage
-```
-
-## log.md format
-
-Append-only, each entry is a timestamped heading followed by a bullet list:
-
-```markdown
-## 2026-06-19T14:05:00Z | ingest | mattermost:channel:thread
-- Created: [[entities/alice]] — extracted from session
-- Updated: [[concepts/multi-tenant-rls]] — added pgvector migration detail
-- Updated: [[overview]] — added active migration project
-- Index: added 3 entries, updated 1
-```
-
-## Rules of thumb
-
-1. **Create liberally.** A thin page with frontmatter and one sentence is better than no page.
-   Future conversations will fill it in. Never silently discard information — if it was said,
-   it belongs in the wiki.
-
-2. **Update, don't duplicate.** Read the existing page before writing.
-   If a page already exists for an entity or concept, add to it rather than creating a duplicate.
-
-3. **Be specific.** "The deployment pipeline uses GitHub Actions with self-hosted runners"
-   is better than "They use CI/CD." Sources (which conversations contributed) matter.
-
-4. **Link aggressively.** Every entity page should link to relevant concept pages.
-   Every concept page should link to the entities involved. The wiki's value is in its connections.
-
-5. **Contradictions are valuable.** If a new conversation contradicts an existing fact,
-   flag it with a `[CONTRADICTION]` note and link both pages. Do not silently overwrite.
-
-6. **overview.md and synthesis.md are living documents.** Update them whenever a new
-   conversation shifts your understanding of what's important or what the big picture is.
+Ingestion is complete only after every eligible transcript event has been scanned, every durable claim has one appropriate home, no duplicate identity was created, all touched pages satisfy the page contract, cross-links resolve or intentionally signal a missing page, the index matches disk, and the log records the run.

@@ -1,123 +1,39 @@
 ---
-# ┌─────────────────── Every skill must have these ───────────────────┐
 id: template-skill
 name: Template Skill
-description: Replace with a one‑sentence description of what this skill does and when it activates.
+description: Replace with one leading-word description of the capability and one trigger for each distinct branch.
 version: 1
 enabled: false
-# kind: general      — no permissions needed, triggered by match
-#        operational — has permissions, triggered by match
-#        persona     — creative / conversational, triggered by match
 kind: general
-# └───────────────────────────────────────────────────────────────────┘
-
-# ┌─ permissions — use bare {domain}.{action} names ─────────────────┐
-#  | Format                   | Example               |
-#  |--------------------------|-----------------------|
-#  | `{domain}.read`          | `github.read`         |
-#  | `{domain}.write`         | `github.write`        |
-#  | `{domain}.review`        | `github.review`       |
-#  | `{domain}.run`           | `install.run`         |
-#  | `{domain}.{action}`      | `felix-browser.navigate`|
-#  | `{domain}.create`        | `task.create`         |
-#  The runtime namespaces these as `{skill-id}:{permission}` at load time.
 permissions: []
-# └───────────────────────────────────────────────────────────────────┘
-
-# ┌─ match — trigger phrases (optional) ─────────────────────────────┐
-# Leave empty if the skill is always loaded (e.g. memory).
 match:
-  - replace me
-  - trigger phrase
-# └───────────────────────────────────────────────────────────────────┘
-
-# ┌─ env — environment variables this skill needs (optional) ────────┐
-# npm run setup scans this and prompts the user.
-#  | Field         | Required | Description                      |
-#  |---------------|----------|----------------------------------|
-#  | `key`         | yes      | env var name                    |
-#  | `description` | yes      | what it provides access to      |
-#  | `required`     | no       | `true` or `false` (default)    |
-#  | `default`     | no       | pre‑filled value if unset       |
+  - replace with trigger phrase
 # env:
-#   - key: YOUR_API_KEY
-#     description: What this key provides access to
+#   - key: SERVICE_API_KEY
+#     description: Access token for the service
 #     required: true
-#   - key: YOUR_OPTIONAL_URL
-#     description: Base URL for the service
-#     required: false
-#     default: https://api.example.com
-# └───────────────────────────────────────────────────────────────────┘
 ---
 
 # Template Skill
 
-## Purpose
+Replace this file; do not add sections merely because they appear here.
 
-Describe what this skill does and why it exists.
+## Execution
 
-**Example:**
-> Deploy the current project to a cloud platform. Triggered when the
-> user asks to ship, release, or go live.
+1. Perform the first ordered action.
+   Completion: state the observable condition that proves this step finished.
+2. Perform the next action.
+   Completion: account for every required output, mutation, or failure.
+3. Verify the result independently and report it.
 
-## When to use
+## Branch reference
 
-List the situations where this skill should activate.
+Keep instructions needed by every run above. Put branch-specific schemas, commands, and examples in `references/<branch>.md`, then add a pointer that states exactly when to read it.
 
-**Example:**
-> - User says "deploy", "ship it", "go live", "release to production"
-> - User asks to promote a staging build
-> - User runs `/deploy` in the chat
+## Constraints
 
-## Out of scope
-
-What this skill should NOT handle.
-
-**Example:**
-> - Building or compiling — that's a separate build step
-> - Running tests — CI handles that
-> - Cloud infrastructure provisioning (IAM, networking, databases)
-
-## Use cases
-
-Concrete end‑to‑end scenarios this skill handles.
-
-**Example:**
-> - **Push to staging:** user says "ship the latest to staging"
->   → build → deploy to staging → reply with staging URL
-> - **Full release:** user says "go live with v2.3.0"
->   → confirm with user → build → deploy to production → reply with production URL
-> - **Rollback:** user says "that deploy broke the login page, roll it back"
->   → find previous deployment → execute rollback → confirm restoration
-
-## Permissions
-
-List every permission this skill needs, one per line. Use bare
-`{domain}.{action}` permission names in frontmatter. The runtime namespaces
-these as `{skill-id}:{permission}` at load time.
-
-**For this example skill:**
-> - `deploy.run` — execute the deployment
-> - `deploy.rollback` — revert a failed deployment
-
-## Workflow
-
-Step‑by‑step instructions the LLM should follow when this skill activates.
-
-**Example:**
-
-1. Read `package.json` to confirm the project identity.
-2. Run `npm run build` to produce the artifact.
-3. Determine the target environment (staging / production) from the user's message.
-4. Execute the deploy command: `npx deploy --env=$ENV`.
-5. Report the result with a link to the live deployment.
-
-## Checks
-
-Checklist items for the LLM to verify before/after execution.
-
-**Example:**
-- [ ] Build succeeded with exit code 0
-- [ ] Environment is explicitly confirmed (never assume production)
-- [ ] Deployment response includes a valid URL
-- [ ] Rollback plan is documented in the reply
+- Keep one source of truth for each rule.
+- Give fragile operations exact commands or a bundled script; leave variable work at higher freedom.
+- List bare permissions as `{domain}.{action}`. Felix namespaces them as `{skill-id}:{permission}`.
+- Keep output contracts only when another machine parses them.
+- End each step with a checkable, exhaustive completion criterion.

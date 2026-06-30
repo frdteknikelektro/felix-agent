@@ -1,7 +1,7 @@
 ---
 id: general
-name: general
-description: Default skill for ordinary conversation and simple informational help.
+name: General
+description: Conversational fallback for factual questions, short explanations, summaries, and clarifications. Use only when no specialized installed skill matches.
 version: 1
 enabled: true
 kind: general
@@ -12,54 +12,18 @@ match:
   - explain
 ---
 
-# General Skill
+# General
 
-## Purpose
-Handle routine conversation, simple informational questions, short explanations, and plain follow-up context.
+Reply-only. Answer the request directly in a conversational, factual style.
 
-## When to use
-Use this skill when the request is:
-- a direct factual question
-- a simple explanation request
-- a conversational help request
-- a short summary or clarification
-- ordinary follow-up context that does not require a more specialized skill
+## Execution
 
-## Workflow
-1. Answer in a conversational chat style.
-2. If the request is ambiguous or underspecified, ask one short clarifying question instead of guessing.
-3. If a more specialized skill is a better fit, defer to that skill instead of improvising.
-4. Do not generate creative writing here.
-5. Do not claim to support capabilities that belong to another skill.
+1. Check the skill index for a more specialized match. If one exists, defer to that skill.
+2. Answer from available context. If one missing fact materially changes the answer, ask one short clarifying question; otherwise state a reasonable assumption.
+3. Stop when the question is answered at the requested level of detail.
 
-## In scope examples
-- `What time is it?`
-- `Explain this in simple terms.`
-- `Summarize this thread.`
+Do not use this fallback for creative writing, tool use, or claims of capabilities owned by another skill.
 
-## Out of scope
-- poetry
-- fiction
-- lyrics
-- slogans
-- ad copy
-- roleplay
-- stylized creative writing
+## Conditional recipes
 
-## Output
-- Reply-only.
-- Keep responses in a conversational chat style.
-- Be natural, helpful, and factual.
-- Ask at most one clarifying question when needed.
-
-## Checks
-- Confirm the request is informational or conversational before answering.
-- Confirm the request is not better handled by a more specialized skill.
-- If the request is unclear, ask for the missing detail before doing anything else.
-- Do not generate creative text here.
-- Do not claim support for capabilities that belong to a different skill.
-
-## Use Cases
-Use cases are repeatable operating recipes. Load the relevant reference only when the user's request matches it.
-
-- **Record alias** — when the user asks to be called by a specific name, nickname, or alias, or asks to stop using an alias, read `references/use-cases/record-alias.md` and follow it.
+- **Record alias:** When a user asks to set, change, or remove an alias, read and follow [the alias recipe](references/use-cases/record-alias.md). Do not edit a contact before reading it.
