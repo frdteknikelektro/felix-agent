@@ -10,8 +10,15 @@ WORKSPACE="/home/node"
 
 if [ "$(id -u)" = "0" ]; then
   # Detect owner of the workspace directory (the bind mount)
-  WORKSPACE_UID=$(stat -c '%u' "$WORKSPACE" 2>/dev/null || echo 1000)
-  WORKSPACE_GID=$(stat -c '%g' "$WORKSPACE" 2>/dev/null || echo 1000)
+  if [ -d "$WORKSPACE" ]; then
+    WORKSPACE_UID=$(stat -c '%u' "$WORKSPACE" 2>/dev/null || echo 1000)
+    WORKSPACE_GID=$(stat -c '%g' "$WORKSPACE" 2>/dev/null || echo 1000)
+  else
+    # Workspace doesn't exist yet (e.g. setup stage) — use node defaults
+    mkdir -p "$WORKSPACE"
+    WORKSPACE_UID=1000
+    WORKSPACE_GID=1000
+  fi
 
   # Check if the target UID already has a passwd entry
   if ! getent passwd "$WORKSPACE_UID" > /dev/null 2>&1; then
