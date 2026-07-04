@@ -6,7 +6,6 @@ version: 1
 enabled: true
 kind: operational
 permissions:
-  - ssh.connect
   - ssh.execute
   - ssh.transfer
 match:
