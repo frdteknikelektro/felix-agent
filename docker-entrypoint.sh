@@ -19,7 +19,7 @@ if [ "$(id -u)" = "0" ]; then
   fi
 
   # Drop privileges and run the actual command
-  exec gosu "$WORKSPACE_UID:$WORKSPACE_GID" "$@"
+  HOME=/home/node exec gosu "$WORKSPACE_UID:$WORKSPACE_GID" "$@"
 fi
 
 # Already running as non-root — just exec the command
