@@ -39,6 +39,9 @@ RUN apt-get update \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
+# Save /etc for entrypoint restore (read_only container needs writable /etc)
+RUN cp -a /etc /tmp/etc-init
+
 # Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite
 ARG WACLI_VERSION=0.11.1
 RUN arch="$(uname -m)" \

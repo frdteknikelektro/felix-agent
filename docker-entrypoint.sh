@@ -9,6 +9,11 @@ set -e
 WORKSPACE="/home/node"
 
 if [ "$(id -u)" = "0" ]; then
+  # Restore /etc from backup if it's empty (read_only container with tmpfs /etc)
+  if [ ! -f /etc/passwd ]; then
+    cp -a /tmp/etc-init/* /etc/ 2>/dev/null || true
+  fi
+
   # Detect owner of the workspace directory (the bind mount)
   if [ -d "$WORKSPACE" ]; then
     WORKSPACE_UID=$(stat -c '%u' "$WORKSPACE" 2>/dev/null || echo 1000)
