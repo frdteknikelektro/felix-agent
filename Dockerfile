@@ -27,6 +27,8 @@ RUN apt-get update \
         git \
         imagemagick \
         jq \
+        openssh-client \
+        rsync \
         poppler-utils \
         python3 \
         python3-dev \
