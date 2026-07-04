@@ -1,4 +1,7 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "./config.js";
 import { migrateWorkspaceLayout } from "./migrations.js";
@@ -126,6 +129,31 @@ async function main(): Promise<void> {
     skip: (name) => name === "9router" && !ninerouterEnabled(cfg),
   });
   await syncMemorySchema(cfg.paths);
+
+  // ── SSH key setup ─────────────────────────────────────────────────────────
+  // Generate an Ed25519 key pair at ~/.ssh/ if none exists. The home directory
+  // is the workspace volume, so keys persist across container restarts.
+  const sshDir = path.join(os.homedir(), ".ssh");
+  const sshKey = path.join(sshDir, "id_ed25519");
+  try {
+    const keyExists = await fs.stat(sshKey).then((s) => s.isFile()).catch(() => false);
+    if (keyExists) {
+      log.info("ssh.exists", { key: sshKey });
+    } else {
+      await fs.mkdir(sshDir, { recursive: true, mode: 0o700 });
+      execFileSync("ssh-keygen", [
+        "-t", "ed25519",
+        "-f", sshKey,
+        "-N", "",
+        "-C", "felix-agent",
+      ], { stdio: "ignore" });
+      fsSync.chmodSync(sshKey, 0o600);
+      fsSync.chmodSync(`${sshKey}.pub`, 0o644);
+      log.info("ssh.generated", { key: sshKey });
+    }
+  } catch {
+    // non-fatal — SSH key setup is best-effort
+  }
 
   // Write static L1 rulesets once at boot — never overwritten per-turn.
   // AGENTS.md carries the entire behavior contract (output format, permission
