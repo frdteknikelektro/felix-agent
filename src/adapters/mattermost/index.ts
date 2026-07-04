@@ -21,6 +21,10 @@ import {
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
 
+function ensureTableBlankLines(text: string): string {
+  return text.replace(/(?<!\n)\n(\|)/g, "\n\n$1");
+}
+
 interface WsPayload {
   event?: string;
   data?: Record<string, unknown>;
@@ -544,6 +548,7 @@ class MattermostAdapter implements SourceAdapter {
     if (!channelId) {
       throw new Error("unable to resolve channel");
     }
+    const message = ensureTableBlankLines(input.message);
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/posts`;
     const res = await fetch(url, {
       method: "POST",
@@ -554,7 +559,7 @@ class MattermostAdapter implements SourceAdapter {
       body: JSON.stringify({
         channel_id: channelId,
         root_id: input.root_id,
-        message: input.message,
+        message,
       }),
     });
     if (!res.ok) {
