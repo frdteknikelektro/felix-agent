@@ -28,6 +28,7 @@ RUN apt-get update \
         git \
         imagemagick \
         jq \
+        libnss-wrapper \
         openssh-client \
         rsync \
         poppler-utils \
@@ -38,9 +39,6 @@ RUN apt-get update \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*
-
-# Save /etc for entrypoint restore (read_only container needs writable /etc)
-RUN cp -a /etc /tmp/etc-init
 
 # Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite
 ARG WACLI_VERSION=0.11.1
