@@ -50,7 +50,9 @@ time and serves it — no local `npm` needed (see below).
 # First-time setup (no Node.js required — just Docker)
 docker compose run --rm --build setup
 
-# Build & start
+# Build & start (Unix / WSL):
+UID=$(id -u) GID=$(id -g) docker compose up -d
+# Build & start (Windows PowerShell / CMD):
 docker compose up -d
 
 # Manage
@@ -62,7 +64,7 @@ curl http://localhost:53318/healthz   # → {"ok":true}
 docker compose up -d --build
 ```
 
-The entrypoint automatically detects the workspace directory owner and runs as that user. No UID/GID configuration needed.
+Set `UID` / `GID` to match the host user that owns the bind-mounted `workspace/` directory. On macOS and Windows Docker Desktop the defaults (1000:1000) usually work.
 
 ### docker run (manual)
 
@@ -72,6 +74,7 @@ docker build -t felix-agent .
 docker run -d \
   --name felix-agent \
   --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
   -p 53318:3000 \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid \

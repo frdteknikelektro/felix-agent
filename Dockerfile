@@ -24,7 +24,6 @@ RUN apt-get update \
         curl \
         dumb-init \
         ghostscript \
-        gosu \
         git \
         imagemagick \
         jq \
@@ -101,15 +100,14 @@ COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
 
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+USER node
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD node --input-type=module -e "const res = await fetch('http://localhost:3000/healthz'); if (!res.ok) process.exit(1); const body = await res.json().catch(() => null); if (!body || body.ok !== true) process.exit(1);"
 
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "dist/index.js"]
 
 # ── Setup stage ─────────────────────────────────────────────────────────────
@@ -124,5 +122,5 @@ FROM runtime AS setup
 COPY --from=setup-deps /app/node_modules /app/node_modules
 COPY --from=setup-deps /app/scripts/setup.mjs /app/scripts/setup.mjs
 COPY --from=setup-deps /app/.env.example /app/.env.example
-ENTRYPOINT ["/usr/bin/dumb-init", "--", "/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "scripts/setup.mjs"]
