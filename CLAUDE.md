@@ -74,7 +74,7 @@ docker build -t felix-agent .
 docker run -d \
   --name felix-agent \
   --restart unless-stopped \
-  --user "$(id -u):$(id -g)" \    # omit --user on Windows
+  -e "UID=$(id -u)" -e "GID=$(id -g)" \
   -p 53318:3000 \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid \

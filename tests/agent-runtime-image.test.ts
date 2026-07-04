@@ -61,7 +61,9 @@ describe("agent runtime image contract", () => {
   it("runs as the default node user, no custom uid/gid build args", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toContain("USER node");
+    expect(dockerfile).toContain("gosu");
+    expect(dockerfile).toContain("/docker-entrypoint.sh");
+    expect(dockerfile).not.toContain("USER node");
     expect(dockerfile).not.toContain("ARG AGENT_UID");
     expect(dockerfile).not.toContain("ARG AGENT_GID");
   });
