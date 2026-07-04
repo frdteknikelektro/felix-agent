@@ -2,9 +2,8 @@
 set -e
 
 # ── User identity fix ──────────────────────────────────────────────────────
-# Detect the UID/GID from the mounted workspace owner, create a passwd
-# entry in /tmp, and use nss_wrapper so getpwuid() resolves it.
-# /etc stays read-only.
+# Detect the UID/GID from the mounted workspace owner and drop privileges
+# via gosu. Git identity is set via env vars in the Dockerfile.
 
 WORKSPACE="/home/node"
 
@@ -18,18 +17,6 @@ if [ "$(id -u)" = "0" ]; then
     WORKSPACE_UID=1000
     WORKSPACE_GID=1000
   fi
-
-  # Build a writable passwd file in /tmp
-  cp /etc/passwd /tmp/passwd
-  if ! getent -P passwd "$WORKSPACE_UID" > /dev/null 2>&1; then
-    echo "felix:x:${WORKSPACE_UID}:${WORKSPACE_GID}::${WORKSPACE}:/bin/sh" >> /tmp/passwd
-    echo "entrypoint: created user felix (uid=${WORKSPACE_UID}, gid=${WORKSPACE_GID})"
-  fi
-
-  # Point glibc at the writable copy (nss_wrapper)
-  export NSS_WRAPPER_PASSWD=/tmp/passwd
-  export NSS_WRAPPER_GROUP=/etc/group
-  export LD_PRELOAD=/usr/lib/libnss_wrapper.so
 
   # Drop privileges and run the actual command
   exec gosu "$WORKSPACE_UID:$WORKSPACE_GID" "$@"

@@ -28,7 +28,6 @@ RUN apt-get update \
         git \
         imagemagick \
         jq \
-        libnss-wrapper \
         openssh-client \
         rsync \
         poppler-utils \
@@ -87,6 +86,10 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     WORKSPACE_DIR=/home/node \
     PYTHONUSERBASE=/home/node/runtime/python \
+    GIT_AUTHOR_NAME="felix-agent" \
+    GIT_AUTHOR_EMAIL="felix@agent" \
+    GIT_COMMITTER_NAME="felix-agent" \
+    GIT_COMMITTER_EMAIL="felix@agent" \
     PATH="/app/node_modules/.bin:/home/node/runtime/bin:/home/node/runtime/npm/bin:/home/node/runtime/python/bin:$PATH"
 
 COPY package.json package-lock.json ./
