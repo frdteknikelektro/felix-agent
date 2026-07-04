@@ -40,6 +40,13 @@ export interface RunResult {
   usage: TurnUsage | null;
 }
 
+export interface OpencodeRunOptions {
+  /** Per-run timeout in seconds. Defaults to 300. */
+  timeoutSeconds?: number;
+  /** Override the spawn function (for testing). */
+  spawnFn?: typeof spawn;
+}
+
 export async function opencodeRun(
   bin: string,
   args: string[],
@@ -47,6 +54,7 @@ export async function opencodeRun(
   env: Record<string, string | undefined>,
   logPath: string,
   signal?: AbortSignal,
+  options?: OpencodeRunOptions,
 ): Promise<RunResult> {
   await ensureDir(path.dirname(logPath));
 
@@ -54,7 +62,10 @@ export async function opencodeRun(
     return { exitCode: 143, sessionId: "", assistantText: "", usage: null };
   }
 
-  const child = spawn(bin, args, {
+  const timeoutMs = (options?.timeoutSeconds ?? 300) * 1000;
+  const spawnChild = options?.spawnFn ?? spawn;
+
+  const child = spawnChild(bin, args, {
     cwd,
     env: { ...process.env, ...env } as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
@@ -66,106 +77,142 @@ export async function opencodeRun(
 
   const logStream = await fs.open(logPath, "a");
 
-  const stdoutLines: string[] = [];
   let buf = "";
   let ebuf = "";
 
-  const exitCode = await new Promise<number>((resolve) => {
+  // Streaming state — updated in real-time as stdout lines arrive.
+  let capturedSessionId = "";
+  const textParts: string[] = [];
+  let lastEventType: string | null = null;
+  let usage: TurnUsage | null = null;
+
+  const GRACE_MS = 5_000;
+  let graceTimerId: ReturnType<typeof setTimeout> | undefined;
+
+  function terminateChild() {
+    if (child.killed) return;
+    child.kill("SIGTERM");
+    graceTimerId = setTimeout(() => {
+      if (child.killed) return;
+      child.kill("SIGKILL");
+    }, GRACE_MS);
+  }
+
+  const { exitCode, streamError } = await new Promise<{ exitCode: number; streamError: string | null }>((resolve) => {
+    let streamError: string | null = null;
+    let settled = false;
+    let resolveOnce: ((v: { exitCode: number; streamError: string | null }) => void) | null = (v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timerId);
+      resolve(v);
+    };
+
+    const timerId = setTimeout(() => {
+      log.warn("opencode.timeout", { timeout_ms: timeoutMs });
+      terminateChild();
+      resolveOnce?.({ exitCode: 137, streamError: `opencode timed out after ${timeoutMs / 1000}s` });
+      resolveOnce = null;
+    }, timeoutMs);
+
     child.stdout.on("data", async (chunk: Buffer) => {
       buf += chunk.toString("utf8");
       const lines = buf.split(/\r?\n/);
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        if (line) stdoutLines.push(line);
+        if (!line) continue;
+        // Process each JSON event immediately so terminal errors are caught
+        // before the child exits.
+        processLine(line);
+        if (streamError) {
+          terminateChild();
+          resolveOnce?.({ exitCode: 1, streamError });
+          resolveOnce = null;
+          return;
+        }
       }
       await appendText(logPath, chunk.toString("utf8"));
     });
+
     child.stderr.on("data", async (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       ebuf += text;
       ebuf = ebuf.split(/\r?\n/).pop() ?? "";
       await appendText(`${logPath}.stderr`, text);
     });
+
     child.on("close", (code) => {
-      if (buf.trim()) stdoutLines.push(buf);
-      resolve(code ?? -1);
+      if (buf.trim()) processLine(buf);
+      if (graceTimerId !== undefined) clearTimeout(graceTimerId);
+      resolveOnce?.({ exitCode: code ?? -1, streamError });
+      resolveOnce = null;
     });
+
     child.on("error", (error) => {
       log.error("opencode.spawn_error", { error: error.message });
-      resolve(-1);
+      resolveOnce?.({ exitCode: -1, streamError: error.message });
+      resolveOnce = null;
     });
+
+    function processLine(line: string) {
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        const eventType = typeof event.type === "string" ? event.type : null;
+        if (eventType === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
+          capturedSessionId = event.sessionID;
+        }
+        if (eventType === "step_finish") {
+          const part = event.part as Record<string, unknown> | undefined;
+          const tokens = part?.tokens as Record<string, unknown> | undefined;
+          if (tokens && typeof tokens === "object") {
+            const cache = tokens.cache as Record<string, unknown> | undefined;
+            const normalized = normalizeUsage({
+              input: tokens.input,
+              output: tokens.output,
+              cache_read: cache?.read,
+              cache_write: cache?.write,
+            });
+            if (normalized) usage = normalized;
+          }
+        }
+        if (eventType === "error") {
+          const msg = extractError(event);
+          if (msg && !streamError) streamError = msg;
+        }
+        if (eventType === "text" && typeof event.part === "object" && event.part !== null) {
+          const part = event.part as Record<string, unknown>;
+          if (part.type === "text" && typeof part.text === "string") {
+            if (lastEventType !== null && lastEventType !== "text") {
+              textParts.push("\n\n");
+            }
+            textParts.push(part.text);
+          }
+        }
+        if (eventType === "tool" && typeof event.part === "object" && event.part !== null) {
+          const part = event.part as Record<string, unknown>;
+          if (part.type === "tool_use" && typeof part.name === "string") {
+            if (lastEventType !== null && lastEventType !== "tool") {
+              textParts.push("\n\n");
+            }
+            textParts.push("Tool: " + part.name);
+          } else if (part.type === "tool_result" && part.result !== undefined && part.result !== null) {
+            textParts.push("\n\n" + String(part.result));
+          }
+        }
+        if (eventType) lastEventType = eventType;
+      } catch {
+        // not JSON — ignore
+      }
+    }
   });
 
   await logStream.close();
 
-  let capturedSessionId = "";
-  const textParts: string[] = [];
-  let lastEventType: string | null = null;
-  const errors: string[] = [];
-  let usage: TurnUsage | null = null;
-
-  // opencode v1.17.x `--format json` emits token usage on step_finish events
-  // under part.tokens (input, output, cache.read, cache.write).  modelID is not
-  // in the stream — the harness falls back to cfg.OPENCODE_MODEL.
-
-  for (const line of stdoutLines) {
-    try {
-      const event = JSON.parse(line) as Record<string, unknown>;
-      const eventType = typeof event.type === "string" ? event.type : null;
-      if (eventType === "step_start" && typeof event.sessionID === "string" && !capturedSessionId) {
-        capturedSessionId = event.sessionID;
-      }
-      if (eventType === "step_finish") {
-        const part = event.part as Record<string, unknown> | undefined;
-        const tokens = part?.tokens as Record<string, unknown> | undefined;
-        if (tokens && typeof tokens === "object") {
-          const cache = tokens.cache as Record<string, unknown> | undefined;
-          const normalized = normalizeUsage({
-            input: tokens.input,
-            output: tokens.output,
-            cache_read: cache?.read,
-            cache_write: cache?.write,
-          });
-          if (normalized) usage = normalized;
-        }
-      }
-      if (eventType === "error") {
-        const msg = extractError(event);
-        if (msg) errors.push(msg);
-        continue;
-      }
-      if (eventType === "text" && typeof event.part === "object" && event.part !== null) {
-        const part = event.part as Record<string, unknown>;
-        if (part.type === "text" && typeof part.text === "string") {
-          if (lastEventType !== null && lastEventType !== "text") {
-            textParts.push("\n\n");
-          }
-          textParts.push(part.text);
-        }
-      }
-      if (eventType === "tool" && typeof event.part === "object" && event.part !== null) {
-        const part = event.part as Record<string, unknown>;
-        if (part.type === "tool_use" && typeof part.name === "string") {
-          if (lastEventType !== null && lastEventType !== "tool") {
-            textParts.push("\n\n");
-          }
-          textParts.push("Tool: " + part.name);
-        } else if (part.type === "tool_result" && part.result !== undefined && part.result !== null) {
-          textParts.push("\n\n" + String(part.result));
-        }
-      }
-      if (eventType) lastEventType = eventType;
-    } catch {
-    }
+  if (streamError) {
+    throw new Error(streamError);
   }
 
-  const assistantText = textParts.join("");
-
-  if (errors.length > 0) {
-    throw new Error(errors.join("; "));
-  }
-
-  return { exitCode, sessionId: capturedSessionId, assistantText, usage };
+  return { exitCode, sessionId: capturedSessionId, assistantText: textParts.join(""), usage };
 }
 
 // ─── Harness ──────────────────────────────────────────────────────────────
@@ -209,7 +256,9 @@ export class OpencodeHarness implements Harness {
       : [...baseArgs, prompt];
 
     const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
-      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal);
+      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal, {
+        timeoutSeconds: this.cfg.OPENCODE_TIMEOUT_SECONDS,
+      });
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;

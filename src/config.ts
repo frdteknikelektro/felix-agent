@@ -23,6 +23,7 @@ const Env = z.object({
   OPENCODE_BIN: z.string().default("opencode"),
   OPENCODE_MODEL: z.string().default("opencode/deepseek-v4-flash-free"),
   OPENCODE_VARIANT: z.string().default("high"),
+  OPENCODE_TIMEOUT_SECONDS: z.coerce.number().min(1).default(300),
   OPENCODE_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),

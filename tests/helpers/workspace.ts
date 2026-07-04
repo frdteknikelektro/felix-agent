@@ -22,6 +22,7 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     OPENCODE_BIN: "opencode",
     OPENCODE_MODEL: "opencode/deepseek-v4-flash-free",
     OPENCODE_VARIANT: "high",
+    OPENCODE_TIMEOUT_SECONDS: 300,
     CLAUDE_CODE_BIN: "claude",
     CLAUDE_CODE_MODEL: "sonnet",
     CLAUDE_CODE_TIMEOUT_MS: 300000,
