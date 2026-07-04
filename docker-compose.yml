@@ -5,9 +5,6 @@ services:
       target: setup
     image: felix-agent:latest
     container_name: felix-setup
-    environment:
-      UID: "${UID:-1000}"
-      GID: "${GID:-1000}"
     volumes:
       - ./.env:/app/.env
       - ./workspace:/home/node
@@ -24,9 +21,6 @@ services:
     image: felix-agent:latest
     container_name: felix-agent
     restart: unless-stopped
-    environment:
-      UID: "${UID:-1000}"
-      GID: "${GID:-1000}"
     ports:
       - "53318:3000"
     extra_hosts:
