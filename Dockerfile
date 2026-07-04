@@ -84,6 +84,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     HOME=/home/node \
+    USER=node \
     WORKSPACE_DIR=/home/node \
     PYTHONUSERBASE=/home/node/runtime/python \
     GIT_AUTHOR_NAME="felix-agent" \
