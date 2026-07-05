@@ -55,7 +55,7 @@ Completion for writes requires the intended files to exist, `SKILL.md` frontmatt
 
 ## Skill quality
 
-Follow `template-skill`: keep one source of truth, state permission boundaries, give ordered execution steps, and end steps with checkable completion criteria. Put branch-heavy detail in `references/*.md`. Operational helpers are allowed only when their permissions and verification are explicit.
+Use `template-skill` as the reference shape when it exists in the catalog; it is copied as a disabled reference skill and should not be invoked. Keep generated skills self-contained and lean: use one source of truth, state permission boundaries, give ordered execution steps, and end steps with checkable completion criteria. Put branch-heavy detail in `references/*.md`. Operational helpers are allowed only when their permissions and verification are explicit.
 
 ## Safety constraints
 

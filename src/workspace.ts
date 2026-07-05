@@ -111,8 +111,6 @@ export async function syncBundledSkills(
   await ensureDir(paths.skills);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (entry.name === "memory") continue;
-    if (entry.name === "template-skill") continue;
     const destination = path.join(paths.skills, entry.name);
     await fs.rm(destination, { recursive: true, force: true });
     // Skipped skills are removed from the catalog too (the rm above), so
