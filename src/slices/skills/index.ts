@@ -10,6 +10,7 @@ interface SkillFrontmatter {
   id?: string;
   name?: string;
   description?: string;
+  enabled?: boolean;
   permissions?: string[];
 }
 
@@ -23,6 +24,7 @@ export async function loadSkills(cfg: AppConfig): Promise<SkillRecord[]> {
     if (!(await pathExists(skillPath))) continue;
     const raw = await readText(skillPath);
     const { frontmatter, body } = parseSkill(raw);
+    if (frontmatter.enabled === false) continue;
     const id = frontmatter.id ?? entry.name;
     out.push({
       id,

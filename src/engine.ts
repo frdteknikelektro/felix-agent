@@ -276,6 +276,7 @@ export class FelixEngine {
         const trigger = await this.dequeueTriggerEvent(thread, preceding);
         if (!trigger) break;
         const { item, session, event } = trigger;
+        await this.refreshSkills();
         const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
         const result = await turnRunner.run({
           thread,
