@@ -198,6 +198,12 @@ function normalizeList(value: unknown): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Normalize a list from the owner console editor. Permissions are stored as-is
+ * (bare or namespaced). The automated grant path (`grantPermissions`) always
+ * receives namespaced values from the approval flow. Bare entries from the
+ * editor are the owner's responsibility — we do not fabricate skill IDs.
+ */
 function normalizeEditorList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return dedup(value.map((item) => String(item).trim()).filter(Boolean));

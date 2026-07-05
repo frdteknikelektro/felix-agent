@@ -29,7 +29,7 @@ async function seedPending(cfg: AppConfig) {
     request_id: "req-1",
     requested_at: "2026-05-25T00:00:00.000Z",
     skill_id: "test-skill",
-    permissions: ["net:fetch"],
+    permissions: ["test-skill:net:fetch"],
     reason: "needs network",
     owner_message: "Owner approval required.",
     thread_key: thread.state.thread_key,
@@ -82,7 +82,7 @@ describe("approval lifecycle", () => {
       request_id: "session-only",
       requested_at: "2026-05-25T00:00:00.000Z",
       skill_id: "test-skill",
-      permissions: ["net:fetch"],
+      permissions: ["test-skill:net:fetch"],
       reason: "needs network",
       owner_message: "Owner approval required.",
       thread_key: thread.state.thread_key,
@@ -125,10 +125,10 @@ describe("approval lifecycle", () => {
     expect(result.record?.status).toBe("approved");
     expect(result.grant).toBeDefined();
     expect(result.grant?.skillId).toBe("test-skill");
-    expect(result.grant?.permissions).toContain("net:fetch");
+    expect(result.grant?.permissions).toContain("test-skill:net:fetch");
     expect(result.grant?.requester.id).toBe("user-7");
     // decideApproval names the grant but leaves the merge + persistence to the caller.
     const stored = await loadContact(cfg, "mattermost", "user-7");
-    expect(stored.allowed_permissions).not.toContain("net:fetch");
+    expect(stored.allowed_permissions).not.toContain("test-skill:net:fetch");
   });
 });

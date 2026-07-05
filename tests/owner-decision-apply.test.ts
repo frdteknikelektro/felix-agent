@@ -23,7 +23,7 @@ async function seedPending(cfg: AppConfig, key = "mattermost:c:r"): Promise<Thre
     request_id: "req-1",
     requested_at: "2026-05-25T00:00:00.000Z",
     skill_id: "deploy",
-    permissions: ["shell.run"],
+    permissions: ["deploy:shell.run"],
     reason: "ship it",
     owner_message: "may I deploy?",
     thread_key: key,
@@ -45,7 +45,7 @@ async function seedAnchoredPending(cfg: AppConfig): Promise<ThreadHandle> {
     request_id: "req-anchor",
     requested_at: "2026-05-25T00:00:00.000Z",
     skill_id: "deploy",
-    permissions: ["shell.run"],
+    permissions: ["deploy:shell.run"],
     reason: "ship it",
     owner_message: "may I deploy?",
     thread_key: thread.state.thread_key,
@@ -68,11 +68,11 @@ describe("applyOwnerDecision", () => {
     });
 
     expect(outcome).not.toBeNull();
-    expect(outcome!.grant).toMatchObject({ skillId: "deploy", permissions: ["shell.run"] });
+    expect(outcome!.grant).toMatchObject({ skillId: "deploy", permissions: ["deploy:shell.run"] });
     expect(outcome!.record?.status).toBe("approved");
 
     const contact = await loadContact(cfg, "mattermost", "u1");
-    expect(contact.allowed_permissions).toContain("shell.run");
+    expect(contact.allowed_permissions).toContain("deploy:shell.run");
 
     const session = await loadSessionState(outcome!.thread);
     expect(session.pending_permission ?? null).toBeNull();

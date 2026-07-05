@@ -172,7 +172,10 @@ async function applySuccessfulOutcome(
   const permOutput = result.parsed as PermissionRequiredOutput;
   const skillId = permOutput.skillId ?? "(unknown)";
   const bareMissing = (permOutput.permissions ?? []).filter(
-    (bare) => !input.contact.allowed_permissions.includes(`${skillId}:${bare}`),
+    (p) => {
+      const namespaced = p.includes(":") ? p : `${skillId}:${p}`;
+      return !input.contact.allowed_permissions.includes(namespaced);
+    },
   );
   if (bareMissing.length === 0) {
     await input.ports.autoGrantPermission(input.thread, input.event, result.sessionId);
