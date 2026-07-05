@@ -14,6 +14,12 @@ match:
   - token consumption
 ---
 
+## Permissions
+
+- `usage.read` — Read token usage records and run the reporter.
+
+This skill is read-only; no write permission exists.
+
 # Usage Report
 
 Report recorded token counts through the bundled read-only reporter. Pricing and dollar cost are not recorded.

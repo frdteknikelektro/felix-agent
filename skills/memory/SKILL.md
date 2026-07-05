@@ -9,6 +9,12 @@ permissions:
   - write
 ---
 
+## Permissions
+
+- `write` — Create, update, or supersede wiki pages and mutate the index or log.
+
+Read-only lookups (consulting the index or an existing page) require no permission. Any mutation requires `write`.
+
 # Memory Wiki Schema
 
 Capture durable knowledge, not a transcript mirror. Durable knowledge includes explicit decisions and rationale, stable facts, responsibilities, preferences, relationships, and reusable concepts. Exclude greetings, social filler, transient execution detail, secrets, and unsupported inference.

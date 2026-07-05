@@ -5,7 +5,9 @@ description: Replace with one leading-word description of the capability and one
 version: 1
 enabled: false
 kind: general
-permissions: []
+permissions:
+  - template.read
+  - template.write
 match:
   - replace with trigger phrase
 # env:
@@ -17,6 +19,21 @@ match:
 # Template Skill
 
 Replace this file; do not add sections merely because they appear here.
+
+## Permissions
+
+List every permission in frontmatter `permissions:` and explain what each gates below. When a skill needs no permissions, omit the frontmatter key and write:
+
+```
+No permissions required. <one-liner why>.
+```
+
+Otherwise, list each permission with a concrete boundary:
+
+- `template.read` — Read-only operations: listing, inspecting, querying state.
+- `template.write` — Mutations: creating, updating, deleting, or transitioning state.
+
+When a branch needs only read access, require only `template.read`. When any mutation is possible, require `template.write`. Emit `PERMISSION_REQUIRED` for the narrowest set the current operation actually needs.
 
 ## Execution
 

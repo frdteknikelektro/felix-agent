@@ -10,6 +10,10 @@ match:
   - NINEROUTER_URL
 ---
 
+## Permissions
+
+No permissions required. Setup and model discovery are read-only; capability calls use the gateway's own auth.
+
 # 9Router
 
 Treat 9Router as a gateway: verify it, discover a compatible model, then follow the capability contract.

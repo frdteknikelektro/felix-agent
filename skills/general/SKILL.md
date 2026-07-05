@@ -12,6 +12,10 @@ match:
   - explain
 ---
 
+## Permissions
+
+No permissions required. This skill is reply-only.
+
 # General
 
 Reply-only. Answer the request directly in a conversational, factual style.

@@ -20,6 +20,12 @@ match:
 
 Manage persistent tools without modifying the base image or using system package managers.
 
+## Permissions
+
+- `install.run` — Install, update, or remove a tool in the workspace runtime.
+
+List and check are read-only but still follow the runtime's declared permission policy.
+
 ## Runtime layout
 
 Resolve paths from `$WORKSPACE_DIR`; never hardcode a home directory:

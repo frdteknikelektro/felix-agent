@@ -20,6 +20,13 @@ match:
 
 Connect to a remote host and execute commands. Requires the host address and a way to authenticate (key or password).
 
+## Permissions
+
+- `ssh.execute` — Open a connection and run commands on the remote host.
+- `ssh.transfer` — Upload or download files to/from the remote host.
+
+Require only `ssh.execute` for command-only runs. Add `ssh.transfer` only when the operation copies files.
+
 ## Branch reference
 
 - **Transfer files** — when the user wants to copy files to/from the remote: read `references/transfer.md`.

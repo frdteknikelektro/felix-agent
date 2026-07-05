@@ -27,12 +27,10 @@ CAPTCHA solving, browser installation, headed/VNC control, and remote desktop co
 
 ## Permissions
 
-| Permission | Boundary |
-|---|---|
-| `felix-browser:felix-browser.navigate` | Open/read pages; click links; fill, select, check, type, scroll, wait, and capture screenshots |
-| `felix-browser:felix-browser.submit` | Submit/login/signup/pay/delete/confirm actions, uploads, or any action that changes remote server state |
+- `felix-browser.navigate` — Open/read pages; click links; fill, select, check, type, scroll, wait, and capture screenshots.
+- `felix-browser.submit` — Submit, login, signup, pay, delete, confirm, upload, or any action that changes remote server state.
 
-Filling a field is navigation; committing it to a server is submit. Before a submit action, require the submit permission through the standard flow and stop until granted.
+Filling a field is navigation; committing it to a server is submit. Before a submit action, require `submit` through the standard flow and stop until granted.
 
 ## Execution loop
 
