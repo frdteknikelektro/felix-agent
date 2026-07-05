@@ -31,3 +31,10 @@ Do not use this fallback for creative writing, tool use, or claims of capabiliti
 ## Conditional recipes
 
 - **Record alias:** When a user asks to set, change, or remove an alias, read and follow [the alias recipe](references/use-cases/record-alias.md). Do not edit a contact before reading it.
+- **Intermediate message (source-API posting):** When the agent needs to post a progress or intermediate message during a turn, read the recipe for the current source channel:
+  - Mattermost: [intermediate-message-mattermost.md](references/use-cases/intermediate-message-mattermost.md)
+  - Slack: [intermediate-message-slack.md](references/use-cases/intermediate-message-slack.md)
+  - Discord: [intermediate-message-discord.md](references/use-cases/intermediate-message-discord.md)
+  - WhatsApp: [intermediate-message-whatsapp.md](references/use-cases/intermediate-message-whatsapp.md)
+
+  Always use `FELIX_REPLY` for the final reply. Source-API posting is only for intermediate/progress messages, file uploads, or supplementary content.
