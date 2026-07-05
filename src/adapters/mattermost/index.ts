@@ -22,7 +22,7 @@ import {
 import { createSourceHost } from "../../core/source-host.js";
 
 function ensureTableBlankLines(text: string): string {
-  return text.replace(/(?<!\n)\n(\|)/g, "\n\n$1");
+  return text.replace(/(?<!\|)(?<!\n)\n(\|)/g, "\n\n$1");
 }
 
 interface WsPayload {
