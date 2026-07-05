@@ -11,8 +11,8 @@ match:
   - skill creator
   - create skill
   - edit skill
-  - buat skill
-  - bikin skill
+  - skill wizard
+  - manage skills
 ---
 
 # Skill Creator
@@ -43,7 +43,7 @@ Use Matt-style grilling: ask one specific question at a time and wait. Asking ma
 
 If an answer can be derived from existing skill files, URLs/docs, attachments, or repo files, inspect those instead of asking. Keep a running spec in the thread: id, name, description, triggers, permissions, env vars, execution steps, constraints, references/helpers, and verification.
 
-Do not write until the skill is coherent enough to be useful. "Seperlunya" means include only sections the skill actually needs.
+Do not write until the skill is coherent enough to be useful. Include only the sections the skill actually needs.
 
 ## Direct writer contract
 
