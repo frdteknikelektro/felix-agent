@@ -51,7 +51,7 @@ async function markdownFiles(root: string): Promise<string[]> {
   const files: string[] = [];
   for (const entry of await fs.readdir(root, { withFileTypes: true })) {
     const candidate = path.join(root, entry.name);
-    if (entry.isDirectory()) files.push(...await markdownFiles(candidate));
+    if (entry.isDirectory() && entry.name !== ".agents") files.push(...await markdownFiles(candidate));
     else if (entry.isFile() && entry.name.endsWith(".md")) files.push(candidate);
   }
   return files;

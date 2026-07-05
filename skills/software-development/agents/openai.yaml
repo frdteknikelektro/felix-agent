@@ -1,0 +1,4 @@
+interface:
+  display_name: "Software Development"
+  short_description: "Implement and verify code changes"
+  default_prompt: "Use $software-development to implement a scoped code change and verify it."
