@@ -100,6 +100,8 @@ COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
 
+RUN echo "node:x:1002:1002::/home/node:/bin/sh" >> /etc/passwd
+
 USER node
 
 EXPOSE 3000
