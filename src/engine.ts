@@ -182,16 +182,24 @@ export class FelixEngine {
     return shouldAcceptEvent(event, thread?.state);
   }
 
+  private static stripMentions(text: string): string {
+    return text
+      .replace(/<@!?\w+>/g, "")
+      .replace(/@\w+/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   private static isStopCommand(event: UniversalEvent): boolean {
-    return event.text.trim().toLowerCase() === "/stop";
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/stop";
   }
 
   private static isCompactCommand(event: UniversalEvent): boolean {
-    return event.text.trim().toLowerCase() === "/compact";
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/compact";
   }
 
   private static isNewCommand(event: UniversalEvent): boolean {
-    return event.text.trim().toLowerCase() === "/new";
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/new";
   }
 
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
