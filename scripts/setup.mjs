@@ -466,9 +466,9 @@ async function main() {
       });
       wizard.NINEROUTER_MODEL = nrModel;
     } else {
-      wizard.NINEROUTER_KEY = "";
-      wizard.NINEROUTER_URL = "";
-      wizard.NINEROUTER_MODEL = "";
+      if (existing.NINEROUTER_KEY) wizard.NINEROUTER_KEY = existing.NINEROUTER_KEY;
+      if (existing.NINEROUTER_URL) wizard.NINEROUTER_URL = existing.NINEROUTER_URL;
+      if (existing.NINEROUTER_MODEL) wizard.NINEROUTER_MODEL = existing.NINEROUTER_MODEL;
     }
 
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
