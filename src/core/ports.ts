@@ -113,9 +113,15 @@ export interface DecisionNotificationInput {
   ownerDisplay?: string;
 }
 
+export interface CompactResult {
+  success: boolean;
+  /** New session ID created by the compact operation, if any. */
+  sessionId?: string;
+}
+
 export interface Harness {
   run(input: TurnInput): Promise<TurnResult>;
   generateDecisionNotification?(input: DecisionNotificationInput): Promise<string>;
   /** Trigger compaction for the given session to reduce context size. */
-  compact?(sessionId: string, threadDir?: string): Promise<boolean>;
+  compact?(sessionId: string, threadDir?: string): Promise<CompactResult>;
 }

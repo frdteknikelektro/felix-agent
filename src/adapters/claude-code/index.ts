@@ -6,7 +6,7 @@ import type { AppConfig } from "../../config.js";
 import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput } from "../../core/ports.js";
+import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -318,30 +318,31 @@ export class ClaudeCodeHarness implements Harness {
     }
   }
 
-  async compact(sessionId: string, threadDir?: string): Promise<boolean> {
+  async compact(sessionId: string, threadDir?: string): Promise<CompactResult> {
     const logPath = path.join(this.cfg.paths.root, `compact_claude_${sessionId}.log`);
     const summarizationPrompt = [
-      "Please summarize our conversation so far.",
-      "Focus on:",
-      "- Key decisions made",
-      "- Important context and facts",
-      "- Current task status",
-      "- Any pending items",
+      "Summarize this conversation for context continuity. Include:",
+      "1. The overall goal or objective being worked toward",
+      "2. Progress made so far (what's been completed, what's in flight)",
+      "3. The most recent request or question and its current status",
+      "4. Key decisions, constraints, or facts the next session must know",
+      "5. Any pending items or open questions",
       "",
-      "Provide a concise summary that can be used as context for continuing the conversation.",
+      "Be concise but preserve specifics (file paths, function names, error messages).",
     ].join("\n");
     const settings = claudeCodeSettings(this.cfg);
 
     const args = [
-      "-r", sessionId,
+      "--resume", sessionId,
       "-p",
+      "--output-format", "json",
       "--dangerously-skip-permissions",
       "--model", settings.model,
       summarizationPrompt,
     ];
 
     try {
-      const { assistantText } = await claudeCodeRun(
+      const { sessionId: capturedSessionId, assistantText } = await claudeCodeRun(
         this.cfg.CLAUDE_CODE_BIN,
         args,
         this.cfg.paths.root,
@@ -351,9 +352,14 @@ export class ClaudeCodeHarness implements Harness {
 
       // Strip FELIX_REPLY markers if present
       const summary = between(assistantText, "FELIX_REPLY", "END_FELIX_REPLY")?.trim() || assistantText.trim();
+
+      // Clean up compact files
+      await fs.unlink(logPath).catch(() => {});
+      await fs.unlink(`${logPath}.stderr`).catch(() => {});
+
       if (!summary) {
         log.warn("claude-code.compact_empty_summary", { session_id: sessionId });
-        return false;
+        return { success: false };
       }
 
       // Append summary to INITIAL.md
@@ -361,13 +367,13 @@ export class ClaudeCodeHarness implements Harness {
         await appendCompactedContext(threadDir, summary);
       }
 
-      return true;
+      return { success: true, sessionId: capturedSessionId || undefined };
     } catch (error) {
       log.warn("claude-code.compact_failed", {
         session_id: sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return false;
+      return { success: false };
     }
   }
 }
