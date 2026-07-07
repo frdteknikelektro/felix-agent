@@ -3,10 +3,17 @@ import type { Harness, TurnInput } from "../../core/ports.js";
 import type { ThreadHandle } from "../sessions/index.js";
 import { log } from "../../lib/log.js";
 import { createOrLoadThread, listThreadHandles, loadSessionState } from "../sessions/index.js";
+import { codexModelForMemorizing, opencodeModelForMemorizing, claudeCodeModelForMemorizing } from "../../core/harness-settings.js";
 import { loadCheckpoint, saveCheckpoint } from "./checkpoint.js";
 import { buildBatchedIngestPrompt } from "./ingest.js";
 
 const MEMORY_SYSTEM_THREAD_KEY = "memory-system";
+
+function memorizingModel(cfg: AppConfig): string {
+  if (cfg.HARNESS === "codex") return codexModelForMemorizing(cfg);
+  if (cfg.HARNESS === "opencode") return opencodeModelForMemorizing(cfg);
+  return claudeCodeModelForMemorizing(cfg);
+}
 
 interface CronState {
   locked: boolean;
@@ -123,6 +130,7 @@ async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
       sourceContext: { behaviorInstructions: [] },
       resumed: false,
       promptOverride: prompt,
+      modelOverride: memorizingModel(cfg),
     });
 
     if (result.success) {
@@ -229,5 +237,6 @@ function buildLintTurnInput(cfg: AppConfig, thread: ThreadHandle): TurnInput {
     sourceContext: { behaviorInstructions: [] },
     resumed: false,
     promptOverride: prompt,
+    modelOverride: memorizingModel(cfg),
   };
 }

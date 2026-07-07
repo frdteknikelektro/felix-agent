@@ -117,6 +117,10 @@ Key variables:
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node/workspace` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
+| `CODEX_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CODEX_MODEL`) |
+| `OPENCODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `OPENCODE_MODEL`) |
+| `CLAUDE_CODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CLAUDE_CODE_MODEL`) |
+| `NINEROUTER_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint via 9router (defaults to `NINEROUTER_MODEL`) |
 | `CLAUDE_CODE_MODEL` | — | default `sonnet` |
 | `USAGE_TZ` | — | IANA timezone for usage day/week/month boundaries (default `UTC`) |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |

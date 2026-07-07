@@ -465,10 +465,17 @@ async function main() {
         validate: (v) => v.trim().length > 0 ? true : "NINEROUTER_MODEL is required when 9router is enabled",
       });
       wizard.NINEROUTER_MODEL = nrModel;
+
+      const nrMemModel = await input({
+        message: "NINEROUTER_MODEL_FOR_MEMORIZING [optional, falls back to NINEROUTER_MODEL]:",
+        default: existing.NINEROUTER_MODEL_FOR_MEMORIZING || nrModel,
+      });
+      wizard.NINEROUTER_MODEL_FOR_MEMORIZING = nrMemModel;
     } else {
       if (existing.NINEROUTER_KEY) wizard.NINEROUTER_KEY = existing.NINEROUTER_KEY;
       if (existing.NINEROUTER_URL) wizard.NINEROUTER_URL = existing.NINEROUTER_URL;
       if (existing.NINEROUTER_MODEL) wizard.NINEROUTER_MODEL = existing.NINEROUTER_MODEL;
+      if (existing.NINEROUTER_MODEL_FOR_MEMORIZING) wizard.NINEROUTER_MODEL_FOR_MEMORIZING = existing.NINEROUTER_MODEL_FOR_MEMORIZING;
     }
 
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
@@ -481,6 +488,12 @@ async function main() {
         default: existing.CODEX_MODEL || "gpt-5.4-mini",
       });
       wizard.CODEX_MODEL = codexModel;
+
+      const codexMemModel = await input({
+        message: "CODEX_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        default: existing.CODEX_MODEL_FOR_MEMORIZING || codexModel,
+      });
+      wizard.CODEX_MODEL_FOR_MEMORIZING = codexMemModel;
 
       if (ninerouterEnabled) {
         info("  9router is enabled, so Codex will use NINEROUTER_KEY at runtime.\n");
@@ -558,6 +571,12 @@ async function main() {
       });
       wizard.OPENCODE_MODEL = ocModel;
 
+      const ocMemModel = await input({
+        message: "OPENCODE_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        default: existing.OPENCODE_MODEL_FOR_MEMORIZING || ocModel,
+      });
+      wizard.OPENCODE_MODEL_FOR_MEMORIZING = ocMemModel;
+
       const ocVariant = await input({
         message: "OPENCODE_VARIANT [optional] (reasoning effort):",
         default: existing.OPENCODE_VARIANT || "high",
@@ -579,6 +598,12 @@ async function main() {
         default: existing.CLAUDE_CODE_MODEL || "sonnet",
       });
       wizard.CLAUDE_CODE_MODEL = ccModel;
+
+      const ccMemModel = await input({
+        message: "CLAUDE_CODE_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        default: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || ccModel,
+      });
+      wizard.CLAUDE_CODE_MODEL_FOR_MEMORIZING = ccMemModel;
     }
 
     // ═══ Step 3: Owner Console ══════════════════════════════════════════════

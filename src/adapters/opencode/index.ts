@@ -236,13 +236,14 @@ export class OpencodeHarness implements Harness {
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
     const settings = opencodeSettings(this.cfg);
+    const model = input.modelOverride ?? settings.model;
 
     await writeTextAtomic(turnPath, prompt);
 
     const baseArgs = [
       "run",
       "--dir", this.cfg.paths.root,
-      "--model", settings.model,
+      "--model", model,
       "--title", input.thread.state.thread_key,
       "--format", "json",
       "--dangerously-skip-permissions",
@@ -266,7 +267,7 @@ export class OpencodeHarness implements Harness {
 
     const parsed = parseAgentOutput(assistantText);
     const success = exitCode === 0 && hasRenderableOutput(parsed);
-    const usageWithModel = usage ? { ...usage, model: usage.model ?? settings.model } : null;
+    const usageWithModel = usage ? { ...usage, model: usage.model ?? model } : null;
 
     return { sessionId: capturedSessionId || sessionId, exitCode, success, parsed, logPath, usage: usageWithModel };
   }

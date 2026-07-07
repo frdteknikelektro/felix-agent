@@ -40,6 +40,7 @@ export class CodexHarness implements Harness {
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
     const settings = codexSettings(this.cfg);
+    const model = input.modelOverride ?? settings.model;
     const baseArgs = [
       "--json",
       "--skip-git-repo-check",
@@ -50,7 +51,7 @@ export class CodexHarness implements Harness {
       "-c",
       `reasoning_effort="${this.cfg.CODEX_REASONING_EFFORT}"`,
       "--model",
-      settings.model,
+      model,
     ];
     const args = [
       "exec",
@@ -104,7 +105,7 @@ export class CodexHarness implements Harness {
                 input: found.raw.input_tokens,
                 output: found.raw.output_tokens,
                 cache_read: found.raw.cached_input_tokens,
-                model: this.cfg.CODEX_MODEL,
+                model,
               });
               if (normalized) {
                 capturedUsage = normalized;

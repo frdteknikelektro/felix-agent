@@ -256,11 +256,12 @@ export class ClaudeCodeHarness implements Harness {
     const logPath = `${turnPath}.log`;
     const prompt = input.promptOverride ?? await buildTurnPrompt(this.cfg, input, sessionId);
     const settings = claudeCodeSettings(this.cfg);
+    const model = input.modelOverride ?? settings.model;
 
     await writeTextAtomic(turnPath, prompt);
 
     const args = buildClaudeTurnArgs({
-      model: settings.model,
+      model,
       workspaceDir: this.cfg.WORKSPACE_DIR,
       sessionId,
       hasSession,

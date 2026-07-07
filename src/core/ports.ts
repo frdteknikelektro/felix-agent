@@ -74,6 +74,7 @@ export interface TurnInput {
   resumed: boolean;
   precedingEvents?: { event: UniversalEvent; eventFile: string }[];
   promptOverride?: string;
+  modelOverride?: string;
   signal?: AbortSignal;
 }
 

@@ -163,3 +163,24 @@ export function hasOpencodeAuth(cfg: AppConfig): boolean {
 export function hasClaudeCodeAuth(cfg: AppConfig): boolean {
   return ninerouterEnabled(cfg) || Boolean(cfg.ANTHROPIC_API_KEY);
 }
+
+export function codexModelForMemorizing(cfg: AppConfig): string {
+  if (ninerouterEnabled(cfg)) {
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+  }
+  return cfg.CODEX_MODEL_FOR_MEMORIZING ?? cfg.CODEX_MODEL;
+}
+
+export function opencodeModelForMemorizing(cfg: AppConfig): string {
+  if (ninerouterEnabled(cfg)) {
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+  }
+  return cfg.OPENCODE_MODEL_FOR_MEMORIZING ?? cfg.OPENCODE_MODEL;
+}
+
+export function claudeCodeModelForMemorizing(cfg: AppConfig): string {
+  if (ninerouterEnabled(cfg)) {
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+  }
+  return cfg.CLAUDE_CODE_MODEL_FOR_MEMORIZING ?? cfg.CLAUDE_CODE_MODEL;
+}
