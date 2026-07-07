@@ -9,8 +9,6 @@ description: >-
 version: 1
 enabled: true
 kind: operational
-permissions:
-  - write
 match:
   - document
   - word
@@ -38,13 +36,9 @@ open-source tooling that runs directly in the Felix runtime image.
 
 ## Permissions
 
-- `write` — Mutations: creating a new document, editing an existing one,
-  converting between formats, or writing any file into the workspace.
-
-Reading is open: extracting text, inspecting structure, rendering thumbnails for
-your own inspection, and answering questions about a file need no permission.
-Emit `PERMISSION_REQUIRED` for `office-documents:write` before the first
-mutation.
+No permissions required. Producing and editing document artifacts in the session
+workspace is this skill's purpose, not a sensitive mutation — files are written
+only where the deliverable belongs.
 
 ## Toolchain
 
@@ -74,17 +68,15 @@ Bundled helpers in `scripts/`:
 
 1. Identify the format and intent (read / create / edit / convert).
    Completion: target file path and one of read|create|edit|convert are fixed.
-2. For reads, extract and answer directly — no permission needed.
+2. For reads, extract and answer directly.
    Completion: requested content is returned, or the file is reported unreadable.
-3. For any mutation, acquire `office-documents:write` first.
-   Completion: `PERMISSION_REQUIRED` emitted and granted before a file is written.
-4. Build the deliverable with the matching tool (see the per-format reference).
+3. Build the deliverable with the matching tool (see the per-format reference).
    Completion: the target file exists in the session working directory.
-5. Validate structurally before delivering.
+4. Validate structurally before delivering.
    Completion: OOXML repacks and reopens without error (`ooxml_unpack.py`
    round-trips), xlsx has zero formula errors, PDF opens and page count is
    correct.
-6. Deliver the file and state the QA boundary (see below).
+5. Deliver the file and state the QA boundary (see below).
    Completion: reply links the final artifact, includes the visual-QA note, and
    never claims layout was verified.
 
