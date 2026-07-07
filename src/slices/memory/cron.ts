@@ -17,16 +17,33 @@ function memorizingModel(cfg: AppConfig): string {
 
 interface CronState {
   locked: boolean;
-  interval: ReturnType<typeof setInterval> | null;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
-const state: CronState = { locked: false, interval: null };
+const state: CronState = { locked: false, timer: null };
 
-export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
-  if (state.interval) return;
+const SCHEDULE_HOURS = [0, 6, 12, 18];
 
-  state.interval = setInterval(() => {
-    if (state.locked) return;
+function nextScheduleMs(): number {
+  const now = Date.now();
+  for (const h of SCHEDULE_HOURS) {
+    const target = new Date();
+    target.setUTCHours(h, 0, 0, 0);
+    if (target.getTime() > now) return target.getTime() - now;
+  }
+  const tomorrow = new Date();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(SCHEDULE_HOURS[0], 0, 0, 0);
+  return tomorrow.getTime() - now;
+}
+
+function scheduleNext(cfg: AppConfig, harness: Harness): void {
+  const delay = nextScheduleMs();
+  log.info("memory: next cycle scheduled", { at: new Date(Date.now() + delay).toISOString() });
+
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (state.locked) return scheduleNext(cfg, harness);
     state.locked = true;
     runCycle(cfg, harness)
       .catch((err) => {
@@ -34,16 +51,22 @@ export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
       })
       .finally(() => {
         state.locked = false;
+        scheduleNext(cfg, harness);
       });
-  }, 30 * 60 * 1000);
+  }, delay);
 
-  state.interval.unref();
+  state.timer.unref();
+}
+
+export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
+  if (state.timer) return;
+  scheduleNext(cfg, harness);
 }
 
 export function stopMemoryCron(): void {
-  if (state.interval) {
-    clearInterval(state.interval);
-    state.interval = null;
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
   }
 }
 
@@ -61,7 +84,6 @@ async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
 
   dirty = await runIngest(cfg, harness) || dirty;
 
-  // Reload checkpoint since the agent may have updated it during ingest.
   const checkpoint = await loadCheckpoint(cfg);
   if (shouldLint(checkpoint)) {
     const success = await runLint(cfg, harness);
@@ -77,33 +99,30 @@ async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
 }
 
 async function runIngest(cfg: AppConfig, harness: Harness): Promise<boolean> {
-  // Lightweight pre-check: skip the LLM call if no threads have new content.
   const checkpoint = await loadCheckpoint(cfg);
   const threads = await listThreadHandles(cfg);
   const now = Date.now();
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-  // If no lastIngestedAt, assume 1 day ago so new threads get processed
   const lastIngestTime = checkpoint.lastIngestedAt
     ? new Date(checkpoint.lastIngestedAt).getTime()
     : now - ONE_DAY_MS;
 
-  let hasNew = false;
+  const qualifying: string[] = [];
   for (const thread of threads) {
     const sess = await loadSessionState(thread);
     if (!sess.last_event_at) continue;
     const lastEvent = new Date(sess.last_event_at).getTime();
-    if (now - lastEvent < 6 * 60 * 60 * 1000) continue;
+    if (now - lastEvent < 30 * 60 * 1000) continue;
     if (lastIngestTime < lastEvent) {
-      hasNew = true;
-      break;
+      qualifying.push(thread.dir);
     }
   }
-  if (!hasNew) return false;
+  if (qualifying.length === 0) return false;
 
-  log.info("memory: ingesting");
+  log.info("memory: ingesting", { threads: qualifying.length });
   try {
     const memThread = await memorySystemThread(cfg);
-    const prompt = buildBatchedIngestPrompt(cfg);
+    const prompt = buildBatchedIngestPrompt(cfg, qualifying);
     const result = await harness.run({
       thread: memThread,
       event: {
