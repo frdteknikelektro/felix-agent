@@ -388,7 +388,6 @@ export async function ensureClaudeCodeAuth(cfg: AppConfig): Promise<void> {
       ...settings.env,
     },
     encoding: "utf8",
-    timeout: 10_000,
   });
 
   if (check.status !== 0) {

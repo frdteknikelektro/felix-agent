@@ -176,7 +176,6 @@ export class CodexHarness implements Harness {
           ...process.env,
           ...settings.env,
         },
-        timeout: 60_000,
         encoding: "utf8",
       });
 
@@ -360,7 +359,6 @@ export async function ensureCodexAuth(cfg: AppConfig): Promise<void> {
       ...settings.env,
     },
     encoding: "utf8",
-    timeout: 60_000,
   });
 
   if (auth.status !== 0) {

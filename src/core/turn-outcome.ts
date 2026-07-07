@@ -212,7 +212,7 @@ function exitCodeMessage(exitCode: number): string {
     case 127:
       return "The agent binary was not found. ";
     case 137:
-      return "The agent process was killed (out of memory or timeout). ";
+      return "The agent process was killed (out of memory or external signal). ";
     case 143:
       return "The agent process was terminated. ";
     default:

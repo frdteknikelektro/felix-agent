@@ -32,12 +32,7 @@ function createMockChild() {
   Object.defineProperty(proc, "stdout", { value: stdout, writable: false });
   Object.defineProperty(proc, "stderr", { value: stderr, writable: false });
   Object.defineProperty(proc, "killed", { value: false, writable: true });
-  proc.kill = vi.fn((signal?: NodeJS.Signals) => {
-    if (signal === "SIGKILL") {
-      (proc as { killed: boolean }).killed = true;
-    }
-    return true;
-  });
+  proc.kill = vi.fn(() => true);
   return { proc, stdout };
 }
 
@@ -112,74 +107,6 @@ describe("opencodeRun: stream error → fail fast", () => {
     const result = await opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", ac.signal);
     expect(result.exitCode).toBe(143);
   });
-});
-
-// ─── Timeout → kill ───────────────────────────────────────────────────────
-
-describe("opencodeRun: timeout → kill", () => {
-  it("resolves normally when the child exits before timeout", async () => {
-    const { proc } = createMockChild();
-    const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
-      timeoutSeconds: 10,
-      spawnFn: vi.fn(() => proc) as never,
-    });
-    await waitReady();
-
-    proc.emit("close", 0);
-    const result = await run;
-    expect(result.exitCode).toBe(0);
-  }, 10_000);
-
-  it("kills the child and throws after timeoutSeconds", async () => {
-    const { proc } = createMockChild();
-    const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
-      timeoutSeconds: 1,
-      spawnFn: vi.fn(() => proc) as never,
-    });
-
-    await expect(run).rejects.toThrow("opencode timed out after 1s");
-    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-  }, 10_000);
-
-  it("logs a warning on timeout", async () => {
-    const { log } = await import("../src/lib/log.js");
-    const { proc } = createMockChild();
-    const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
-      timeoutSeconds: 1,
-      spawnFn: vi.fn(() => proc) as never,
-    });
-
-    await expect(run).rejects.toThrow("opencode timed out");
-    expect(log.warn).toHaveBeenCalledWith("opencode.timeout", { timeout_ms: 1000 });
-  }, 10_000);
-
-  it("escalates to SIGKILL when child ignores SIGTERM after grace period", async () => {
-    const { proc } = createMockChild();
-    const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
-      timeoutSeconds: 1,
-      spawnFn: vi.fn(() => proc) as never,
-    });
-
-    // Timeout fires (1s) → SIGTERM sent, 5s grace timer started.
-    await expect(run).rejects.toThrow("opencode timed out");
-    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-
-    // Wait for the 5s grace period to elapse → SIGKILL.
-    await new Promise<void>((resolve) => {
-      const check = () => {
-        if ((proc.kill as ReturnType<typeof vi.fn>).mock.calls.some(
-          (c: unknown[]) => c[0] === "SIGKILL",
-        )) {
-          resolve();
-        } else {
-          setTimeout(check, 200);
-        }
-      };
-      setTimeout(check, 200);
-    });
-
-    expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
-  }, 15_000);
 });
 
 // ─── Spawn error ─────────────────────────────────────────────────────────

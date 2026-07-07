@@ -41,8 +41,6 @@ export interface RunResult {
 }
 
 export interface OpencodeRunOptions {
-  /** Per-run timeout in seconds. Defaults to 300. */
-  timeoutSeconds?: number;
   /** Override the spawn function (for testing). */
   spawnFn?: typeof spawn;
 }
@@ -62,7 +60,6 @@ export async function opencodeRun(
     return { exitCode: 143, sessionId: "", assistantText: "", usage: null };
   }
 
-  const timeoutMs = (options?.timeoutSeconds ?? 300) * 1000;
   const spawnChild = options?.spawnFn ?? spawn;
 
   const child = spawnChild(bin, args, {
@@ -89,13 +86,9 @@ export async function opencodeRun(
   const GRACE_MS = 5_000;
   let graceTimerId: ReturnType<typeof setTimeout> | undefined;
 
-  function terminateChild() {
+  function escalateToSIGKILL() {
     if (child.killed) return;
-    child.kill("SIGTERM");
-    graceTimerId = setTimeout(() => {
-      if (child.killed) return;
-      child.kill("SIGKILL");
-    }, GRACE_MS);
+    child.kill("SIGKILL");
   }
 
   const { exitCode, streamError } = await new Promise<{ exitCode: number; streamError: string | null }>((resolve) => {
@@ -104,16 +97,8 @@ export async function opencodeRun(
     let resolveOnce: ((v: { exitCode: number; streamError: string | null }) => void) | null = (v) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timerId);
       resolve(v);
     };
-
-    const timerId = setTimeout(() => {
-      log.warn("opencode.timeout", { timeout_ms: timeoutMs });
-      terminateChild();
-      resolveOnce?.({ exitCode: 137, streamError: `opencode timed out after ${timeoutMs / 1000}s` });
-      resolveOnce = null;
-    }, timeoutMs);
 
     child.stdout.on("data", async (chunk: Buffer) => {
       buf += chunk.toString("utf8");
@@ -125,7 +110,8 @@ export async function opencodeRun(
         // before the child exits.
         processLine(line);
         if (streamError) {
-          terminateChild();
+          if (!child.killed) child.kill("SIGTERM");
+          graceTimerId = setTimeout(escalateToSIGKILL, GRACE_MS);
           resolveOnce?.({ exitCode: 1, streamError });
           resolveOnce = null;
           return;
@@ -257,9 +243,7 @@ export class OpencodeHarness implements Harness {
       : [...baseArgs, prompt];
 
     const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
-      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal, {
-        timeoutSeconds: this.cfg.OPENCODE_TIMEOUT_SECONDS,
-      });
+      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal);
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;
@@ -385,7 +369,6 @@ export async function ensureOpencodeAuth(cfg: AppConfig): Promise<void> {
     cwd: cfg.paths.root,
     env: { ...process.env } as NodeJS.ProcessEnv,
     encoding: "utf8",
-    timeout: 10_000,
   });
 
   if (check.status !== 0) {

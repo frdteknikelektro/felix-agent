@@ -144,7 +144,7 @@ async function classifyViaOpencode(
     prompt,
   ];
 
-  // Add a timeout to avoid hanging if opencode is slow
+  // Local guard: abort if the classification call hangs for >10s
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
 

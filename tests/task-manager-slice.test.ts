@@ -24,7 +24,6 @@ async function makeTestCfg(): Promise<AppConfig> {
     CODEX_MODEL: "gpt-5.4-mini",
     CODEX_BYPASS_SANDBOX: true,
     CODEX_REASONING_EFFORT: "high",
-    CODEX_TIMEOUT_SECONDS: 1800,
     HARNESS: "codex" as const,
     OPENCODE_BIN: "opencode",
     OPENCODE_MODEL: "opencode/deepseek-v4-flash-free",
