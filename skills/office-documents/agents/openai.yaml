@@ -1,0 +1,4 @@
+interface:
+  display_name: "Office Documents"
+  short_description: "Create, edit, and read Word, PowerPoint, Excel, and PDF files"
+  default_prompt: "Use $office-documents to create, edit, or read a Word/PowerPoint/Excel/PDF document."

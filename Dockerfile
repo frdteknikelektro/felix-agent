@@ -33,6 +33,7 @@ RUN apt-get update \
         imagemagick \
         jq \
         openssh-client \
+        pandoc \
         rsync \
         poppler-utils \
         python3 \
@@ -59,12 +60,17 @@ RUN arch="$(uname -m)" \
     && wacli --version
 
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
+        lxml \
+        markitdown \
         matplotlib \
         numpy \
         openpyxl \
         pandas \
+        pdfplumber \
         pillow \
+        pypdf \
         python-dateutil \
+        reportlab \
         requests \
         seaborn \
         xlsxwriter \
@@ -72,16 +78,20 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     && python3 --version \
     && python3 - <<'PY'
 import dateutil
+import lxml
 import matplotlib
 import numpy
 import openpyxl
 import pandas
+import pdfplumber
 import PIL
+import pypdf
+import reportlab
 import requests
 import seaborn
 import xlsxwriter
 
-print("python core data stack ok")
+print("python core data + office stack ok")
 PY
 
 WORKDIR /app
@@ -90,6 +100,7 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     USER=node \
     WORKSPACE_DIR=/home/node \
+    NODE_PATH=/app/node_modules \
     PYTHONUSERBASE=/home/node/runtime/python \
     GIT_AUTHOR_NAME="felix-agent" \
     GIT_AUTHOR_EMAIL="felix@agent" \

@@ -14,6 +14,7 @@ describe("agent runtime image contract", () => {
       "build-essential",
       "git",
       "jq",
+      "pandoc",
       "poppler-utils",
       "ghostscript",
       "imagemagick",
@@ -33,19 +34,24 @@ describe("agent runtime image contract", () => {
 
     expect(dockerfile).toContain("python3 -m pip install --no-cache-dir --break-system-packages");
     for (const pipPackage of [
+      "lxml",
+      "markitdown",
       "matplotlib",
       "numpy",
       "openpyxl",
       "pandas",
+      "pdfplumber",
       "pillow",
+      "pypdf",
       "python-dateutil",
+      "reportlab",
       "requests",
       "seaborn",
       "xlsxwriter",
     ]) {
       expect(dockerfile).toContain(pipPackage);
     }
-    expect(dockerfile).toContain("python core data stack ok");
+    expect(dockerfile).toContain("python core data + office stack ok");
   });
 
   it("routes shared runtime tooling through workspace runtime paths", async () => {
