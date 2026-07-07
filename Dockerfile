@@ -1,6 +1,11 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 
+# Toolchain for native addons (better-sqlite3 has no Node 24 prebuilt → compiles via node-gyp).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json tsconfig.json tsconfig.build.json ./
 RUN npm ci
 
@@ -115,6 +120,10 @@ CMD ["node", "dist/index.js"]
 # ── Setup stage ─────────────────────────────────────────────────────────────
 FROM node:24-bookworm-slim AS setup-deps
 WORKDIR /app
+# Toolchain for native addons (better-sqlite3 has no Node 24 prebuilt → compiles via node-gyp).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY scripts/setup.mjs ./scripts/setup.mjs
