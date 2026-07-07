@@ -9,6 +9,8 @@ import { Skills } from "@/pages/skills";
 import { SkillEditor } from "@/pages/skill-editor";
 import { Contacts } from "@/pages/contacts";
 import { ContactEditor } from "@/pages/contact-editor";
+import { Databases } from "@/pages/databases";
+import { DatabaseEditor } from "@/pages/database-editor";
 import { Audit } from "@/pages/audit";
 import { Usage } from "@/pages/usage";
 import { NotFound } from "@/pages/not-found";
@@ -27,6 +29,9 @@ export default function App() {
         <Route path="contacts" element={<Contacts />} />
         <Route path="contacts/new" element={<ContactEditor mode="create" />} />
         <Route path="contacts/:source/*" element={<ContactEditor mode="edit" />} />
+        <Route path="databases" element={<Databases />} />
+        <Route path="databases/new" element={<DatabaseEditor mode="create" />} />
+        <Route path="databases/:alias" element={<DatabaseEditor mode="edit" />} />
         <Route path="audit" element={<Audit />} />
         <Route path="usage" element={<Usage />} />
         <Route path="*" element={<NotFound />} />

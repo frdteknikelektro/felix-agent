@@ -60,3 +60,9 @@
 - `Auth`: owner login with an httpOnly session cookie.
 - `Audit view`: simple history panel for owner edits and approval actions.
 - `Exposure`: internal-only operator UI, not a public surface.
+- `Database connection`: a named configuration for connecting to a database engine, stored as an encrypted JSON file under `workspace/databases/connections/<alias>.json`. Contains engine-specific configuration (host, port, user, database), encrypted credentials, optional SSH tunnel config, and SSL settings.
+- `Database engine`: the database system type — PostgreSQL, MySQL/MariaDB, SQLite, MongoDB, Redis, DynamoDB, or Cosmos DB. Each engine has its own connection parameters and Node.js driver.
+- `Connection alias`: the human-readable name used to reference a database connection in commands and permissions (e.g., `prod-pg`, `staging-mysql`).
+- `Permission tier`: the access level granted for a database connection — `read` (SELECT, introspection), `write` (INSERT, UPDATE, DELETE, DDL), or `admin` (user management, grants, backups). Configurable per connection.
+- `Two-phase permission`: the permission model where base permissions (`read`, `write`, `admin`) are declared in SKILL.md frontmatter (server-computed), and connection-specific permissions (`database:read.prod-pg`) are resolved by the LLM at runtime (skill-resolved).
+- `DB_ENCRYPTION_KEY`: a 32-byte random key auto-generated during setup, stored in `.env`, used to encrypt/decrypt database connection credentials at rest.

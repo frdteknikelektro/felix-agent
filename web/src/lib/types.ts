@@ -164,3 +164,29 @@ export interface UsageView {
   byModel: UsageBreakdownRow[];
   byThread: UsageBreakdownRow[];
 }
+
+export interface DatabaseConnectionSummary {
+  alias: string;
+  engine: string;
+  created_at: string;
+  last_tested: string | null;
+  last_tested_ok: boolean | null;
+  tags: string[];
+  notes: string;
+  host: string | null;
+  database: string | null;
+}
+
+export interface DatabaseConnection {
+  alias: string;
+  engine: string;
+  created_at: string;
+  last_tested: string | null;
+  last_tested_ok: boolean | null;
+  engine_config: Record<string, unknown>;
+  ssh: Record<string, unknown> | null;
+  timeout_ms: number;
+  max_connections: number;
+  tags: string[];
+  notes: string;
+}

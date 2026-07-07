@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,6 +85,7 @@ const SECRET_KEYS = new Set([
   "DISCORD_TOKEN",
   "SLACK_TOKEN",
   "SLACK_APP_TOKEN",
+  "DB_ENCRYPTION_KEY",
 ]);
 
 const SOURCE_DEFS = {
@@ -608,7 +609,7 @@ async function main() {
 
     // ═══ Step 3: Owner Console ══════════════════════════════════════════════
 
-    step(3, 6, "Owner Console");
+    step(3, 7, "Owner Console");
 
     info("  Enter a secret for the owner web console.");
     info("  Press Enter to auto-generate one.\n");
@@ -619,9 +620,22 @@ async function main() {
     });
     wizard.OWNER_UI_SECRET = secret;
 
-    // ═══ Step 4: Sources ════════════════════════════════════════════════════
+    // ═══ Step 4: Database Encryption ═══════════════════════════════════════
 
-    step(4, 6, "Sources");
+    step(4, 7, "Database Encryption");
+
+    info("  A key is needed to encrypt database connection credentials.");
+    info("  Press Enter to auto-generate one.\n");
+
+    const dbKey = await input({
+      message: "DB_ENCRYPTION_KEY [optional]:",
+      default: existing.DB_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
+    });
+    wizard.DB_ENCRYPTION_KEY = dbKey;
+
+    // ═══ Step 5: Sources ════════════════════════════════════════════════════
+
+    step(5, 7, "Sources");
 
     info("  Select chat sources Felix will listen to.\n");
 
@@ -810,9 +824,9 @@ async function main() {
       warn("No sources selected. You can re-run setup later.\n");
     }
 
-    // ═══ Step 5: Skill Environment ══════════════════════════════════════════
+    // ═══ Step 6: Skill Environment ══════════════════════════════════════════
 
-    step(5, 6, "Skill Environment");
+    step(6, 7, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
     const catalogDir = join(WORKSPACE_PATH, "catalog", "skills");
@@ -853,9 +867,9 @@ async function main() {
       }
     }
 
-    // ═══ Step 6: Review ═════════════════════════════════════════════════════
+    // ═══ Step 7: Review ═════════════════════════════════════════════════════
 
-    step(6, 6, "Review");
+    step(7, 7, "Review");
 
     if (wizard.NINEROUTER_ENABLED === "true") {
       info("\n  9router override is enabled — it will replace the selected harness key, base URL, and model at runtime.");

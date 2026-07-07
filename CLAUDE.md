@@ -130,6 +130,31 @@ Key variables:
 
 See `.env.example` for the complete list with all defaults.
 
+## Database skill
+
+The `database` skill provides full database management capabilities — a universal database manager accessible through chat.
+
+**Supported engines:** PostgreSQL, MySQL/MariaDB, SQLite, MongoDB, Redis, DynamoDB, Cosmos DB.
+
+**Key features:**
+- CRUD database connections with encrypted credential storage
+- Query, write, and admin operations with per-connection permission tiers
+- SSH tunnel support for remote databases
+- Schema introspection, backup/restore, migrations, performance analysis
+- Smart result formatting (inline for small results, file attachment for large)
+
+**Permissions:**
+- `database:read.<alias>` — read access to a specific connection
+- `database:write.<alias>` — write access to a specific connection
+- `database:admin.<alias>` — admin access to a specific connection
+- Wildcards: `database:read.*` — read access to all connections
+
+**Connection files:** `workspace/databases/connections/<alias>.json` — encrypted credentials using `DB_ENCRYPTION_KEY`.
+
+**Query wrapper:** `skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, better-sqlite3, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
+
+See `skills/database/SKILL.md` for the full skill definition and `skills/database/references/` for engine-specific documentation.
+
 ## Owner console
 
 Available at `http://localhost:53318/` (or whichever host port maps to 3000).

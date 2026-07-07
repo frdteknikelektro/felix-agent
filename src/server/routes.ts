@@ -13,6 +13,12 @@ import {
   addSkillAudit,
   addContactAudit,
   addApprovalAudit,
+  listDatabaseConnections,
+  loadDatabaseConnection,
+  createDatabaseConnection,
+  updateDatabaseConnection,
+  deleteDatabaseConnection,
+  addDatabaseAudit,
 } from "../owner-data.js";
 import { parseUsageWindow, usageView } from "../slices/usage/index.js";
 import { listApprovalRecords, ownerDecisionFromAction } from "../slices/approvals/index.js";
@@ -286,6 +292,91 @@ export const API_ROUTES: Route[] = [
       } catch (error) {
         if (isContactEditorError(error, "contact_exists")) {
           send(409, { error: "contact_exists" });
+          return;
+        }
+        throw error;
+      }
+    },
+  },
+
+  // Database connections
+  {
+    method: "GET",
+    pattern: "/api/databases",
+    async handler({ cfg, send }) {
+      send(200, { items: await listDatabaseConnections(cfg) });
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/databases/:alias",
+    async handler({ cfg, params, send }) {
+      const alias = validateId(params["alias"] ?? "");
+      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      const conn = await loadDatabaseConnection(cfg, alias);
+      if (!conn) {
+        send(404, { error: "not_found" });
+        return;
+      }
+      send(200, conn);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/databases",
+    async handler({ cfg, readBody, send }) {
+      const body = await readBody();
+      const alias = validateId(String(body["alias"] ?? ""));
+      if (!alias) {
+        send(400, { error: "invalid_alias" });
+        return;
+      }
+      try {
+        const saved = await createDatabaseConnection(cfg, alias, body);
+        await addDatabaseAudit(cfg, alias, "create", `Created connection ${alias}`);
+        send(201, saved);
+      } catch (error) {
+        if (error instanceof Error && error.message === "connection_exists") {
+          send(409, { error: "connection_exists" });
+          return;
+        }
+        throw error;
+      }
+    },
+  },
+  {
+    method: "PUT",
+    pattern: "/api/databases/:alias",
+    async handler({ cfg, params, readBody, send }) {
+      const alias = validateId(params["alias"] ?? "");
+      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      const body = await readBody();
+      try {
+        const saved = await updateDatabaseConnection(cfg, alias, body);
+        await addDatabaseAudit(cfg, alias, "update", `Updated connection ${alias}`);
+        send(200, saved);
+      } catch (error) {
+        if (error instanceof Error && error.message === "connection_missing") {
+          send(404, { error: "not_found" });
+          return;
+        }
+        throw error;
+      }
+    },
+  },
+  {
+    method: "DELETE",
+    pattern: "/api/databases/:alias",
+    async handler({ cfg, params, send }) {
+      const alias = validateId(params["alias"] ?? "");
+      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      try {
+        await deleteDatabaseConnection(cfg, alias);
+        await addDatabaseAudit(cfg, alias, "delete", `Deleted connection ${alias}`);
+        send(200, { ok: true });
+      } catch (error) {
+        if (error instanceof Error && error.message === "not_found") {
+          send(404, { error: "not_found" });
           return;
         }
         throw error;

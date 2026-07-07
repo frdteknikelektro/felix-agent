@@ -13,6 +13,16 @@ import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
 import { tokensToday } from "./slices/usage/index.js";
 import { tzDateKey } from "./lib/time.js";
+import {
+  listConnections,
+  loadConnection,
+  saveConnection,
+  deleteConnection,
+  normalizeConnectionInput,
+  encryptEngineConfigSecrets,
+  type DatabaseConnection,
+  type DatabaseConnectionSummary,
+} from "./slices/databases/index.js";
 
 export interface SessionSummary {
   threadKey: string;
@@ -492,4 +502,88 @@ function truncate(value: string, max: number): string {
 
 function fsDateFromName(name: string): string {
   return name.replace(/\.md$/, "");
+}
+
+// ---------------------------------------------------------------------------
+// Database connections
+// ---------------------------------------------------------------------------
+
+export async function listDatabaseConnections(cfg: AppConfig): Promise<DatabaseConnectionSummary[]> {
+  return listConnections(cfg);
+}
+
+export async function loadDatabaseConnection(cfg: AppConfig, alias: string): Promise<DatabaseConnection | null> {
+  return loadConnection(cfg, alias);
+}
+
+export async function createDatabaseConnection(
+  cfg: AppConfig,
+  alias: string,
+  input: Record<string, unknown>,
+): Promise<DatabaseConnection> {
+  const existing = await loadConnection(cfg, alias);
+  if (existing) {
+    throw new Error("connection_exists");
+  }
+  const normalized = normalizeConnectionInput(input);
+  const conn: DatabaseConnection = {
+    alias,
+    engine: normalized.engine,
+    created_at: new Date().toISOString(),
+    last_tested: null,
+    last_tested_ok: null,
+    engine_config: encryptEngineConfigSecrets(normalized.engine_config),
+    ssh: normalized.ssh,
+    timeout_ms: normalized.timeout_ms,
+    max_connections: normalized.max_connections,
+    tags: normalized.tags,
+    notes: normalized.notes,
+  };
+  return saveConnection(cfg, alias, conn);
+}
+
+export async function updateDatabaseConnection(
+  cfg: AppConfig,
+  alias: string,
+  input: Record<string, unknown>,
+): Promise<DatabaseConnection> {
+  const existing = await loadConnection(cfg, alias);
+  if (!existing) {
+    throw new Error("connection_missing");
+  }
+  const normalized = normalizeConnectionInput(input);
+  const conn: DatabaseConnection = {
+    ...existing,
+    engine: normalized.engine || existing.engine,
+    engine_config: encryptEngineConfigSecrets(normalized.engine_config, existing.engine_config),
+    ssh: normalized.ssh,
+    timeout_ms: normalized.timeout_ms,
+    max_connections: normalized.max_connections,
+    tags: normalized.tags,
+    notes: normalized.notes,
+  };
+  return saveConnection(cfg, alias, conn);
+}
+
+export async function deleteDatabaseConnection(cfg: AppConfig, alias: string): Promise<void> {
+  return deleteConnection(cfg, alias);
+}
+
+export async function addDatabaseAudit(
+  cfg: AppConfig,
+  alias: string,
+  action: string,
+  summary: string,
+  details?: Record<string, unknown>,
+): Promise<void> {
+  await recordAuditEntry(cfg, {
+    at: new Date().toISOString(),
+    actor: "owner",
+    source: "ui",
+    action,
+    entity_type: "database",
+    entity_id: alias,
+    summary,
+    details,
+  });
 }

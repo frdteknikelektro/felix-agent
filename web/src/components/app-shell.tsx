@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
+  Database,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -31,6 +32,7 @@ const NAV: NavItem[] = [
   { to: "/approvals", label: "Approvals", icon: ShieldCheck },
   { to: "/skills", label: "Skills", icon: Sparkles },
   { to: "/contacts", label: "Contacts", icon: Users },
+  { to: "/databases", label: "Databases", icon: Database },
   { to: "/usage", label: "Usage", icon: BarChart3 },
   { to: "/audit", label: "Audit", icon: ScrollText },
 ];
