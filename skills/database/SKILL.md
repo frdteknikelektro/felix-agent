@@ -9,6 +9,8 @@ version: 1
 enabled: true
 kind: operational
 permissions:
+  - connection.read
+  - connection.write
   - read
   - write
   - admin
@@ -27,11 +29,15 @@ match:
 
 ## Permissions
 
+- `connection.read` — view/list connection config files (alias, engine, host, no secrets).
+- `connection.write` — create, edit, or delete connection config files.
 - `read` — SELECT, SHOW, DESCRIBE, EXPLAIN, schema introspection.
 - `write` — INSERT, UPDATE, DELETE, DDL (CREATE/ALTER/DROP).
 - `admin` — CREATE/DROP DATABASE, GRANT, REVOKE, user management, backups.
 
-Each permission scopes to a connection alias or wildcard:
+`connection.read`/`connection.write` are global, not per-alias — `database:connection.read` and `database:connection.write` (no alias suffix). They gate the connection **config file itself** (workspace/databases/connections/<alias>.json) — unrelated to `read`/`write`/`admin`, which gate query execution against the connection's target database.
+
+`read`/`write`/`admin` scope to a connection alias or wildcard:
 
 - `database:read.prod-pg` — read access to one connection.
 - `database:write.staging-*` — write access to connections matching pattern.
@@ -41,14 +47,23 @@ Wildcard matching: `database:read.*` matches any `database:read.<alias>`. The co
 
 Emit `PERMISSION_REQUIRED` with the narrowest permission the current operation needs.
 
+## Connection management
+
+CRUD on connection config files:
+
+1. **List/view.** Requires `database:connection.read`. Read `workspace/databases/connections/`, list aliases + engine/host/database (no secrets).
+2. **Create.** Requires `database:connection.write`. Collect engine, host, port, database, credentials, optional `ssh`/`timeout_ms`. Encrypt the password with `DB_ENCRYPTION_KEY` before writing. Never echo the plaintext secret back.
+3. **Edit.** Requires `database:connection.write`. Re-encrypt if the password changes; leave other fields untouched unless specified.
+4. **Delete.** Requires `database:connection.write`. Confirm the alias with the user before removing the file — irreversible.
+
 ## Execution
 
 1. **Resolve the target connection.**
-   Read `workspace/databases/connections/` and match by alias, engine, host, or database name. If multiple matches, list candidates and ask the user to clarify. If no matches, list available connections.
+   Read `workspace/databases/connections/` and match by alias, engine, host, or database name. If multiple matches, list candidates (filtered to aliases the contact holds a `database:<tier>.<alias>` permission for, any tier) and ask the user to clarify. If no matches, list available aliases under the same filter — enumerating the full connection catalog is a `connection.read` operation, not part of query resolution.
    Completion: exactly one connection file resolved, or user corrected the target.
 
 2. **Check permission.**
-   Determine the operation type (read, write, admin) and check the contact's `allowed_permissions` for `database:<tier>.<alias>` or `database:<tier>.*`. If the server-computed `permissions_per_skill` block shows `have=[...]` with the base permission, proceed to connection-specific check. If missing, emit `PERMISSION_REQUIRED` and stop.
+   Determine the operation type (read, write, admin) and check the contact's `allowed_permissions` for `database:<tier>.<alias>` or `database:<tier>.*`. If the operation is connection-config CRUD rather than a query, follow **Connection management** above instead. If the server-computed `permissions_per_skill` block shows `have=[...]` with the base permission, proceed to connection-specific check. If missing, emit `PERMISSION_REQUIRED` and stop.
    Completion: permission verified or `PERMISSION_REQUIRED` emitted.
 
 3. **Establish connection.**

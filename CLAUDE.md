@@ -144,6 +144,8 @@ The `database` skill provides full database management capabilities — a univer
 - Smart result formatting (inline for small results, file attachment for large)
 
 **Permissions:**
+- `database:connection.read` — view/list connection configs (global, no alias suffix)
+- `database:connection.write` — create/edit/delete connection configs (global, no alias suffix)
 - `database:read.<alias>` — read access to a specific connection
 - `database:write.<alias>` — write access to a specific connection
 - `database:admin.<alias>` — admin access to a specific connection
