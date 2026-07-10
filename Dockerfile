@@ -28,6 +28,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         dumb-init \
+        ffmpeg \
         ghostscript \
         git \
         imagemagick \

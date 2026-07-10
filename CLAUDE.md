@@ -94,6 +94,7 @@ Stable Runtime capabilities:
 - Python execution with `pip` and `venv` support
 - Core data stack for reporting and chart generation
 - Basic image and PDF utility work
+- Audio/video probing and transcoding (`ffmpeg`/`ffprobe`)
 - Shell, network, archive, and compression utilities
 - Git/project editing basics
 - Shared runtime tooling under `workspace/runtime/`

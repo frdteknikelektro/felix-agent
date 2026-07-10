@@ -1,7 +1,7 @@
 ---
 id: install-tool
 name: Install Tool
-description: Workspace-scoped tool management. Use to install or update a binary, directory-style tool, or npm CLI; remove one; list installed tools; or check a tool and its version.
+description: Workspace-scoped tool management. Use to install or update a binary, directory-style tool, npm CLI, or pip CLI; remove one; list installed tools; or check a tool and its version.
 version: 1
 enabled: true
 kind: operational
@@ -14,6 +14,7 @@ match:
   - list installed tools
   - check tool
   - npm install
+  - pip install
 ---
 
 # Install Tool
@@ -35,12 +36,14 @@ WORKSPACE_RUNTIME="${WORKSPACE_DIR}/runtime"
 WORKSPACE_BIN="${WORKSPACE_RUNTIME}/bin"
 WORKSPACE_TOOLS="${WORKSPACE_RUNTIME}/tools"
 NPM_PREFIX="${WORKSPACE_RUNTIME}/npm"
-mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS" "$NPM_PREFIX"
+PYTHON_USER_BASE="${WORKSPACE_RUNTIME}/python"
+mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS" "$NPM_PREFIX" "$PYTHON_USER_BASE"
 ```
 
 - Single executables: `workspace/runtime/bin/`
 - Directory tools with required sibling files: `workspace/runtime/tools/<name>/`, plus a wrapper in the shared bin
 - npm packages: `workspace/runtime/npm/`; both `workspace/runtime/bin/` and `workspace/runtime/npm/bin` are on `PATH`
+- pip packages: `workspace/runtime/python/`, resolved automatically via `PYTHONUSERBASE`; `workspace/runtime/python/bin` is on `PATH`
 
 ## Execution
 
@@ -51,6 +54,7 @@ mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS" "$NPM_PREFIX"
    - Never infer an update from a plain install request.
 4. For install/update, select one mode:
    - Explicit npm package or “via npm”: read [npm packages](references/npm.md).
+   - Explicit pip/PyPI package or “via pip”: read [pip packages](references/pip.md).
    - Direct binary or archive: read [binary and directory tools](references/archive.md).
    - If neither the artifact nor a trustworthy official release can be identified, ask for a URL; do not guess one.
 5. For remove/list/check, read [installed-tool operations](references/operations.md).
@@ -65,7 +69,7 @@ Completion requires the requested final state to be observed from disk and, for 
 ## Boundaries
 
 - Do not use `apt`, `brew`, or another system package manager.
-- Do not build from source.
+- Do not build from source. For pip, that means wheels only (`--only-binary=:all:`) — see [pip packages](references/pip.md).
 - Accept only HTTPS artifacts unless the user explicitly supplied a local file.
 - Verify a publisher checksum or signature whenever one is available; abort on mismatch.
 - Never choose the first executable in an archive heuristically. Identify the intended executable from publisher layout or ask.
