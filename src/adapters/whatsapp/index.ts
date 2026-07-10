@@ -868,6 +868,11 @@ class WhatsAppAdapter implements SourceAdapter {
     const w4 = this.sameNumber
       ? `W4. This bot shares a WhatsApp number with its owner, so every outgoing message MUST start with the *[${botName}]* prefix — on every send, including any intermediate or supplementary message — to distinguish the bot's messages from the owner's. Send intermediate/progress messages as needed per the output contract.`
       : `W4. This bot has its own dedicated WhatsApp number — do NOT add any name prefix to messages. Send intermediate/progress messages as needed per the output contract.`;
+    const ownerJid = this.cfg.WHATSAPP_OWNER_JID;
+    const ownerMentionInstruction =
+      ownerJid && !this.sameNumber
+        ? `W7. Exception to the mention-target rule above: if you emit PERMISSION_REQUIRED, you MUST also call \`wacli send text --to "${chatJid}" --message "@${ownerJid.split("@")[0]} approval needed" --mention "${ownerJid}"\` to notify the owner — this is the one case where mentioning the owner JID is expected and required. Do not use this for any other purpose.`
+        : undefined;
 
     return {
       behaviorInstructions: [
@@ -893,6 +898,7 @@ class WhatsAppAdapter implements SourceAdapter {
         ...(this.sameNumber ? [`Always include the *[${botName}]* prefix in file captions.`] : []),
         "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering — do NOT describe an image from metadata alone. Use `identify <path>` / `exiftool <path>` only for supplementary metadata (dimensions, EXIF). For other files use `file <path>` to identify the type and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
         "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+        ...(ownerMentionInstruction ? [ownerMentionInstruction] : []),
       ],
     };
   }

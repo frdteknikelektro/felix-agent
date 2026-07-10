@@ -90,6 +90,63 @@ describe("DiscordAdapter getTurnContext", () => {
     expect(joined).toContain("DISCORD_BOT_TOKEN");
     expect(joined).toContain("2000");
   });
+
+  it("instructs mentioning the owner when an owner user id is configured", async () => {
+    const cfg = await makeTestConfig("discord-owner-", {
+      DISCORD_OWNER_USER_ID: "999888777",
+    });
+    const adapter: SourceAdapter = createDiscordAdapter(cfg);
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "discord",
+        event_id: "evt-1",
+        thread_key: "discord:chan-1:root-2",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "discord", id: "user-1" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: discordSourceThreadRef({
+          channelId: "chan-1",
+          rootMessageId: "root-2",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).toContain("PERMISSION_REQUIRED");
+    expect(joined).toContain("<@999888777>");
+  });
+
+  it("does not instruct an owner mention when no owner user id is configured", async () => {
+    const cfg = await makeTestConfig("discord-no-owner-");
+    const adapter: SourceAdapter = createDiscordAdapter(cfg);
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "discord",
+        event_id: "evt-1",
+        thread_key: "discord:chan-1:root-2",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "discord", id: "user-1" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: discordSourceThreadRef({
+          channelId: "chan-1",
+          rootMessageId: "root-2",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).not.toContain("PERMISSION_REQUIRED");
+  });
 });
 
 describe("DiscordAdapter getThreadLink", () => {

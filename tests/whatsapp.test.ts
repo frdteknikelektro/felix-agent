@@ -134,6 +134,101 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     expect(joined).toContain("prefix in file captions");
   });
+
+  it("instructs mentioning the owner via wacli --mention when an owner jid is configured", async () => {
+    const cfg = await makeTestConfig("wa-turnctx-owner-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_OWNER_JID: "9876543210@s.whatsapp.net",
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "whatsapp",
+        event_id: "evt-1",
+        thread_key: "whatsapp:123456789@g.us:123456789@g.us",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "15551234567@s.whatsapp.net" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "123456789@g.us",
+          rootMessageId: "123456789@g.us",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).toContain("PERMISSION_REQUIRED");
+    expect(joined).toContain("--mention \"9876543210@s.whatsapp.net\"");
+    expect(joined).toContain("--to \"123456789@g.us\"");
+  });
+
+  it("does not instruct an owner mention when no owner jid is configured", async () => {
+    const cfg = await makeTestConfig("wa-turnctx-no-owner-", {
+      WHATSAPP_BOT_NAME: "Felix",
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "whatsapp",
+        event_id: "evt-1",
+        thread_key: "whatsapp:123456789@g.us:123456789@g.us",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "15551234567@s.whatsapp.net" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "123456789@g.us",
+          rootMessageId: "123456789@g.us",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).not.toContain("PERMISSION_REQUIRED");
+  });
+
+  it("does not instruct an owner mention when the bot shares the owner's number", async () => {
+    const cfg = await makeTestConfig("wa-turnctx-owner-same-", {
+      WHATSAPP_BOT_NAME: "Felix",
+      WHATSAPP_OWNER_JID: "9876543210@s.whatsapp.net",
+    });
+    const adapter = createWhatsAppAdapter(cfg);
+    (adapter as unknown as { sameNumber: boolean }).sameNumber = true;
+
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "whatsapp",
+        event_id: "evt-1",
+        thread_key: "whatsapp:123456789@g.us:123456789@g.us",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "whatsapp", id: "15551234567@s.whatsapp.net" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({
+          chatJid: "123456789@g.us",
+          rootMessageId: "123456789@g.us",
+          messageId: "msg-3",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).not.toContain("PERMISSION_REQUIRED");
+  });
 });
 
 // ─── Mention detection ─────────────────────────────────────────────────────

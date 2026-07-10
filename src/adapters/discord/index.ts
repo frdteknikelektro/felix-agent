@@ -5,7 +5,7 @@ import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../
 import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-export { discordMentionToken } from "./mentions.js";
+import { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
   downloadResponseToFile,
@@ -119,6 +119,7 @@ class DiscordAdapter implements SourceAdapter {
       input.event.source_thread_ref.thread_id ??
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
+    const ownerMentionToken = discordMentionToken(this.cfg.DISCORD_OWNER_USER_ID);
 
     return {
       behaviorInstructions: [
@@ -153,6 +154,11 @@ class DiscordAdapter implements SourceAdapter {
         '  -F \'payload_json={"content":"<optional caption>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',
         "```",
+        ...(ownerMentionToken
+          ? [
+              `D4. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
+            ]
+          : []),
       ],
     };
   }

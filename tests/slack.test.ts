@@ -90,6 +90,63 @@ describe("SlackAdapter getTurnContext", () => {
     expect(joined).toContain("conversations.replies");
     expect(joined).toContain("chat.postMessage");
   });
+
+  it("instructs mentioning the owner when an owner user id is configured", async () => {
+    const cfg = await makeTestConfig("slack-owner-", {
+      SLACK_OWNER_USER_ID: "U999",
+    });
+    const adapter: SourceAdapter = createSlackAdapter(cfg);
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "slack",
+        event_id: "evt-1",
+        thread_key: "slack:C123:1234.5678",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "slack", id: "user-1" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: slackSourceThreadRef({
+          channelId: "C123",
+          rootMessageId: "1234.5678",
+          messageId: "1234.9999",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).toContain("PERMISSION_REQUIRED");
+    expect(joined).toContain("<@U999>");
+  });
+
+  it("does not instruct an owner mention when no owner user id is configured", async () => {
+    const cfg = await makeTestConfig("slack-no-owner-");
+    const adapter: SourceAdapter = createSlackAdapter(cfg);
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "slack",
+        event_id: "evt-1",
+        thread_key: "slack:C123:1234.5678",
+        received_at: "2026-06-01T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "slack", id: "user-1" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: slackSourceThreadRef({
+          channelId: "C123",
+          rootMessageId: "1234.5678",
+          messageId: "1234.9999",
+        }),
+      },
+    });
+
+    const joined = ctx.behaviorInstructions.join("\n");
+    expect(joined).not.toContain("PERMISSION_REQUIRED");
+  });
 });
 
 describe("SlackAdapter getThreadLink", () => {

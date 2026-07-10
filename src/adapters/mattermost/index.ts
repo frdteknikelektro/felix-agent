@@ -7,8 +7,7 @@ import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-import { mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
-export { mattermostMentionToken, mattermostMentionTokens } from "./mentions.js";
+import { mattermostMentionToken, mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
   downloadResponseToFile,
@@ -159,6 +158,7 @@ class MattermostAdapter implements SourceAdapter {
       input.event.source_thread_ref.thread_id ??
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
+    const ownerMentionToken = mattermostMentionToken(this.cfg.MATTERMOST_OWNER_USERNAME);
     return {
       behaviorInstructions: [
         `M1. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
@@ -208,6 +208,11 @@ class MattermostAdapter implements SourceAdapter {
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
         "```",
+        ...(ownerMentionToken
+          ? [
+              `M4. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
+            ]
+          : []),
       ],
     };
   }

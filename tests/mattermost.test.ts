@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildThreadLink, createMattermostAdapter, isDirectMessageChannelType, mattermostMentionToken, mattermostMentionTokens, mattermostSourceThreadRef, mattermostThreadKey } from "../src/adapters/mattermost/index.js";
+import { buildThreadLink, createMattermostAdapter, isDirectMessageChannelType, mattermostSourceThreadRef, mattermostThreadKey } from "../src/adapters/mattermost/index.js";
+import { mattermostMentionToken, mattermostMentionTokens } from "../src/adapters/mattermost/mentions.js";
 import type { UniversalEvent } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -169,5 +170,57 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("export FILE_ID");
     expect(text).toContain("root_id");
     expect(text).toContain("files=@${ARTIFACT_PATH}");
+  });
+
+  it("instructs mentioning the owner when an owner username is configured", async () => {
+    const cfg = await makeTestConfig("felix-mm-owner-", {
+      MATTERMOST_OWNER_USERNAME: "farid",
+    });
+    const adapter = createMattermostAdapter(cfg);
+
+    const context = await adapter.getTurnContext({
+      event: {
+        source: "mattermost",
+        event_id: "reply-post",
+        thread_key: "mattermost:channel:root-post",
+        received_at: "2026-05-25T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "mattermost", id: "user" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: mattermostThreadRef("channel", "root-post", "reply-post"),
+      },
+    });
+
+    const text = context.behaviorInstructions.join("\n");
+    expect(text).toContain("PERMISSION_REQUIRED");
+    expect(text).toContain("@farid");
+  });
+
+  it("does not instruct an owner mention when only the (defaulted) display name is set", async () => {
+    const cfg = await makeTestConfig("felix-mm-no-owner-");
+    const adapter = createMattermostAdapter(cfg);
+
+    const context = await adapter.getTurnContext({
+      event: {
+        source: "mattermost",
+        event_id: "reply-post",
+        thread_key: "mattermost:channel:root-post",
+        received_at: "2026-05-25T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "mattermost", id: "user" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: mattermostThreadRef("channel", "root-post", "reply-post"),
+      },
+    });
+
+    const text = context.behaviorInstructions.join("\n");
+    expect(text).not.toContain("@Owner");
+    expect(text).not.toContain("PERMISSION_REQUIRED");
   });
 });
