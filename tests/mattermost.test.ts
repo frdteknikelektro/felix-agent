@@ -170,6 +170,10 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("export FILE_ID");
     expect(text).toContain("root_id");
     expect(text).toContain("files=@${ARTIFACT_PATH}");
+    // Voice note vs. uploaded audio file distinction (shared buildAudioAttachmentInstructions)
+    expect(text).toContain("ogg");
+    expect(text).toContain("opus");
+    expect(text).toContain("Do NOT auto-transcribe");
   });
 
   it("instructs mentioning the owner when an owner username is configured", async () => {

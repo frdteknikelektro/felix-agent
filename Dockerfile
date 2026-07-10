@@ -1,11 +1,9 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 
-# Toolchain for native addons (better-sqlite3 has no Node 24 prebuilt → compiles via node-gyp).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3 \
-    && rm -rf /var/lib/apt/lists/*
-
+# No apt toolchain needed: nothing in the dependency tree compiles via node-gyp
+# (sqlite goes through the node:sqlite built-in; the remaining install scripts
+# only download prebuilt binaries).
 COPY package.json package-lock.json tsconfig.json tsconfig.build.json ./
 RUN npm ci
 
@@ -16,15 +14,17 @@ COPY web ./web
 RUN npm --prefix web run build
 
 COPY src ./src
-COPY tests ./tests
-COPY skills ./skills
 RUN npm run build:server \
     && cp src/AGENTS.md src/WORKSPACE_FOLDER_STRUCTURE.md dist/
+
+# Prod-only node_modules for the runtime image, pruned from the build stage's install
+# (in its own stage so the setup target below can still reuse the full dev install).
+FROM build AS prod-deps
+RUN npm prune --omit=dev
 
 FROM node:24-bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
         ca-certificates \
         curl \
         dumb-init \
@@ -35,12 +35,11 @@ RUN apt-get update \
         jq \
         openssh-client \
         pandoc \
-        rsync \
         poppler-utils \
         python3 \
-        python3-dev \
         python3-pip \
         python3-venv \
+        rsync \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*
@@ -60,7 +59,34 @@ RUN arch="$(uname -m)" \
     && chmod +x /usr/local/bin/wacli \
     && wacli --version
 
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+# Install whisper.cpp CLI (speech-to-text transcription, available to every source
+# adapter) — prebuilt release binary + its sibling shared libs (ggml's CPU backends
+# dispatch by runtime cpuid, so all variants ship together); trimmed of the unrelated
+# parakeet/test/bench/server binaries. No model is baked in here — adapters download one
+# on first use (see buildAudioAttachmentInstructions in src/core/harness-common.ts).
+ARG WHISPER_CPP_VERSION=1.9.1
+RUN arch="$(uname -m)" \
+    && case "$arch" in \
+         aarch64) wtarch=arm64 ;; \
+         x86_64)  wtarch=x64 ;; \
+         *)       echo "whisper.cpp: no prebuilt release for $arch" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/ggml-org/whisper.cpp/releases/download/v${WHISPER_CPP_VERSION}/whisper-bin-ubuntu-${wtarch}.tar.gz" \
+         -o /tmp/whisper.tar.gz \
+    && mkdir -p /opt/whisper.cpp \
+    && tar -xzf /tmp/whisper.tar.gz -C /opt/whisper.cpp --strip-components=1 \
+    && rm /tmp/whisper.tar.gz \
+    && rm -f /opt/whisper.cpp/parakeet-cli /opt/whisper.cpp/parakeet-quantize /opt/whisper.cpp/libparakeet.so* \
+             /opt/whisper.cpp/test-* /opt/whisper.cpp/whisper-bench /opt/whisper.cpp/bench \
+             /opt/whisper.cpp/whisper-server /opt/whisper.cpp/whisper-quantize /opt/whisper.cpp/main \
+             /opt/whisper.cpp/whisper-vad-speech-segments \
+    && ln -s /opt/whisper.cpp/whisper-cli /usr/local/bin/whisper-cli \
+    && whisper-cli --help 2>&1 | grep -qi "usage" \
+    && echo "whisper-cli installed ok"
+
+# --only-binary=:all: — the image ships no compiler, so a source-dist fallback would
+# fail obscurely mid-build; force prebuilt wheels and fail loudly at resolve time instead.
+RUN python3 -m pip install --no-cache-dir --break-system-packages --only-binary=:all: \
         lxml \
         markitdown \
         matplotlib \
@@ -109,9 +135,9 @@ ENV NODE_ENV=production \
     GIT_COMMITTER_EMAIL="felix@agent" \
     PATH="/app/node_modules/.bin:/home/node/runtime/bin:/home/node/runtime/npm/bin:/home/node/runtime/python/bin:$PATH"
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev \
-    && npm cache clean --force
+# package.json stays: its "type": "module" drives ESM resolution for dist/*.js.
+COPY package.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
 
 COPY --chown=node:node skills ./skills
 COPY --from=build --chown=node:node /app/dist ./dist
@@ -130,20 +156,11 @@ ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "dist/index.js"]
 
 # ── Setup stage ─────────────────────────────────────────────────────────────
-FROM node:24-bookworm-slim AS setup-deps
-WORKDIR /app
-# Toolchain for native addons (better-sqlite3 has no Node 24 prebuilt → compiles via node-gyp).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential python3 \
-    && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY scripts/setup.mjs ./scripts/setup.mjs
-COPY .env.example ./.env.example
-
+# Reuses the build stage's full dev install (setup.mjs needs @inquirer/prompts,
+# a devDependency) instead of running a second npm ci in a dedicated stage.
 FROM runtime AS setup
-COPY --from=setup-deps /app/node_modules /app/node_modules
-COPY --from=setup-deps /app/scripts/setup.mjs /app/scripts/setup.mjs
-COPY --from=setup-deps /app/.env.example /app/.env.example
+COPY --from=build /app/node_modules /app/node_modules
+COPY scripts/setup.mjs /app/scripts/setup.mjs
+COPY .env.example /app/.env.example
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "scripts/setup.mjs"]

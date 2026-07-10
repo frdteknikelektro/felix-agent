@@ -23,7 +23,6 @@
     "@azure/cosmos": "^4.3.0",
     "@openai/codex": "^0.133.0",
     "@slack/bolt": "^4.7.3",
-    "better-sqlite3": "^11.7.0",
     "discord.js": "^14.18.0",
     "docx": "^9.7.1",
     "ioredis": "^5.4.2",

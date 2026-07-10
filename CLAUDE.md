@@ -95,6 +95,7 @@ Stable Runtime capabilities:
 - Core data stack for reporting and chart generation
 - Basic image and PDF utility work
 - Audio/video probing and transcoding (`ffmpeg`/`ffprobe`)
+- Speech-to-text CLI (`whisper-cli`, multilingual model fetched on first use)
 - Shell, network, archive, and compression utilities
 - Git/project editing basics
 - Shared runtime tooling under `workspace/runtime/`
@@ -154,7 +155,7 @@ The `database` skill provides full database management capabilities — a univer
 
 **Connection files:** `workspace/databases/connections/<alias>.json` — encrypted credentials using `DB_ENCRYPTION_KEY`.
 
-**Query wrapper:** `skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, better-sqlite3, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
+**Query wrapper:** `skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, node:sqlite built-in, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
 
 See `skills/database/SKILL.md` for the full skill definition and `skills/database/references/` for engine-specific documentation.
 

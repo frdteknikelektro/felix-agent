@@ -96,7 +96,7 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     expect(joined).toContain("never guess or synthesize the mention target");
     expect(joined).toContain("exact `.sender_jid`");
-    // Voice note vs. uploaded audio file distinction (W5a/W5b)
+    // Voice note vs. uploaded audio file distinction (shared buildAudioAttachmentInstructions)
     expect(joined).toContain("ogg");
     expect(joined).toContain("opus");
     expect(joined).toContain("Do NOT auto-transcribe");

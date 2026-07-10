@@ -12,6 +12,29 @@ const DB_ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY;
 // WORKSPACE_DIR set. The CLI dispatch below verifies the env before any function uses it.
 const CONNECTIONS_DIR = WORKSPACE_DIR ? path.join(WORKSPACE_DIR, "databases", "connections") : null;
 
+// Read/write classification data (used by writeViolation below). Declared BEFORE the CLI
+// dispatch: the dispatch runs under top-level await, which suspends module evaluation, so
+// a const declared after it would still be in its temporal dead zone when a command runs.
+const SQL_READ_LEADERS = new Set([
+  "select", "with", "show", "explain", "describe", "desc", "pragma", "values", "table",
+]);
+
+// Only scanned inside WITH ... statements (a CTE can wrap a data-modifying INSERT/UPDATE
+// in Postgres). Non-WITH statements are classified by their leading keyword alone, so a
+// string literal like WHERE col = 'set' never trips a false positive.
+const SQL_WRITE_KEYWORDS =
+  /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|replace|merge|call|exec|execute|attach|detach|vacuum|reindex|lock|copy|upsert|rename)\b/i;
+
+const REDIS_READ_COMMANDS = new Set([
+  "get", "mget", "strlen", "getrange", "getbit", "bitcount", "exists", "ttl", "pttl", "type",
+  "keys", "scan", "randomkey", "dbsize", "object", "memory",
+  "hget", "hmget", "hgetall", "hkeys", "hvals", "hlen", "hexists",
+  "lrange", "llen", "lindex",
+  "smembers", "scard", "sismember", "srandmember", "sinter", "sunion", "sdiff",
+  "zrange", "zrevrange", "zrangebyscore", "zscore", "zcard", "zrank", "zrevrank", "zcount",
+  "xrange", "xlen", "geopos", "geodist", "info", "ping",
+]);
+
 // Only run the CLI when executed directly (`node query.mjs ...`), not when imported for unit
 // tests of the pure helpers (capSelect / writeViolation).
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -297,7 +320,8 @@ async function loadDriver(engine) {
           const db = await sqliteConnect(conn);
           try {
             const stmt = db.prepare(sql);
-            const rows = stmt.all(params ?? []);
+            // node:sqlite binds positional params via spread, named params via one object.
+            const rows = Array.isArray(params) ? stmt.all(...params) : params ? stmt.all(params) : stmt.all();
             return {
               rows: rows.slice(0, opts.max_rows),
               fields: rows.length > 0 ? Object.keys(rows[0]) : [],
@@ -567,10 +591,16 @@ async function mysqlConnect(conn) {
 }
 
 async function sqliteConnect(conn) {
-  const Database = (await import("better-sqlite3")).default;
+  // node:sqlite (built-in since Node 22.5) instead of better-sqlite3 — keeps the image
+  // free of node-gyp/compiler toolchain. Same synchronous prepare/all/get/close API.
+  const { DatabaseSync } = await import("node:sqlite");
   const dbPath = conn.engine_config.path;
-  const db = new Database(dbPath, { readonly: conn.engine_config.readonly ?? false, fileMustExist: true });
-  db.pragma("journal_mode = WAL");
+  // DatabaseSync creates a missing file by default; preserve better-sqlite3's old
+  // fileMustExist behavior so a typo'd path fails instead of leaving an empty DB.
+  // Throw (not fail()) so callers' catch paths report it as a normal driver error.
+  if (!(await pathExists(dbPath))) throw new Error(`SQLite database not found: ${dbPath}`);
+  const db = new DatabaseSync(dbPath, { readOnly: conn.engine_config.readonly ?? false });
+  db.exec("PRAGMA journal_mode = WAL");
   return db;
 }
 
@@ -623,26 +653,9 @@ async function cosmosClient(conn) {
 }
 
 // --- Read/write classification (defense-in-depth for permission tiers) ---
-
-const SQL_READ_LEADERS = new Set([
-  "select", "with", "show", "explain", "describe", "desc", "pragma", "values", "table",
-]);
-
-// Only scanned inside WITH ... statements (a CTE can wrap a data-modifying INSERT/UPDATE
-// in Postgres). Non-WITH statements are classified by their leading keyword alone, so a
-// string literal like WHERE col = 'set' never trips a false positive.
-const SQL_WRITE_KEYWORDS =
-  /\b(insert|update|delete|drop|create|alter|truncate|grant|revoke|replace|merge|call|exec|execute|attach|detach|vacuum|reindex|lock|copy|upsert|rename)\b/i;
-
-const REDIS_READ_COMMANDS = new Set([
-  "get", "mget", "strlen", "getrange", "getbit", "bitcount", "exists", "ttl", "pttl", "type",
-  "keys", "scan", "randomkey", "dbsize", "object", "memory",
-  "hget", "hmget", "hgetall", "hkeys", "hvals", "hlen", "hexists",
-  "lrange", "llen", "lindex",
-  "smembers", "scard", "sismember", "srandmember", "sinter", "sunion", "sdiff",
-  "zrange", "zrevrange", "zrangebyscore", "zscore", "zcard", "zrank", "zrevrank", "zcount",
-  "xrange", "xlen", "geopos", "geodist", "info", "ping",
-]);
+// (Constants live near the top of the file — see declarations above the CLI dispatch.
+// The CLI runs under top-level await, so any const declared after it is still in its
+// temporal dead zone when a command executes.)
 
 /** Returns a message if `sql` is a write/DDL on a read-only path, else null. */
 export function writeViolation(engine, sql) {

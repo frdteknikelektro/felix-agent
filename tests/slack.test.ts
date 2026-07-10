@@ -89,6 +89,10 @@ describe("SlackAdapter getTurnContext", () => {
     expect(joined).toContain("SLACK_BOT_TOKEN");
     expect(joined).toContain("conversations.replies");
     expect(joined).toContain("chat.postMessage");
+    // Voice note vs. uploaded audio file distinction (shared buildAudioAttachmentInstructions)
+    expect(joined).toContain("ogg");
+    expect(joined).toContain("opus");
+    expect(joined).toContain("Do NOT auto-transcribe");
   });
 
   it("instructs mentioning the owner when an owner user id is configured", async () => {

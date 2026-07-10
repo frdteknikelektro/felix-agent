@@ -11,7 +11,7 @@ describe("agent runtime image contract", () => {
 
     expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
     for (const aptPackage of [
-      "build-essential",
+      "ffmpeg",
       "git",
       "jq",
       "pandoc",
@@ -19,7 +19,6 @@ describe("agent runtime image contract", () => {
       "ghostscript",
       "imagemagick",
       "python3",
-      "python3-dev",
       "python3-pip",
       "python3-venv",
       "unzip",
@@ -27,12 +26,16 @@ describe("agent runtime image contract", () => {
     ]) {
       expect(dockerfile).toContain(aptPackage);
     }
+    // No compiler toolchain in any stage: nothing in the dependency tree needs node-gyp
+    // (sqlite uses the node:sqlite built-in), and runtime pip installs are wheels-only.
+    expect(dockerfile).not.toContain("build-essential");
+    expect(dockerfile).not.toContain("python3-dev");
   });
 
   it("installs and verifies the core data stack at build time", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toContain("python3 -m pip install --no-cache-dir --break-system-packages");
+    expect(dockerfile).toContain("python3 -m pip install --no-cache-dir --break-system-packages --only-binary=:all:");
     for (const pipPackage of [
       "lxml",
       "markitdown",

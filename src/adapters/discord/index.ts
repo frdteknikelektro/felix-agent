@@ -4,7 +4,7 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
-import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { buildAudioAttachmentInstructions, buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { discordMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
@@ -154,9 +154,10 @@ class DiscordAdapter implements SourceAdapter {
         '  -F \'payload_json={"content":"<optional caption>"}\' \\',
         '  "https://discord.com/api/v10/channels/$CHANNEL_ID/messages"',
         "```",
+        ...buildAudioAttachmentInstructions("D4", "D5"),
         ...(ownerMentionToken
           ? [
-              `D4. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
+              `D6. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
             ]
           : []),
       ],
