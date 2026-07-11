@@ -316,19 +316,3 @@ export function buildOwnerPermissionNotification(input: OwnerPermissionNotificat
   ].join("\n");
 }
 
-/**
- * Shared across every source adapter — whisper-cli ships in the base runtime image, so
- * voice-note transcription is a platform capability, not something specific to any one
- * channel. Each adapter passes its own labels (e.g. "W5a"/"W5b", "D4"/"D5") to keep its
- * letter+number convention; returns the voice-recording and uploaded-audio-file
- * instructions in that order.
- */
-export function buildAudioAttachmentInstructions(voiceLabel: string, fileLabel: string): [string, string] {
-  const voiceNote =
-    voiceLabel +
-    ". Attachments appear in the turn prompt as `<local_path> (<content_type>)`. Audio attachments whose MIME type contains both `ogg` and `opus` (case-insensitive, e.g. `audio/ogg; codecs=opus`) are voice recordings — this is how most chat apps' built-in voice recorders encode them, and it's how you tell a voice message apart from an uploaded/shared audio file (see the next instruction). If an audio attachment shows no MIME type, identify it first with `file <path>` or `ffprobe <path>` and classify by the detected codec. A voice message IS the user talking to you, so always transcribe it and treat the transcript as the user's message content before answering. First check duration: `ffprobe -v error -show_entries format=duration -of csv=p=0 <path>`; if it exceeds ~15 minutes, tell the user it's too long to auto-transcribe and ask for a shorter one instead — do not attempt the transcription. Otherwise: `whisper-cli` is already installed in the runtime image (no install step needed). Check for the **multilingual** model at `${WORKSPACE_DIR}/runtime/whisper-models/ggml-medium-q5_1.bin`; if missing, create the directory and download it once: `curl -fL -o <that path> https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_1.bin` — it persists in the workspace runtime so later turns reuse it. Do NOT substitute a `.en`-suffixed model, those are English-only and will mis-transcribe or fail on other languages. Convert to 16kHz mono WAV: `ffmpeg -i <path> -ar 16000 -ac 1 <path>.wav`. Then run `whisper-cli -m <model path> -f <path>.wav --no-timestamps` — if the conversation language is identifiable from context (e.g. the user's prior messages or the language they appear to be speaking), add `--language <ISO 639-1 code>` (e.g. `--language en`, `--language id`, `--language ja`) so whisper uses the correct language model; only omit `--language` if you truly cannot determine the language. Use the printed transcript as the message content.";
-  const uploadedFile =
-    fileLabel +
-    ". Any other `audio/*` attachment (MIME does not contain both `ogg` and `opus` — e.g. mp3, m4a, wav, aac) is an uploaded/shared audio file, not speech directed at you — treat it like a document. Do NOT auto-transcribe it. First reply describing what you received: filename/local path, MIME type, and duration (same `ffprobe` command as above). Only run the transcription flow (same whisper-cli/ffmpeg steps and 15-minute duration guard as above) if the user's accompanying text explicitly asks about the audio's content (e.g. \"what does this say\", \"transcribe this\", \"summarize this recording\").";
-  return [voiceNote, uploadedFile];
-}

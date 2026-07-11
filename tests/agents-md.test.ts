@@ -48,4 +48,9 @@ describe("AGENTS.md", () => {
     // Session context pointer
     expect(agentsMd).toContain("initial_md");
   });
+
+  it("points audio attachments at the listen-speak skill", () => {
+    expect(agentsMd).toContain("## Audio attachments");
+    expect(agentsMd).toContain("catalog/skills/listen-speak/SKILL.md");
+  });
 });

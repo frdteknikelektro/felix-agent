@@ -4,7 +4,7 @@ import { log } from "../../lib/log.js";
 import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
-import { buildAudioAttachmentInstructions, buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { slackMentionToken } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
@@ -177,10 +177,9 @@ class SlackAdapter implements SourceAdapter {
         '  -F "title=<filename>" \\',
         '  "https://slack.com/api/files.upload"',
         "```",
-        ...buildAudioAttachmentInstructions("S4", "S5"),
         ...(ownerMentionToken
           ? [
-              `S6. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
+              `S4. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
             ]
           : []),
       ],

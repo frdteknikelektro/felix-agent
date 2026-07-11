@@ -98,10 +98,7 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
     expect(joined).toContain("never guess or synthesize the mention target");
     expect(joined).toContain("exact `.sender_jid`");
-    // Voice note vs. uploaded audio file distinction (shared buildAudioAttachmentInstructions)
-    expect(joined).toContain("ogg");
-    expect(joined).toContain("opus");
-    expect(joined).toContain("Do NOT auto-transcribe");
+    // Audio instructions live in skills/listen-speak/SKILL.md (covered by listen-speak-skill.test.ts); src/AGENTS.md points there.
     // Default (no shared number): no name prefix in instructions
     expect(joined).not.toContain("[Felix]");
     expect(joined).toContain("dedicated WhatsApp number");

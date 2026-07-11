@@ -75,4 +75,16 @@ describe("agent runtime image contract", () => {
     expect(dockerfile).not.toContain("ARG AGENT_GID");
   });
 
+  it("installs whisper-cli and piper TTS binaries", async () => {
+    const dockerfile = await read("Dockerfile");
+
+    // whisper-cli — speech-to-text
+    expect(dockerfile).toContain("whisper-cli installed ok");
+    expect(dockerfile).toContain("ln -s /opt/whisper.cpp/whisper-cli /usr/local/bin/whisper-cli");
+
+    // piper — text-to-speech
+    expect(dockerfile).toContain("piper installed ok");
+    expect(dockerfile).toContain("ln -s /opt/piper/piper /usr/local/bin/piper");
+  });
+
 });

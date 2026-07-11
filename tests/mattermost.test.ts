@@ -170,10 +170,7 @@ describe("Mattermost source turn context", () => {
     expect(text).toContain("export FILE_ID");
     expect(text).toContain("root_id");
     expect(text).toContain("files=@${ARTIFACT_PATH}");
-    // Voice note vs. uploaded audio file distinction (shared buildAudioAttachmentInstructions)
-    expect(text).toContain("ogg");
-    expect(text).toContain("opus");
-    expect(text).toContain("Do NOT auto-transcribe");
+    // Audio instructions live in skills/listen-speak/SKILL.md (covered by listen-speak-skill.test.ts); src/AGENTS.md points there.
   });
 
   it("instructs mentioning the owner when an owner username is configured", async () => {

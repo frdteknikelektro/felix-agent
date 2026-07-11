@@ -44,34 +44,37 @@ RUN apt-get update \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite
+# Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite.
+# Single self-contained binary, so it extracts straight to /usr/local/bin (no /opt dir).
 ARG WACLI_VERSION=0.11.1
 RUN arch="$(uname -m)" \
     && case "$arch" in \
-         aarch64) tarch=arm64 ;; \
-         armv7l)  tarch=arm ;; \
-         *)       tarch=amd64 ;; \
+         aarch64) asset_arch=arm64 ;; \
+         armv7l)  asset_arch=arm ;; \
+         x86_64)  asset_arch=amd64 ;; \
+         *)       echo "wacli: no prebuilt release for $arch" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/openclaw/wacli/releases/download/v${WACLI_VERSION}/wacli_${WACLI_VERSION}_linux_${tarch}.tar.gz" \
+    && curl -fsSL "https://github.com/openclaw/wacli/releases/download/v${WACLI_VERSION}/wacli_${WACLI_VERSION}_linux_${asset_arch}.tar.gz" \
          -o /tmp/wacli.tar.gz \
     && tar -xzf /tmp/wacli.tar.gz -C /usr/local/bin wacli \
     && rm /tmp/wacli.tar.gz \
     && chmod +x /usr/local/bin/wacli \
-    && wacli --version
+    && wacli --version \
+    && echo "wacli installed ok"
 
 # Install whisper.cpp CLI (speech-to-text transcription, available to every source
 # adapter) — prebuilt release binary + its sibling shared libs (ggml's CPU backends
 # dispatch by runtime cpuid, so all variants ship together); trimmed of the unrelated
-# parakeet/test/bench/server binaries. No model is baked in here — adapters download one
-# on first use (see buildAudioAttachmentInstructions in src/core/harness-common.ts).
+# parakeet/test/bench/server binaries. No model is baked in here — the LLM downloads
+# one on first use (see skills/listen-speak/SKILL.md § STT).
 ARG WHISPER_CPP_VERSION=1.9.1
 RUN arch="$(uname -m)" \
     && case "$arch" in \
-         aarch64) wtarch=arm64 ;; \
-         x86_64)  wtarch=x64 ;; \
+         aarch64) asset_arch=arm64 ;; \
+         x86_64)  asset_arch=x64 ;; \
          *)       echo "whisper.cpp: no prebuilt release for $arch" >&2; exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/ggml-org/whisper.cpp/releases/download/v${WHISPER_CPP_VERSION}/whisper-bin-ubuntu-${wtarch}.tar.gz" \
+    && curl -fsSL "https://github.com/ggml-org/whisper.cpp/releases/download/v${WHISPER_CPP_VERSION}/whisper-bin-ubuntu-${asset_arch}.tar.gz" \
          -o /tmp/whisper.tar.gz \
     && mkdir -p /opt/whisper.cpp \
     && tar -xzf /tmp/whisper.tar.gz -C /opt/whisper.cpp --strip-components=1 \
@@ -83,6 +86,26 @@ RUN arch="$(uname -m)" \
     && ln -s /opt/whisper.cpp/whisper-cli /usr/local/bin/whisper-cli \
     && whisper-cli --help 2>&1 | grep -qi "usage" \
     && echo "whisper-cli installed ok"
+
+# Install piper TTS (text-to-speech synthesis) — prebuilt release binary.
+# No voice model is baked in; the LLM downloads one on first use via the
+# listen-speak skill (skills/listen-speak/SKILL.md). Smoke test is executability
+# only — piper needs a voice model for any real invocation.
+ARG PIPER_VERSION=2023.11.14-2
+RUN arch="$(uname -m)" \
+    && case "$arch" in \
+         aarch64) asset_arch=aarch64 ;; \
+         x86_64)  asset_arch=x86_64 ;; \
+         *)       echo "piper: no prebuilt release for $arch" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_${asset_arch}.tar.gz" \
+         -o /tmp/piper.tar.gz \
+    && mkdir -p /opt/piper \
+    && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
+    && rm /tmp/piper.tar.gz \
+    && ln -s /opt/piper/piper /usr/local/bin/piper \
+    && test -x /opt/piper/piper \
+    && echo "piper installed ok"
 
 # --only-binary=:all: — the image ships no compiler, so a source-dist fallback would
 # fail obscurely mid-build; force prebuilt wheels and fail loudly at resolve time instead.

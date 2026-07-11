@@ -96,6 +96,7 @@ Stable Runtime capabilities:
 - Basic image and PDF utility work
 - Audio/video probing and transcoding (`ffmpeg`/`ffprobe`)
 - Speech-to-text CLI (`whisper-cli`, multilingual model fetched on first use)
+- Text-to-speech CLI (`piper`, voice model fetched on first use)
 - Shell, network, archive, and compression utilities
 - Git/project editing basics
 - Shared runtime tooling under `workspace/runtime/`

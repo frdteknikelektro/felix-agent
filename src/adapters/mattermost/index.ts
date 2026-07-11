@@ -6,7 +6,7 @@ import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../
 import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
-import { buildAudioAttachmentInstructions, buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { mattermostMentionToken, mattermostMentionTokens, normalizeMattermostName } from "./mentions.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
@@ -208,10 +208,9 @@ class MattermostAdapter implements SourceAdapter {
         '  -d "$PAYLOAD" \\',
         '  "$MATTERMOST_URL/api/v4/posts"',
         "```",
-        ...buildAudioAttachmentInstructions("M4", "M5"),
         ...(ownerMentionToken
           ? [
-              `M6. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
+              `M4. If you emit PERMISSION_REQUIRED, include this exact mention token in your preceding FELIX_REPLY: ${ownerMentionToken}. Never fabricate a different owner mention, and never mention the owner in any other circumstance.`,
             ]
           : []),
       ],
