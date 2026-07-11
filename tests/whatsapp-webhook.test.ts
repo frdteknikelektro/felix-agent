@@ -670,4 +670,191 @@ exit 1
       expect(result.body).toHaveProperty("ignored", "self_reaction");
     });
   });
+
+  describe("reply-to-Felix detection", () => {
+    it("non-FromMe reply to a Felix message in a group triggers the agent", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-felix-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      // Fake wacli: return *[Felix]* prefix for the replied-to message (shared mode)
+      await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  if [ "$6" = "felix-original-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"owner@s.whatsapp.net","Text":"*[Felix]* Here is your answer"}}\\n' "$4" "$6"
+  else
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  fi
+  exit 0
+fi
+exit 1
+`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "group@g.us",
+          ID: "reply-to-felix",
+          FromMe: false,
+          ReplyToID: "felix-original-msg",
+          Text: "Tell me more",
+          SenderJID: "someone@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+      const ingestedEvent = localIngest.mock.calls[0][0];
+      expect(ingestedEvent.mentions_bot).toBe(true);
+    });
+
+    it("FromMe reply to a Felix message in shared-number mode triggers the agent", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-shared-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  if [ "$6" = "felix-shared-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"owner@s.whatsapp.net","Text":"*[Felix]* Here is your answer"}}\\n' "$4" "$6"
+  else
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  fi
+  exit 0
+fi
+exit 1
+`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "group@g.us",
+          ID: "owner-reply",
+          FromMe: true,
+          ReplyToID: "felix-shared-msg",
+          Text: "Thanks!",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+      const ingestedEvent = localIngest.mock.calls[0][0];
+      expect(ingestedEvent.mentions_bot).toBe(true);
+    });
+
+    it("reply to a non-Felix message without @mention is dispatched with mentions_bot=false", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-other-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  if [ "$6" = "other-user-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"other@s.whatsapp.net","Text":"random message"}}\\n' "$4" "$6"
+  else
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  fi
+  exit 0
+fi
+exit 1
+`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "group@g.us",
+          ID: "reply-to-other",
+          FromMe: false,
+          ReplyToID: "other-user-msg",
+          Text: "I agree",
+          SenderJID: "someone@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+      // Event is dispatched but with mentions_bot=false — the engine will drop it
+      const ingestedEvent = localIngest.mock.calls[0][0];
+      expect(ingestedEvent.mentions_bot).toBe(false);
+    });
+
+    it("reply to Felix message with failed fetch falls through with mentions_bot=false", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-fail-", {
+        WHATSAPP_BOT_NAME: "Felix",
+      });
+      await installFakeWacli(cfg, `exit 1`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "group@g.us",
+          ID: "reply-fetch-fail",
+          FromMe: false,
+          ReplyToID: "some-msg",
+          Text: "hello",
+          SenderJID: "someone@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+      // Fetch failed, so mentions_bot stays false — the engine will drop it
+      const ingestedEvent = localIngest.mock.calls[0][0];
+      expect(ingestedEvent.mentions_bot).toBe(false);
+    });
+
+    it("DM reply to a Felix message in shared-number mode triggers the agent", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-dm-", {
+        WHATSAPP_BOT_NAME: "Felix",
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+      });
+      await installFakeWacli(cfg, `
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  if [ "$6" = "felix-dm-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"owner@s.whatsapp.net","Text":"*[Felix]* Your answer is 42"}}\\n' "$4" "$6"
+  else
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  fi
+  exit 0
+fi
+exit 1
+`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+
+      const result = await sendWebhook(
+        cfg,
+        localEngine,
+        JSON.stringify({
+          Chat: "1234567890@s.whatsapp.net",
+          ID: "dm-reply",
+          FromMe: true,
+          ReplyToID: "felix-dm-msg",
+          Text: "What about 43?",
+          SenderJID: "owner@s.whatsapp.net",
+        }),
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toHaveProperty("ok", true);
+      await new Promise((r) => setTimeout(r, 100));
+      expect(localIngest).toHaveBeenCalled();
+      const ingestedEvent = localIngest.mock.calls[0][0];
+      expect(ingestedEvent.mentions_bot).toBe(true);
+    });
+  });
 });

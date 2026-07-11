@@ -52,6 +52,7 @@ const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
 let webhookSecret: string | null = null;
 let ownerSharesNumber = true;
+let botJid: string | undefined;
 let lastSendAt = 0;
 // Typing presence is per-conversation: a typing indicator in one chat must not
 // suppress one in another. Sends stay globally rate-limited (see lastSendAt).
@@ -328,6 +329,63 @@ function canReplaceChatJid(original: string, resolved: string): boolean {
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+// ─── Reply-to-Felix detection ─────────────────────────────────────────────────
+
+export interface ReplyTargetInfo {
+  senderJid: string;
+  text: string;
+  mediaCaption: string;
+}
+
+function fetchReplyTarget(
+  cfg: AppConfig,
+  chatJid: string,
+  replyToId: string,
+): ReplyTargetInfo | null {
+  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
+    "messages", "show",
+    "--chat", chatJid,
+    "--id", replyToId,
+    "--json",
+  ], {
+    encoding: "utf8",
+    timeout: 3_000,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) return null;
+
+  let parsed: WacliMessageShowResponse;
+  try {
+    parsed = JSON.parse(result.stdout || "{}") as WacliMessageShowResponse;
+  } catch {
+    return null;
+  }
+
+  const data = parsed.data;
+  if (!parsed.success || !data || data.MsgID !== replyToId) return null;
+
+  return {
+    senderJid: data.SenderJID ?? "",
+    text: data.Text ?? "",
+    mediaCaption: data.MediaCaption ?? "",
+  };
+}
+
+export function isFelixMessage(
+  target: ReplyTargetInfo,
+  botName: string,
+): boolean {
+  // Dedicated number mode: SenderJID matches the bot's own JID
+  if (botJid && target.senderJid === botJid) return true;
+
+  // Shared number mode: text or caption starts with *[BotName]*
+  const prefix = `*[${botName}]*`;
+  if (target.text.startsWith(prefix)) return true;
+  if (target.mediaCaption.startsWith(prefix)) return true;
+
+  return false;
 }
 
 // ─── Tracked owner-decision dispatch ──────────────────────────────────────────
@@ -611,6 +669,15 @@ export async function handleWhatsAppWebhook(
       log.info("whatsapp.reply_untracked", { reply_target: replyTarget.slice(0, 40) });
     }
 
+    // ── Reply-to-Felix detection (shared number) ─────────────────────
+    let replyToBot = false;
+    if (payload.ReplyToID && ownerSharesNumber) {
+      const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
+      if (target && isFelixMessage(target, botName)) {
+        replyToBot = true;
+      }
+    }
+
     // ── Owner using the same number ──────────────────────────────────
     if (ownerSharesNumber) {
       // Media-only self-message (no text/caption) — bot's own outgoing file
@@ -625,9 +692,18 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "empty_event" });
         return;
       }
+      // If replying to a Felix message, treat as if mentioned
+      if (replyToBot) {
+        event.mentions_bot = true;
+      }
       // Shared number: owner and bot share the same JID. Use a distinct
       // sender ID so isOwnMessage doesn't drop owner messages from queue.
       event.sender.id = `owner:${event.sender.id}`;
+      // Clean up media for group messages Felix won't process
+      const isGroup = isWhatsAppGroupJid(chatJid);
+      if (payload.Media && !replyToBot && isGroup) {
+        void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
+      }
       sendJson(res, 200, { ok: true });
       void dispatchResolvedWhatsAppEvent(cfg, engine, event).catch((error) => {
         log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
@@ -687,10 +763,24 @@ export async function handleWhatsAppWebhook(
     return;
   }
 
+  // ── Reply-to-Felix detection (non-FromMe) ──────────────────────────
+  let replyToBot = false;
+  if (payload.ReplyToID && !payload.FromMe) {
+    const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
+    if (target && isFelixMessage(target, botName)) {
+      replyToBot = true;
+    }
+  }
+
   const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
+  }
+
+  // If replying to a Felix message, treat as if mentioned
+  if (replyToBot) {
+    event.mentions_bot = true;
   }
 
   sendJson(res, 200, { ok: true });
@@ -795,6 +885,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ? this.cfg.WHATSAPP_OWNER_JID.startsWith(authOk.jid.split("@")[0])
       : true;
     ownerSharesNumber = this.sameNumber;
+    botJid = authOk.jid;
 
     const secret = this.cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomUUID();
     setWebhookSecret(secret);
@@ -877,7 +968,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
     return {
       behaviorInstructions: [
-        `W1. Only answer when @mentioned by name ${mentionHow}. If not mentioned, output nothing — no FELIX_REPLY, no explanation.`,
+        `W1. Answer when @mentioned by name ${mentionHow} or when a user replies directly to one of your messages. If neither condition is met, output nothing — no FELIX_REPLY, no explanation.`,
         "W2. Fetch WhatsApp chat context if needed before answering:",
         "```bash",
         `wacli messages list --chat "${chatJid}" --limit 100 --json`,

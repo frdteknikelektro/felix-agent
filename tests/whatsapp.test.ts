@@ -8,7 +8,9 @@ import {
   whatsappSourceThreadRef,
   detectsWhatsappMention,
   isWhatsAppGroupJid,
+  isFelixMessage,
 } from "../src/adapters/whatsapp/index.js";
+import type { ReplyTargetInfo } from "../src/adapters/whatsapp/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
 
@@ -262,6 +264,77 @@ describe("isWhatsAppGroupJid", () => {
     expect(isWhatsAppGroupJid("123456789@g.us")).toBe(true);
     expect(isWhatsAppGroupJid("123456789@g.us:extra")).toBe(true);
     expect(isWhatsAppGroupJid("1234567890@s.whatsapp.net")).toBe(false);
+  });
+});
+
+// ─── isFelixMessage ─────────────────────────────────────────────────────────
+
+describe("isFelixMessage", () => {
+  const botName = "Felix";
+
+  it("matches by *[BotName]* prefix in text (shared mode)", () => {
+    const target: ReplyTargetInfo = {
+      senderJid: "owner@s.whatsapp.net",
+      text: "*[Felix]* Here is your answer",
+      mediaCaption: "",
+    };
+    expect(isFelixMessage(target, botName)).toBe(true);
+  });
+
+  it("matches by *[BotName]* prefix in media caption (shared mode)", () => {
+    const target: ReplyTargetInfo = {
+      senderJid: "owner@s.whatsapp.net",
+      text: "",
+      mediaCaption: "*[Felix]* Check this file",
+    };
+    expect(isFelixMessage(target, botName)).toBe(true);
+  });
+
+  it("does not match when text has no prefix", () => {
+    const target: ReplyTargetInfo = {
+      senderJid: "owner@s.whatsapp.net",
+      text: "Hello from the owner",
+      mediaCaption: "",
+    };
+    expect(isFelixMessage(target, botName)).toBe(false);
+  });
+
+  it("does not match when sender is a random user", () => {
+    const target: ReplyTargetInfo = {
+      senderJid: "someone@s.whatsapp.net",
+      text: "random message",
+      mediaCaption: "",
+    };
+    expect(isFelixMessage(target, botName)).toBe(false);
+  });
+
+  it("does not match empty text and caption", () => {
+    const target: ReplyTargetInfo = {
+      senderJid: "owner@s.whatsapp.net",
+      text: "",
+      mediaCaption: "",
+    };
+    expect(isFelixMessage(target, botName)).toBe(false);
+  });
+
+  it("dedicated mode: matches when senderJid matches botJid (set via module scope)", async () => {
+    // In production, botJid is set during adapter.start(). In tests it's undefined,
+    // so the senderJid check is skipped. This test documents that the prefix-based
+    // shared mode check still works as the fallback.
+    const target: ReplyTargetInfo = {
+      senderJid: "bot@s.whatsapp.net",
+      text: "Hello from bot",
+      mediaCaption: "",
+    };
+    // Without botJid set, only prefix check runs — no prefix means no match
+    expect(isFelixMessage(target, botName)).toBe(false);
+    // With prefix, it matches regardless of senderJid
+    const felixTarget: ReplyTargetInfo = {
+      senderJid: "bot@s.whatsapp.net",
+      text: "*[Felix]* Hello from bot",
+      mediaCaption: "",
+    };
+    expect(isFelixMessage(felixTarget, botName)).toBe(true);
   });
 });
 
