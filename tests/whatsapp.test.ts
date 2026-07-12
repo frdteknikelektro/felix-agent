@@ -102,6 +102,10 @@ describe("WhatsAppAdapter getTurnContext", () => {
     // Default (no shared number): no name prefix is baked into the caption
     // template because the dedicated number already identifies the bot.
     expect(joined).not.toContain("[Felix]");
+    // W6 tells the LLM to keep replies short and to fall back to file
+    // attachments for longer outputs.
+    expect(joined).toContain("Keep WhatsApp replies concise");
+    expect(joined).toContain("use `wacli send file` to send it as an attachment");
   });
 
   it("bakes the bot name prefix into the caption template when the bot shares the owner's number", async () => {

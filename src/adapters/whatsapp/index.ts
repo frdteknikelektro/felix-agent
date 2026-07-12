@@ -986,7 +986,7 @@ class WhatsAppAdapter implements SourceAdapter {
         `  --caption "${prefix}<optional caption>"`,
         "```",
         "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering — do NOT describe an image from metadata alone. Use `identify <path>` / `exiftool <path>` only for supplementary metadata (dimensions, EXIF). For other files use `file <path>` to identify the type and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
-        "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+        "W6. Keep WhatsApp replies concise (≤ 500 characters preferred; Telegram's hard text limit is 4096). WhatsApp is a mobile-first platform — long messages degrade readability. For longer outputs (code, logs, stack traces, large file contents), write the content to a file in the session attachments directory and use `wacli send file` to send it as an attachment instead of inlining it in the chat message.",
         ...(ownerMentionInstruction ? [ownerMentionInstruction] : []),
       ],
     };
