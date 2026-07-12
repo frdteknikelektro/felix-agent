@@ -68,14 +68,16 @@ export class FelixEngine {
       await this.persistRawIgnored(event);
       return;
     }
+    const isNew = !thread;
     const threadHandle = thread ?? (await createOrLoadThread(this.cfg, event));
-    await this.handleEventAcceptance(threadHandle, event, adapter);
+    await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
   }
 
   private async handleEventAcceptance(
     thread: ThreadHandle,
     event: UniversalEvent,
     adapter: SourceAdapter,
+    opts?: { isNew?: boolean },
   ): Promise<void> {
     if (!this.shouldAccept(thread, event)) {
       await this.persistRawIgnored(event);
@@ -89,6 +91,10 @@ export class FelixEngine {
         source: event.source,
       });
       return;
+    }
+
+    if (opts?.isNew) {
+      await this.notifyOwnerNewThread(thread, event, adapter);
     }
 
     if (FelixEngine.isStopCommand(event)) {
@@ -549,7 +555,38 @@ export class FelixEngine {
       discord: this.cfg.DISCORD_OWNER_DISPLAY,
       slack: this.cfg.SLACK_OWNER_DISPLAY,
       whatsapp: this.cfg.WHATSAPP_OWNER_DISPLAY,
+      telegram: this.cfg.TELEGRAM_OWNER_DISPLAY,
     };
     return map[source];
+  }
+
+  private async notifyOwnerNewThread(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): Promise<void> {
+    // Skip if sender is the owner (owner initiated the conversation)
+    if (adapter.ownerUserId && adapter.ownerUserId === event.sender.id) return;
+
+    const ownerId = adapter.ownerUserId;
+    if (!ownerId) return;
+
+    const mention = event.sender.display
+      ? `${event.sender.display} (${event.sender.id})`
+      : event.sender.id;
+    const preview = event.text?.trim() || "[media]";
+    const truncated = preview.length > 100 ? `${preview.slice(0, 100)}...` : preview;
+    const threadLink = await adapter.getThreadLink(thread.state.thread_key).catch(() => undefined);
+    const linkPart = threadLink ? `\n${threadLink}` : "";
+    const text = `New thread by ${mention}.\n"${truncated}"${linkPart}`;
+
+    try {
+      await adapter.sendUserMessage({ userId: ownerId, text });
+    } catch (error) {
+      log.warn("thread.new_notification_failed", {
+        thread_key: thread.state.thread_key,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
