@@ -667,13 +667,13 @@ class TelegramAdapter implements SourceAdapter {
     if (!chatId) return;
     const messageId = input.event.event_id;
 
-    // "processing" → set reaction 🔥; everything else → remove it
+    // "processing" → set reaction 👀; everything else → remove it
     if (input.status === "processing") {
       await this.waitForSendSlot();
       await this.apiCall("setMessageReaction", {
         chat_id: chatId,
         message_id: Number(messageId),
-        reaction: JSON.stringify([{ type: "emoji", emoji: "🔥" }]),
+        reaction: JSON.stringify([{ type: "emoji", emoji: "👀" }]),
       });
     } else {
       await this.waitForSendSlot();
