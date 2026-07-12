@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { withBase } from "./base";
 import type { DashboardSnapshot } from "./types";
 
 export type StreamStatus = "connecting" | "live" | "reconnecting";
@@ -20,7 +21,7 @@ export function useDashboardStream(onUnauthorized?: () => void): {
 
   useEffect(() => {
     let closed = false;
-    const es = new EventSource("/events/dashboard", { withCredentials: true });
+    const es = new EventSource(withBase("/events/dashboard"), { withCredentials: true });
 
     es.addEventListener("open", () => {
       if (!closed) setStatus("live");
@@ -36,7 +37,7 @@ export function useDashboardStream(onUnauthorized?: () => void): {
     es.onerror = () => {
       if (closed) return;
       setStatus("reconnecting");
-      void fetch("/api/audit", { credentials: "include" })
+      void fetch(withBase("/api/audit"), { credentials: "include" })
         .then((res) => {
           if (res.status === 401) onUnauthRef.current?.();
         })

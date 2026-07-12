@@ -2,6 +2,8 @@
 // session; a 401 means the session expired, which the app turns into a redirect
 // to /login.
 
+import { withBase } from "./base";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -19,7 +21,7 @@ export class UnauthorizedError extends ApiError {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(withBase(path), {
     method,
     credentials: "include",
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
