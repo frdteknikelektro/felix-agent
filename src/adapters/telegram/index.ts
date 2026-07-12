@@ -36,6 +36,17 @@ export function startTelegramSource(
 
 // ─── Webhook handler (module-level, imported by app.ts) ───────────────────────
 
+// Module-level singleton for webhook mode — shares the dedup cache and rate
+// limiter across webhook requests instead of creating a new adapter per call.
+let webhookAdapter: TelegramAdapter | null = null;
+
+function getWebhookAdapter(cfg: AppConfig): TelegramAdapter {
+  if (!webhookAdapter) {
+    webhookAdapter = new TelegramAdapter(cfg);
+  }
+  return webhookAdapter;
+}
+
 export async function handleTelegramWebhook(
   cfg: AppConfig,
   engine: FelixEngine,
@@ -64,21 +75,10 @@ export async function handleTelegramWebhook(
 
   sendJson(res, 200, { ok: true });
 
-  // Process asynchronously — Telegram expects a quick 200 response
-  void processWebhookUpdate(cfg, engine, update).catch((error) => {
+  const adapter = getWebhookAdapter(cfg);
+  void adapter.processUpdate(engine, update).catch((error) => {
     log.warn("telegram.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
   });
-}
-
-async function processWebhookUpdate(
-  cfg: AppConfig,
-  engine: FelixEngine,
-  update: TelegramUpdate,
-): Promise<void> {
-  // Webhook mode uses the same processing logic as polling mode
-  // but we need a temporary adapter instance for sending
-  const adapter = new TelegramAdapter(cfg);
-  await adapter.processUpdate(engine, update);
 }
 
 // ─── Module-level helpers ─────────────────────────────────────────────────────
