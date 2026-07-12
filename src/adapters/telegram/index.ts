@@ -656,7 +656,7 @@ class TelegramAdapter implements SourceAdapter {
         '  -F "document=@${ARTIFACT_PATH}" \\',
         `  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument"`,
         "```",
-        "T4. Keep Telegram replies concise. Long messages degrade readability on mobile.",
+        "T4. Keep Telegram replies concise (≤ 500 characters preferred; Telegram's hard text limit is 4096). Long messages degrade readability on mobile. For longer outputs (code, logs, stack traces, large file contents), write the content to a file in the session attachments directory and use `sendDocument` to upload it instead of inlining it in the chat message.",
         "T5. When a user sends media (photo, document, voice, video), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering.",
         ...(ownerMentionToken
           ? [
