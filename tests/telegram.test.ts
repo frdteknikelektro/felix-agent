@@ -42,10 +42,11 @@ describe("TelegramAdapter getTurnContext", () => {
     expect(joined).toContain("T2.");
     expect(joined).toContain("sendMessage");
     expect(joined).toContain("sendDocument");
-    // T4 keeps replies short and points the LLM at file attachments for
-    // longer outputs.
+    // T4 keeps replies short; T4b points the LLM at file attachments for
+    // longer outputs (split into two instructions for readability).
     expect(joined).toContain("Keep Telegram replies concise");
     expect(joined).toContain("4096");
+    expect(joined).toContain("T4b.");
     expect(joined).toContain("use `sendDocument` to upload it");
   });
 });

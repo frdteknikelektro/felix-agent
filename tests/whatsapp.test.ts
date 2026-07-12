@@ -103,8 +103,11 @@ describe("WhatsAppAdapter getTurnContext", () => {
     // template because the dedicated number already identifies the bot.
     expect(joined).not.toContain("[Felix]");
     // W6 tells the LLM to keep replies short and to fall back to file
-    // attachments for longer outputs.
+    // attachments for longer outputs. The hard-limit mention should refer
+    // to WhatsApp's own limit, not Telegram's.
     expect(joined).toContain("Keep WhatsApp replies concise");
+    expect(joined).toContain("WhatsApp's hard text limit is 65,536");
+    expect(joined).not.toContain("Telegram's hard text limit");
     expect(joined).toContain("use `wacli send file` to send it as an attachment");
   });
 
