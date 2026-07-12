@@ -99,12 +99,15 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("never guess or synthesize the mention target");
     expect(joined).toContain("exact `.sender_jid`");
     // Audio instructions live in skills/listen-speak/SKILL.md (covered by listen-speak-skill.test.ts); src/AGENTS.md points there.
-    // Default (no shared number): no name prefix in instructions
+    // Default (no shared number): LLM is told NOT to add a name prefix; the
+    // adapter leaves messages untouched because the dedicated number already
+    // identifies the bot.
     expect(joined).not.toContain("[Felix]");
-    expect(joined).toContain("dedicated WhatsApp number");
+    expect(joined).toContain("do NOT add a name prefix");
+    expect(joined).toContain("adapter adds the bot's identity prefix");
   });
 
-  it("instructs the name prefix only when the bot shares the owner's number", async () => {
+  it("tells the LLM not to add a name prefix when the bot shares the owner's number", async () => {
     const cfg = await makeTestConfig("wa-turnctx-shared-", {
       WHATSAPP_BOT_NAME: "Felix",
     });
@@ -135,7 +138,15 @@ describe("WhatsAppAdapter getTurnContext", () => {
     const joined = ctx.behaviorInstructions.join("\n");
     expect(joined).toContain("shares a WhatsApp number");
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
-    expect(joined).toContain("prefix in file captions");
+    // The LLM is no longer told to add the prefix manually — the adapter's
+    // static send paths (sendThreadReply / sendUserMessage) own it.
+    expect(joined).toContain("do NOT add a name prefix");
+    expect(joined).toContain("adapter adds the bot's identity prefix");
+    // The old "MUST start with the *[Felix]*" instruction is gone.
+    expect(joined).not.toContain("MUST start with the *[Felix]*");
+    // Caption template still bakes the prefix in for file uploads so `wacli
+    // send file` carries it even though the LLM no longer types it.
+    expect(joined).toContain(`*[Felix]*\n<optional caption>`);
   });
 
   it("instructs mentioning the owner via wacli --mention when an owner jid is configured", async () => {

@@ -954,11 +954,14 @@ class WhatsAppAdapter implements SourceAdapter {
       : `(e.g. \`@${botName}\`)`;
     // Only prefix messages when the bot shares a number with its owner — on a
     // dedicated number the sender already identifies the bot. Mirrors the
-    // adapter's own send paths (sendThreadReply / sendUserMessage).
+    // adapter's own send paths (sendThreadReply / sendUserMessage). The
+    // caption template below bakes the prefix in so file uploads carry it
+    // even when sent via `wacli send file`.
     const prefix = this.sameNumber ? `*[${botName}]*\n` : "";
-    const w4 = this.sameNumber
-      ? `W4. This bot shares a WhatsApp number with its owner, so every outgoing message MUST start with the *[${botName}]* prefix — on every send, including any intermediate or supplementary message — to distinguish the bot's messages from the owner's. Send intermediate/progress messages as needed per the output contract.`
-      : `W4. This bot has its own dedicated WhatsApp number — do NOT add any name prefix to messages. Send intermediate/progress messages as needed per the output contract.`;
+    // Prefix is applied transparently by the adapter — the LLM must not add
+    // it. This keeps WhatsApp replies looking like any other channel,
+    // regardless of sameNumber mode.
+    const w4 = `W4. WhatsApp replies look like any other channel — do NOT add a name prefix to messages. The adapter adds the bot's identity prefix automatically when the bot shares a WhatsApp number with its owner.`;
     const ownerJid = this.cfg.WHATSAPP_OWNER_JID;
     const ownerMentionInstruction =
       ownerJid && !this.sameNumber
@@ -986,7 +989,6 @@ class WhatsAppAdapter implements SourceAdapter {
         '  --file "<path under session artifact directory>" \\',
         `  --caption "${prefix}<optional caption>"`,
         "```",
-        ...(this.sameNumber ? [`Always include the *[${botName}]* prefix in file captions.`] : []),
         "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering — do NOT describe an image from metadata alone. Use `identify <path>` / `exiftool <path>` only for supplementary metadata (dimensions, EXIF). For other files use `file <path>` to identify the type and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
         "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
         ...(ownerMentionInstruction ? [ownerMentionInstruction] : []),
