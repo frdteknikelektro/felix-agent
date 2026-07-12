@@ -1,5 +1,6 @@
-import type { ContactRecord, SessionQueueItem, UniversalEvent } from "../types.js";
+import type { ContactRecord, SessionQueueItem, SkillRecord, UniversalEvent } from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
+import { permissionSatisfied } from "../slices/skills/index.js";
 import type { PermissionRequiredOutput, TurnResult } from "./ports.js";
 import { decideTurnResult } from "./decide-turn.js";
 
@@ -32,6 +33,7 @@ export interface TurnOutcomeInput {
   event: UniversalEvent;
   item: SessionQueueItem;
   contact: ContactRecord;
+  skills: SkillRecord[];
   result: TurnResult;
   resumed: boolean;
   retriedFreshStart: boolean;
@@ -160,7 +162,7 @@ async function handleFormatRetry(input: TurnOutcomeInput): Promise<TurnOutcomeRe
 }
 
 async function applySuccessfulOutcome(
-  input: Pick<TurnOutcomeInput, "thread" | "event" | "contact" | "ports">,
+  input: Pick<TurnOutcomeInput, "thread" | "event" | "contact" | "skills" | "ports">,
   result: TurnResult,
 ): Promise<void> {
   await input.ports.recordTurnWithUsage(input.thread, input.event, result);
@@ -171,10 +173,13 @@ async function applySuccessfulOutcome(
 
   const permOutput = result.parsed as PermissionRequiredOutput;
   const skillId = permOutput.skillId ?? "(unknown)";
+  // skillId is LLM-emitted; a lookup miss (unknown/mistyped id) must degrade to
+  // exact-only matching — re-escalating to the owner, never widening access.
+  const declared = input.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
   const bareMissing = (permOutput.permissions ?? []).filter(
     (p) => {
       const namespaced = p.includes(":") ? p : `${skillId}:${p}`;
-      return !input.contact.allowed_permissions.includes(namespaced);
+      return !permissionSatisfied(input.contact.allowed_permissions, namespaced, declared);
     },
   );
   if (bareMissing.length === 0) {

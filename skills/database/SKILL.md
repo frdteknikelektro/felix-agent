@@ -11,9 +11,9 @@ kind: operational
 permissions:
   - connection.read
   - connection.write
-  - read
-  - write
-  - admin
+  - read.*
+  - write.*
+  - admin.*
 match:
   - database
   - query
@@ -37,15 +37,12 @@ match:
 
 `connection.read`/`connection.write` are global, not per-alias — `database:connection.read` and `database:connection.write` (no alias suffix). They gate the connection **config file itself** (workspace/databases/connections/<alias>.json) — unrelated to `read`/`write`/`admin`, which gate query execution against the connection's target database.
 
-`read`/`write`/`admin` scope to a connection alias or wildcard:
+`read`/`write`/`admin` are scoped by connection alias:
 
 - `database:read.prod-pg` — read access to one connection.
-- `database:write.staging-*` — write access to connections matching pattern.
-- `database:read.*` — read access to all connections.
+- `database:read.*` — read access to all connections (full wildcard only; no partial patterns).
 
-Wildcard matching: `database:read.*` matches any `database:read.<alias>`. The contact's `allowed_permissions` is checked at runtime — the server-computed `permissions_per_skill` block is authoritative for base permissions; connection-specific checks are skill-resolved.
-
-Emit `PERMISSION_REQUIRED` with the narrowest permission the current operation needs.
+The server-computed `permissions_per_skill` block is authoritative: for these scoped permissions its `have=[...]` lists the contact's actual grants. Check that the alias the current operation targets is covered — an exact `read.<alias>` grant or the `read.*` wildcard. If it is not, emit `PERMISSION_REQUIRED` with the narrowest permission the operation needs (e.g. `read.prod-pg`, not `read.*`).
 
 ## Connection management
 
@@ -63,7 +60,7 @@ CRUD on connection config files:
    Completion: exactly one connection file resolved, or user corrected the target.
 
 2. **Check permission.**
-   Determine the operation type (read, write, admin) and check the contact's `allowed_permissions` for `database:<tier>.<alias>` or `database:<tier>.*`. If the operation is connection-config CRUD rather than a query, follow **Connection management** above instead. If the server-computed `permissions_per_skill` block shows `have=[...]` with the base permission, proceed to connection-specific check. If missing, emit `PERMISSION_REQUIRED` and stop.
+   Determine the operation type (read, write, admin). If the operation is connection-config CRUD rather than a query, follow **Connection management** above instead. Check the server-computed `permissions_per_skill` block's `have=[...]` for `<tier>.<alias>` (exact) or `<tier>.*` (wildcard) covering the resolved connection. If neither is present, emit `PERMISSION_REQUIRED` for `<tier>.<alias>` and stop.
    Completion: permission verified or `PERMISSION_REQUIRED` emitted.
 
 3. **Establish connection.**

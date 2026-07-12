@@ -7,7 +7,7 @@ import {
 } from "../src/core/turn-outcome.js";
 import type { PermissionRequiredOutput, TurnResult } from "../src/core/ports.js";
 import type { ThreadHandle } from "../src/slices/sessions/index.js";
-import type { ContactRecord, SessionQueueItem, UniversalEvent } from "../src/types.js";
+import type { ContactRecord, SessionQueueItem, SkillRecord, UniversalEvent } from "../src/types.js";
 
 function makeThread(): ThreadHandle {
   return {
@@ -63,6 +63,10 @@ function makeContact(allowed_permissions: string[] = []): ContactRecord {
   };
 }
 
+function makeSkill(id: string, permissions: string[]): SkillRecord {
+  return { id, permissions, path: `/tmp/catalog/skills/${id}/SKILL.md`, body: "" };
+}
+
 function makeResult(overrides: Partial<TurnResult> = {}): TurnResult {
   return {
     sessionId: "session-1",
@@ -96,6 +100,7 @@ function makePorts(overrides: Partial<TurnOutcomePorts> = {}): TurnOutcomePorts 
 async function runOutcome(input: {
   result: TurnResult;
   contact?: ContactRecord;
+  skills?: SkillRecord[];
   resumed?: boolean;
   retriedFreshStart?: boolean;
   ports?: TurnOutcomePorts;
@@ -109,6 +114,7 @@ async function runOutcome(input: {
     event,
     item,
     contact: input.contact ?? makeContact(),
+    skills: input.skills ?? [],
     result: input.result,
     resumed: input.resumed ?? false,
     retriedFreshStart: input.retriedFreshStart ?? false,
@@ -226,6 +232,75 @@ describe("handleTurnOutcome", () => {
     expect(outcome.kind).toBe("complete");
     expect(ports.autoGrantPermission).toHaveBeenCalledWith(thread, event, result.sessionId);
     expect(ports.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("auto-grants a scoped request covered by the declared wildcard grant", async () => {
+    const parsed: PermissionRequiredOutput = {
+      kind: "permission_required",
+      text: "Need permission",
+      skillId: "database",
+      permissions: ["read.prod-pg"],
+      reason: "query prod",
+      ownerMessage: "approve read",
+    };
+    const result = makeResult({ parsed });
+    const { outcome, ports, thread, event } = await runOutcome({
+      result,
+      contact: makeContact(["database:read.*"]),
+      skills: [makeSkill("database", ["database:connection.read", "database:read.*"])],
+    });
+
+    expect(outcome.kind).toBe("complete");
+    expect(ports.autoGrantPermission).toHaveBeenCalledWith(thread, event, result.sessionId);
+    expect(ports.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-grant a scoped request from a bare grant of the same name", async () => {
+    const parsed: PermissionRequiredOutput = {
+      kind: "permission_required",
+      text: "Need permission",
+      skillId: "database",
+      permissions: ["read.prod-pg"],
+      reason: "query prod",
+      ownerMessage: "approve read",
+    };
+    const result = makeResult({ parsed });
+    const { ports, thread, event } = await runOutcome({
+      result,
+      contact: makeContact(["database:read"]),
+      skills: [makeSkill("database", ["database:connection.read", "database:read.*"])],
+    });
+
+    expect(ports.requestPermission).toHaveBeenCalledWith(thread, event, {
+      ...parsed,
+      permissions: ["read.prod-pg"],
+    });
+    expect(ports.autoGrantPermission).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-grant a bare dotted-name request from a pseudo-wildcard grant", async () => {
+    // connection.read is declared bare — connection.* is not a declared wildcard,
+    // so an owner-typed connection.* grant must authorize nothing.
+    const parsed: PermissionRequiredOutput = {
+      kind: "permission_required",
+      text: "Need permission",
+      skillId: "database",
+      permissions: ["connection.read"],
+      reason: "list connections",
+      ownerMessage: "approve connection read",
+    };
+    const result = makeResult({ parsed });
+    const { ports, thread, event } = await runOutcome({
+      result,
+      contact: makeContact(["database:connection.*"]),
+      skills: [makeSkill("database", ["database:connection.read", "database:read.*"])],
+    });
+
+    expect(ports.requestPermission).toHaveBeenCalledWith(thread, event, {
+      ...parsed,
+      permissions: ["connection.read"],
+    });
+    expect(ports.autoGrantPermission).not.toHaveBeenCalled();
   });
 
   it("treats repeated malformed correction output as unusable output", async () => {

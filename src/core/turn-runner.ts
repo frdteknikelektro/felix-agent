@@ -71,6 +71,7 @@ export class TurnRunner {
         event: input.event,
         item: input.item,
         contact: input.contact,
+        skills: input.skills,
         result,
         resumed,
         retriedFreshStart,

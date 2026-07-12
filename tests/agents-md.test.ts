@@ -41,6 +41,9 @@ describe("AGENTS.md", () => {
     expect(agentsMd).not.toContain("owner_permission");
     // The server-computed gate is authoritative over disk-derivation
     expect(agentsMd).toContain("permissions_per_skill");
+    // Scoped permission matching — exact scope or full wildcard, bare ≠ scoped
+    expect(agentsMd).toContain("name.<scope>");
+    expect(agentsMd).toContain("narrowest scope");
     // Refusal / safety rules
     expect(agentsMd).toContain("reveal secrets, credentials, tokens, env files");
     expect(agentsMd).toContain("filesystem-probing");

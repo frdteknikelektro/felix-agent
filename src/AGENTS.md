@@ -49,6 +49,8 @@ Resolve permission by reading two files from disk; nothing is pre-injected:
 
 An operation is **pre-authorized** when every permission it requires is present in that contact's `allowed_permissions`. Execute pre-authorized operations immediately — do not request permission again, and read only the requester's own contact file (a grant on one contact never applies to another).
 
+Some permissions are **scoped**: `name.<scope>` (a permission is scoped only if the skill declares it as `name.*`; the skill's `SKILL.md` defines what the scope means). A grant covers a scoped permission only when it matches the exact scope or is that declared `name.*` wildcard — bare `name` and scoped `name.<scope>` never satisfy each other, and no other wildcard or partial pattern authorizes anything. Always request the narrowest scope the operation needs.
+
 When the per-turn message includes a `permissions_per_skill` block, it is the **server-computed, authoritative** version of this comparison for the current requester — trust it directly and do **not** re-derive have/need from disk. Anything under `have=[...]` is pre-authorized; anything under `need=[...]` requires `PERMISSION_REQUIRED` first.
 
 For any required permission **not** present, emit `PERMISSION_REQUIRED` for that specific permission before performing the operation. Emitting the block routes the request to the system owner — you do not need to know the owner's identity or message them yourself. The owner approves per-request or permanently, and the turn is re-run for you once approved; on a rejection, inform the user the request was denied and do not attempt the operation.

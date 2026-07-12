@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "../config.js";
 import type { TurnInput, ParsedAgentOutput, DecisionNotificationInput, TurnUsage } from "./ports.js";
-import { skillMatchesPermission } from "../slices/skills/index.js";
+import { grantsForPermission, wildcardPrefix } from "../slices/skills/index.js";
 import { decisionEmoji, decisionLabel } from "./decision.js";
 import { contactPath } from "../slices/contacts/index.js";
 import { buildInitialMd } from "./initial-md.js";
@@ -143,22 +143,30 @@ function buildPerTurnMessage(cfg: AppConfig, input: TurnInput): string {
 
   // Server-computed permission gate for this requester. Authoritative — the
   // model must not re-derive have/need from disk when this block is present.
-  const skillPermLines = input.skills
-    .filter((skill) => skill.permissions.length > 0)
-    .map((skill) => {
-      const grantedBare = skill.permissions
-        .filter((p) => input.contact.allowed_permissions.includes(p))
-        .map((p) => p.replace(`${skill.id}:`, ""));
-      const missingBare = skill.permissions
-        .filter((p) => !input.contact.allowed_permissions.includes(p))
-        .map((p) => p.replace(`${skill.id}:`, ""));
-      return `  - ${skill.id}: have=[${grantedBare.join(", ") || "none"}], need=[${missingBare.join(", ") || "none"}]${missingBare.length === 0 ? " — all permissions granted" : ""}`;
-    });
+  // For a scoped declaration (`name.*`) have lists the contact's actual grants
+  // of that name; picking the concrete scope the operation needs stays with the
+  // model (the server cannot know it).
+  const permSkills = input.skills.filter((skill) => skill.permissions.length > 0);
+  const skillPermLines = permSkills.map((skill) => {
+    const grantedBare: string[] = [];
+    const missingBare: string[] = [];
+    for (const p of skill.permissions) {
+      const grants = grantsForPermission(input.contact.allowed_permissions, p);
+      if (grants.length > 0) grantedBare.push(...grants.map((g) => g.replace(`${skill.id}:`, "")));
+      else missingBare.push(p.replace(`${skill.id}:`, ""));
+    }
+    return `  - ${skill.id}: have=[${grantedBare.join(", ") || "none"}], need=[${missingBare.join(", ") || "none"}]${missingBare.length === 0 ? " — all permissions granted" : ""}`;
+  });
   if (skillPermLines.length > 0) {
     lines.push(
       "permissions_per_skill (server-computed — authoritative, do not re-derive): have=[...] is pre-authorized; for anything under need=[...] emit PERMISSION_REQUIRED first.",
-      ...skillPermLines,
     );
+    if (permSkills.some((skill) => skill.permissions.some((p) => wildcardPrefix(p) !== null))) {
+      lines.push(
+        "Scoped permissions (name.<scope>): have lists the contact's grants — verify the scope your operation needs is covered (exact or name.* wildcard); if not, emit PERMISSION_REQUIRED for the narrowest scope.",
+      );
+    }
+    lines.push(...skillPermLines);
   }
 
   return lines.join("\n");
@@ -174,10 +182,6 @@ function formatAttachmentsForPrompt(attachments: TurnInput["event"]["attachments
       return `${attachment.local_path ?? attachment.filename}${attachment.content_type ? ` (${attachment.content_type})` : ""}`;
     })
     .join(", ");
-}
-
-export function skillSatisfiesPermissions(skill: import("../types.js").SkillRecord, permissions: string[]): boolean {
-  return skillMatchesPermission(skill, permissions);
 }
 
 export function extractPermissionBlock(text: string): {

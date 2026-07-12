@@ -188,7 +188,7 @@ describe("codex output parser", () => {
           contact: {
             source: "mattermost",
             user_id: "user",
-            allowed_permissions: ["deploy:read"],
+            allowed_permissions: ["deploy:read", "db:query.alpha"],
           },
           skills: [
             {
@@ -205,6 +205,14 @@ describe("codex output parser", () => {
               description: "Deploy skill",
               permissions: ["deploy:read", "deploy:run"],
               path: path.join("/workspace/catalog/skills", "deploy", "SKILL.md"),
+              body: "",
+            },
+            {
+              id: "db",
+              name: "db",
+              description: "Scoped-permission skill",
+              permissions: ["db:query.*", "db:admin.*"],
+              path: path.join("/workspace/catalog/skills", "db", "SKILL.md"),
               body: "",
             },
           ],
@@ -286,6 +294,10 @@ describe("codex output parser", () => {
       expect(prompt).toContain("deploy: have=[read], need=[run]");
       // Skills with no permissions are not listed in the gate
       expect(prompt).not.toContain("general: have=");
+      // Scoped declarations: have lists the contact's concrete grants; a name with
+      // zero grants stays in need as the declared wildcard form
+      expect(prompt).toContain("db: have=[query.alpha], need=[admin.*]");
+      expect(prompt).toContain("Scoped permissions (name.<scope>)");
 
       // Preceding events are included
       expect(prompt).toContain("preceding (already in transcript):");
@@ -366,7 +378,18 @@ describe("codex output parser", () => {
             user_id: "user",
             allowed_permissions: [],
           },
-          skills: [],
+          // Bare-permission skill only: the permission gate must render without
+          // the scoped-permissions preamble (it is gated on a `name.*` declaration).
+          skills: [
+            {
+              id: "deploy",
+              name: "deploy",
+              description: "Deploy skill",
+              permissions: ["deploy:read"],
+              path: path.join("/workspace/catalog/skills", "deploy", "SKILL.md"),
+              body: "",
+            },
+          ],
           sourceContext: { behaviorInstructions: [] },
           resumed: true,
         },
@@ -379,6 +402,9 @@ describe("codex output parser", () => {
       expect(prompt).toContain("sender: mattermost:user");
       expect(prompt).toContain("text: Check deploy status");
       expect(prompt).not.toContain("{{");
+      // Permission gate present, but no scoped preamble without a `name.*` declaration
+      expect(prompt).toContain("deploy: have=[none], need=[read]");
+      expect(prompt).not.toContain("Scoped permissions (name.<scope>)");
       expect(prompt).not.toContain("Permission Model");
       expect(prompt).not.toContain("Guardrails");
       expect(prompt).not.toContain("Output Format");

@@ -57,8 +57,49 @@ export function skillPaths(skills: SkillRecord[]): string[] {
   return skills.map((skill) => skill.path);
 }
 
-export function skillMatchesPermission(skill: SkillRecord, permissions: string[]): boolean {
-  return skill.permissions.every((permission) => permissions.includes(permission));
+/**
+ * Scoped-permission matching. A permission is either bare (`skill:name`) or scoped
+ * (`skill:name.<scope>`, declared by the skill as `skill:name.*`). Permission names
+ * may themselves contain dots (`connection.read`), so the skill's declared list —
+ * not the string shape — decides where a name ends and a scope begins. A required
+ * permission is satisfied by the exact grant string, or — only when the required
+ * permission is a concrete scope of a declared `skill:name.*` — by a grant of that
+ * exact declared wildcard. Bare and scoped permissions of the same name never
+ * satisfy each other; pseudo-wildcards (`read.staging.*`) and undeclared
+ * permissions fall back to exact match only.
+ */
+export function permissionSatisfied(granted: string[], required: string, declared: string[]): boolean {
+  if (granted.includes(required)) return true;
+  if (declared.includes(required)) return false;
+  // .some, not .find: with overlapping declared wildcards (read.* and read.x.*),
+  // any granted covering declaration must satisfy regardless of declaration order.
+  return declared.some((d) => {
+    const prefix = wildcardPrefix(d);
+    return prefix !== null && required.startsWith(prefix) && granted.includes(d);
+  });
+}
+
+/**
+ * The contact grants that count toward one declared skill permission — used to
+ * render have/need. A bare declaration matches only itself; a scoped declaration
+ * (`skill:name.*`) collects the wildcard itself plus concrete scopes of that name
+ * (a `*`-suffixed grant other than the declared wildcard is a pseudo-wildcard the
+ * matcher won't honor, so it is excluded) because which concrete scope an
+ * operation needs is resolved by the LLM, not the server.
+ */
+export function grantsForPermission(granted: string[], declared: string): string[] {
+  const prefix = wildcardPrefix(declared);
+  if (prefix !== null) {
+    return granted.filter(
+      (grant) => grant === declared || (grant.startsWith(prefix) && !grant.endsWith("*")),
+    );
+  }
+  return granted.includes(declared) ? [declared] : [];
+}
+
+/** Single home for the wildcard grammar: `name.*` → `name.`, anything else → null. */
+export function wildcardPrefix(perm: string): string | null {
+  return perm.endsWith(".*") ? perm.slice(0, -1) : null;
 }
 
 function parseSkill(raw: string): { frontmatter: SkillFrontmatter; body: string } {
