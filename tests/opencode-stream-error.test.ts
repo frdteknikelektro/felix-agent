@@ -44,13 +44,13 @@ async function drainMicrotasks() {
   await new Promise((r) => setTimeout(r, 0));
 }
 
-async function waitReady() {
-  // opencodeRun awaits ensureDir + fs.open before wiring event handlers.
-  // Each await yields a microtask; three macrotask drains guarantee both
-  // resolve and the Promise constructor body has run.
-  await drainMicrotasks();
-  await drainMicrotasks();
-  await drainMicrotasks();
+async function waitReady(stdout: EventEmitter) {
+  // opencodeRun awaits ensureDir + fs.open before wiring event handlers, so a
+  // fixed number of drains is a race under load. Poll for the observable
+  // effect instead: the stdout data handler being attached.
+  await vi.waitFor(() => {
+    if (stdout.listenerCount("data") === 0) throw new Error("stream handlers not wired yet");
+  }, { timeout: 5000 });
 }
 
 // ─── Stream error → fail fast ─────────────────────────────────────────────
@@ -61,7 +61,7 @@ describe("opencodeRun: stream error → fail fast", () => {
     const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
       spawnFn: vi.fn(() => proc) as never,
     });
-    await waitReady();
+    await waitReady(stdout);
 
     emitJson(stdout, { type: "error", message: "quota exceeded" });
 
@@ -74,7 +74,7 @@ describe("opencodeRun: stream error → fail fast", () => {
     const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
       spawnFn: vi.fn(() => proc) as never,
     });
-    await waitReady();
+    await waitReady(stdout);
 
     emitJson(stdout, { type: "error", error: { message: "rate limited" } });
 
@@ -87,7 +87,7 @@ describe("opencodeRun: stream error → fail fast", () => {
     const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
       spawnFn: vi.fn(() => proc) as never,
     });
-    await waitReady();
+    await waitReady(stdout);
 
     emitJson(stdout, { type: "text", part: { type: "text", text: "hello" } });
     // Let async data handler settle (appendText yields a microtask)
@@ -114,12 +114,12 @@ describe("opencodeRun: stream error → fail fast", () => {
 describe("opencodeRun: spawn error", () => {
   it("resolves with -1 and logs on child error event", async () => {
     const { log } = await import("../src/lib/log.js");
-    const { proc } = createMockChild();
+    const { proc, stdout } = createMockChild();
     const spawnError = new Error("spawn ENOENT");
     const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {
       spawnFn: vi.fn(() => proc) as never,
     });
-    await waitReady();
+    await waitReady(stdout);
 
     // Emit after the Promise constructor has wired up child.on("error").
     proc.emit("error", spawnError);

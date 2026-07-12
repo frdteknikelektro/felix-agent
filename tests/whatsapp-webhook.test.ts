@@ -40,7 +40,10 @@ async function sendWebhook(
 
     server.on("error", reject);
 
-    server.listen(0, () => {
+    // Bind and dial the same loopback address: a bare listen(0) binds the
+    // dual-stack wildcard, and the IPv4 connect can then land on a foreign
+    // process that holds the same port number on 127.0.0.1.
+    server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as AddressInfo).port;
       const http = require("node:http");
       const options = {
@@ -584,8 +587,7 @@ exit 1
       expect(result.body).toHaveProperty("ok", true);
 
       // Falls through to ownerSharesNumber → normal ingestion
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
     });
 
     it("FromMe reaction to tracked bot message routes to decision path", async () => {
@@ -706,8 +708,7 @@ exit 1
 
       expect(result.status).toBe(200);
       expect(result.body).toHaveProperty("ok", true);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(true);
     });
@@ -745,8 +746,7 @@ exit 1
 
       expect(result.status).toBe(200);
       expect(result.body).toHaveProperty("ok", true);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(true);
     });
@@ -783,8 +783,7 @@ exit 1
       );
 
       expect(result.status).toBe(200);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
       // Event is dispatched but with mentions_bot=false — the engine will drop it
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(false);
@@ -811,8 +810,7 @@ exit 1
       );
 
       expect(result.status).toBe(200);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
       // Fetch failed, so mentions_bot stays false — the engine will drop it
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(false);
@@ -851,8 +849,7 @@ exit 1
 
       expect(result.status).toBe(200);
       expect(result.body).toHaveProperty("ok", true);
-      await new Promise((r) => setTimeout(r, 100));
-      expect(localIngest).toHaveBeenCalled();
+      await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(true);
     });
