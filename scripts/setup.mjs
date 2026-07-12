@@ -86,6 +86,8 @@ const SECRET_KEYS = new Set([
   "SLACK_TOKEN",
   "SLACK_APP_TOKEN",
   "DB_ENCRYPTION_KEY",
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_WEBHOOK_SECRET",
 ]);
 
 const SOURCE_DEFS = {
@@ -123,6 +125,14 @@ const SOURCE_DEFS = {
     ownerKeys: ["WHATSAPP_OWNER_DISPLAY"],
     ownerDefaults: { WHATSAPP_OWNER_DISPLAY: "Owner" },
     ownerHint: "Enter your WhatsApp phone number (with country code, no +). The JID will be derived automatically.",
+  },
+  telegram: {
+    label: "Telegram",
+    required: ["TELEGRAM_BOT_TOKEN"],
+    optional: {},
+    ownerKeys: ["TELEGRAM_OWNER_USER_ID", "TELEGRAM_OWNER_DISPLAY"],
+    ownerDefaults: { TELEGRAM_OWNER_DISPLAY: "Owner" },
+    ownerHint: "Find your User ID: send /start to @userinfobot on Telegram, or check t.me/userinfobot.",
   },
 };
 
@@ -646,6 +656,7 @@ async function main() {
         { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
         { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
         { value: "whatsapp", name: "WhatsApp (via wacli)", checked: !!existing.WHATSAPP_BOT_NAME },
+        { value: "telegram", name: "Telegram", checked: !!existing.TELEGRAM_BOT_TOKEN },
       ],
     });
 
