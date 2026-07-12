@@ -831,6 +831,13 @@ async function main() {
         }
     }
 
+    // ── Telegram privacy mode reminder ───────────────────────────────────────
+    if (listenSources.includes("telegram")) {
+      info("");
+      warn("Telegram groups require privacy mode to be DISABLED for the bot to see mentions.");
+      info("  Go to @BotFather → /setprivacy → select your bot → Disable.\n");
+    }
+
     if (listenSources.length === 0) {
       warn("No sources selected. You can re-run setup later.\n");
     }
