@@ -9,6 +9,7 @@ import { addDashboardClient, closeDashboardClients } from "./sse.js";
 import type { FelixEngine } from "../engine.js";
 import { API_ROUTES, matchRoute } from "./routes.js";
 import { handleWhatsAppWebhook } from "../adapters/whatsapp/index.js";
+import { handleTelegramWebhook } from "../adapters/telegram/index.js";
 
 const COOKIE_NAME = "felix_owner_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -123,6 +124,13 @@ async function routeRequest(
   if (pathname === "/webhooks/whatsapp" && req.method === "POST") {
     log.info("whatsapp.webhook_request", { content_length: req.headers["content-length"] });
     await handleWhatsAppWebhook(cfg, engine, req, res);
+    return;
+  }
+
+  // Telegram webhook — internal endpoint, no owner auth
+  if (pathname === "/webhooks/telegram" && req.method === "POST") {
+    log.info("telegram.webhook_request", { content_length: req.headers["content-length"] });
+    await handleTelegramWebhook(cfg, engine, req, res);
     return;
   }
 
