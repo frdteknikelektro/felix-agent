@@ -99,12 +99,19 @@ describe("WhatsAppAdapter getTurnContext", () => {
     expect(joined).toContain("never guess or synthesize the mention target");
     expect(joined).toContain("exact `.sender_jid`");
     // Audio instructions live in skills/listen-speak/SKILL.md (covered by listen-speak-skill.test.ts); src/AGENTS.md points there.
-    // Default (no shared number): no name prefix in instructions
+    // Default (no shared number): no name prefix is baked into the caption
+    // template because the dedicated number already identifies the bot.
     expect(joined).not.toContain("[Felix]");
-    expect(joined).toContain("dedicated WhatsApp number");
+    // W6 tells the LLM to keep replies short and to fall back to file
+    // attachments for longer outputs. The hard-limit mention should refer
+    // to WhatsApp's own limit, not Telegram's.
+    expect(joined).toContain("Keep WhatsApp replies concise");
+    expect(joined).toContain("WhatsApp's hard text limit is 65,536");
+    expect(joined).not.toContain("Telegram's hard text limit");
+    expect(joined).toContain("use `wacli send file` to send it as an attachment");
   });
 
-  it("instructs the name prefix only when the bot shares the owner's number", async () => {
+  it("bakes the bot name prefix into the caption template when the bot shares the owner's number", async () => {
     const cfg = await makeTestConfig("wa-turnctx-shared-", {
       WHATSAPP_BOT_NAME: "Felix",
     });
@@ -133,9 +140,18 @@ describe("WhatsAppAdapter getTurnContext", () => {
     });
 
     const joined = ctx.behaviorInstructions.join("\n");
-    expect(joined).toContain("shares a WhatsApp number");
+    // The LLM is no longer told to add the prefix manually — the adapter's
+    // static send paths (sendThreadReply / sendUserMessage) own it. Replies
+    // look like any other channel's, regardless of sameNumber mode.
+    expect(joined).not.toContain("MUST start with the *[Felix]*");
+    expect(joined).not.toContain("do NOT add a name prefix");
+    expect(joined).not.toContain("Always include the *[Felix]* prefix in file captions");
+    // The `wacli send text` double-send guard is preserved (renumbered to W4
+    // now that the W4 prefix instruction is gone).
     expect(joined).toContain("Do NOT call `wacli send text` for your final reply");
-    expect(joined).toContain("prefix in file captions");
+    // Caption template bakes the prefix in for file uploads so `wacli send
+    // file` carries it even though the LLM no longer types it.
+    expect(joined).toContain(`*[Felix]*\n<optional caption>`);
   });
 
   it("instructs mentioning the owner via wacli --mention when an owner jid is configured", async () => {

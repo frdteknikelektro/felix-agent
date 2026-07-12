@@ -953,12 +953,12 @@ class WhatsAppAdapter implements SourceAdapter {
       ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
       : `(e.g. \`@${botName}\`)`;
     // Only prefix messages when the bot shares a number with its owner — on a
-    // dedicated number the sender already identifies the bot. Mirrors the
-    // adapter's own send paths (sendThreadReply / sendUserMessage).
+    // dedicated number the sender already identifies the bot. The adapter's
+    // own send paths (sendThreadReply / sendUserMessage) prepend the prefix
+    // for outgoing replies; the LLM just replies like any other channel.
+    // The caption template below bakes the prefix in so file uploads carry
+    // it even when sent via `wacli send file`.
     const prefix = this.sameNumber ? `*[${botName}]*\n` : "";
-    const w4 = this.sameNumber
-      ? `W4. This bot shares a WhatsApp number with its owner, so every outgoing message MUST start with the *[${botName}]* prefix — on every send, including any intermediate or supplementary message — to distinguish the bot's messages from the owner's. Send intermediate/progress messages as needed per the output contract.`
-      : `W4. This bot has its own dedicated WhatsApp number — do NOT add any name prefix to messages. Send intermediate/progress messages as needed per the output contract.`;
     const ownerJid = this.cfg.WHATSAPP_OWNER_JID;
     const ownerMentionInstruction =
       ownerJid && !this.sameNumber
@@ -976,8 +976,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
-        w4,
-        "W4b. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., \"Processing...\") before your final `FELIX_REPLY`.",
+        "W4. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., \"Processing...\") before your final `FELIX_REPLY`.",
         "To reply to a specific message, add `--reply-to <quoted_msg_id>`. In group chats, also add `--reply-to-sender <sender_jid>` when the sender JID is known.",
         "When @mentioning someone in a WhatsApp group via wacli, never guess or synthesize the mention target from a display name, first name, phone-looking text, or memory. First fetch live group context with `wacli messages list --json`, match the requested person to an exact `.sender_jid` from recent messages, and pass that exact JID to `--mention`. If no exact or unambiguous sender JID is available, ask the user for the person's phone/JID instead of mentioning the wrong account. Never use the group JID, bot JID, or owner JID as the mention target unless that exact account is explicitly requested.",
         "Upload a file:",
@@ -986,9 +985,8 @@ class WhatsAppAdapter implements SourceAdapter {
         '  --file "<path under session artifact directory>" \\',
         `  --caption "${prefix}<optional caption>"`,
         "```",
-        ...(this.sameNumber ? [`Always include the *[${botName}]* prefix in file captions.`] : []),
         "W5. When a user sends media (image, document, or other attachment), it is downloaded to the session attachments directory and listed with its local path and MIME type in the turn prompt. For images (MIME `image/*`), open the file directly with your file-reading tool to actually SEE its visual content before answering — do NOT describe an image from metadata alone. Use `identify <path>` / `exiftool <path>` only for supplementary metadata (dimensions, EXIF). For other files use `file <path>` to identify the type and `bat --style=plain <path>` / `head -c 2000 <path>` for text-based inspection. Do NOT try to open binary files in a text editor.",
-        "W6. Keep WhatsApp replies concise (≤ 500 characters preferred). WhatsApp is a mobile-first platform — long messages degrade readability.",
+        "W6. Keep WhatsApp replies concise (≤ 500 characters preferred; WhatsApp's hard text limit is 65,536). WhatsApp is a mobile-first platform — long messages degrade readability. For longer outputs (code, logs, stack traces, large file contents), write the content to a file in the session attachments directory and use `wacli send file` to send it as an attachment instead of inlining it in the chat message.",
         ...(ownerMentionInstruction ? [ownerMentionInstruction] : []),
       ],
     };
