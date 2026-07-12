@@ -86,6 +86,7 @@ export async function handleTelegramWebhook(
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLLING_TIMEOUT = 30;
 const OUTBOUND_MIN_GAP_MS = 1000;
+const TYPING_DEDUP_MS = 4000;
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   res.statusCode = status;
@@ -283,6 +284,7 @@ class TelegramAdapter implements SourceAdapter {
   private offset = 0;
   private polling = false;
   private lastSendAt = 0;
+  private readonly lastTypingAt = new Map<string, number>();
   private readonly host = createSourceHost({ source: "telegram" });
 
   constructor(private readonly cfg: AppConfig) {}
@@ -316,12 +318,17 @@ class TelegramAdapter implements SourceAdapter {
     }
   }
 
+  private sendQueue: Promise<void> = Promise.resolve();
+
   private async waitForSendSlot(): Promise<void> {
-    const elapsed = Date.now() - this.lastSendAt;
-    if (elapsed < OUTBOUND_MIN_GAP_MS) {
-      await new Promise((r) => setTimeout(r, OUTBOUND_MIN_GAP_MS - elapsed));
-    }
-    this.lastSendAt = Date.now();
+    this.sendQueue = this.sendQueue.then(() => {
+      const elapsed = Date.now() - this.lastSendAt;
+      const wait = Math.max(0, OUTBOUND_MIN_GAP_MS - elapsed);
+      return new Promise<void>((r) => setTimeout(r, wait)).then(() => {
+        this.lastSendAt = Date.now();
+      });
+    });
+    return this.sendQueue;
   }
 
   // ── start (supervisor contract) ──────────────────────────────────────────
@@ -681,6 +688,10 @@ class TelegramAdapter implements SourceAdapter {
   async sendTyping(input: { event: UniversalEvent }): Promise<void> {
     const chatId = input.event.source_thread_ref.conversation_id;
     if (!chatId) return;
+    const now = Date.now();
+    const last = this.lastTypingAt.get(chatId) ?? 0;
+    if (now - last < TYPING_DEDUP_MS) return;
+    this.lastTypingAt.set(chatId, now);
     await this.waitForSendSlot();
     await this.apiCall("sendChatAction", {
       chat_id: chatId,
