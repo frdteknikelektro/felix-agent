@@ -448,6 +448,11 @@ class TelegramAdapter implements SourceAdapter {
       ? text.includes(`@${this.botUsername}`)
       : false;
 
+    // Replies to the bot's own messages count as mentions
+    const isReplyToBot = this.botId
+      ? message.reply_to_message?.from?.id === this.botId
+      : false;
+
     // Build sender
     const sender = this.buildSender(message);
 
@@ -462,7 +467,7 @@ class TelegramAdapter implements SourceAdapter {
       eventId: messageId,
       receivedAt: new Date(message.date * 1000).toISOString(),
       visibility,
-      mentionsBot,
+      mentionsBot: mentionsBot || isReplyToBot,
       sender,
       text: messageText,
       attachments,
