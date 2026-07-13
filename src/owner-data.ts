@@ -8,7 +8,7 @@ import type { AuditEntry } from "./slices/audit/index.js";
 import { listAuditEntries, recordAuditEntry } from "./slices/audit/index.js";
 import type { SessionState, SkillRecord, SourceSender } from "./types.js";
 import { findThreadHandle, listThreadHandles, loadSessionState, type ThreadHandle } from "./slices/sessions/index.js";
-import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
+import { loadSkills } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
 import { tokensToday } from "./slices/usage/index.js";
@@ -310,7 +310,6 @@ export async function saveSkillForUi(
     path: file,
     body: input.body,
   };
-  await writeSkillIndex(cfg, await loadSkills(cfg));
   return skill;
 }
 
@@ -320,7 +319,6 @@ export async function deleteSkillForUi(cfg: AppConfig, skillId: string): Promise
     throw new Error("skill_missing");
   }
   await fs.rm(dir, { recursive: true, force: true });
-  await writeSkillIndex(cfg, await loadSkills(cfg));
 }
 
 export async function listAuditForUi(cfg: AppConfig): Promise<AuditEntry[]> {
@@ -475,12 +473,15 @@ async function loadSessionArtifacts(thread: ThreadHandle): Promise<SessionArtifa
 }
 
 function renderSkillFrontmatter(skillId: string, input: Pick<SkillRecord, "name" | "description" | "permissions">): Record<string, unknown> {
-  return {
-    id: skillId,
-    name: input.name,
+  const fm: Record<string, unknown> = {
+    name: skillId,
     description: input.description,
-    permissions: normalizePermissions(input.permissions),
   };
+  const perms = normalizePermissions(input.permissions);
+  if (perms.length > 0) {
+    fm.metadata = { permissions: perms.join(", ") };
+  }
+  return fm;
 }
 
 function approvalIdForPending(thread: ThreadHandle, pending: NonNullable<SessionState["pending_permission"]>): string {

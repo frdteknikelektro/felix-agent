@@ -1,16 +1,12 @@
 ---
-id: felix-browser
-name: Felix Browser
+name: felix-browser
 description: Remote-control a user-supplied Chrome session over CDP. Use only when the user explicitly says "felix-browser"; never trigger for generic browsing, search, scraping, or URL requests.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - felix-browser.navigate
-  - felix-browser.submit
-match:
-  - felix-browser
-  - felix browser
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: felix-browser.navigate, felix-browser.submit
+  match: felix-browser, felix browser
 ---
 
 # Felix Browser

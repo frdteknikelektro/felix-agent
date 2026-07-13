@@ -1,12 +1,11 @@
 ---
-id: memory
-name: Memory Wiki
+name: memory
 description: Schema and evidence rules for the persistent Felix knowledge wiki. Read by the memory ingest harness on every run.
-version: 1
-enabled: true
-kind: general
-permissions:
-  - write
+metadata:
+  author: felix-agent
+  kind: general
+  version: "1.0.0"
+  permissions: write
 ---
 
 ## Permissions

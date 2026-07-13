@@ -37,7 +37,7 @@ describe("OWNER_CHANNEL config", () => {
   });
 
   it("rejects an invalid channel", async () => {
-    await withSecretEnv(["OWNER_CHANNEL=telegram"], async (secretEnv, workspace) => {
+    await withSecretEnv(["OWNER_CHANNEL=invalid-source"], async (secretEnv, workspace) => {
       expect(() => loadConfig({ WORKSPACE_DIR: workspace, SECRET_ENV_FILE: secretEnv })).toThrow();
     });
   });

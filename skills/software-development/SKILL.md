@@ -1,23 +1,12 @@
 ---
-id: software-development
-name: Software Development
+name: software-development
 description: Matt-style local software development workflow. Use for project setup, PRDs, issue slices, implementation, debugging, TDD, reviews, refactors, or handoffs.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - repo.write
-match:
-  - software development
-  - code
-  - implement
-  - feature
-  - bug fix
-  - debug
-  - refactor
-  - test
-  - build
-  - review code
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: repo.write
+  match: software development, code, implement, feature, bug fix, debug, refactor, test, build, review code
 ---
 
 # Software Development

@@ -140,7 +140,7 @@ The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: �
 
 ## 🧩 Skills
 
-Skills are copied from `skills/` into `workspace/catalog/skills/` on startup. Manual edits inside `workspace/catalog/skills/` are overwritten on restart. You can also create or remove skills from the owner console.
+Skills are copied from `skills/` into `workspace/.agents/skills/` on startup. Manual edits inside `workspace/.agents/skills/` are overwritten on restart. You can also create or remove skills from the owner console.
 
 ## 🛠️ Development
 

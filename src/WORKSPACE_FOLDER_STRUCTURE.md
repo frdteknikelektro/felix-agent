@@ -10,10 +10,12 @@ $WORKSPACE_DIR
 ├── WORKSPACE_FOLDER_STRUCTURE.md  This file
 │
 ├── catalog/
-│   ├── contacts/
-│   │   └── <source>/<user_id>.md        Per-contact config, allowed_permissions
+│   └── contacts/
+│       └── <source>/<user_id>.md        Per-contact config, allowed_permissions
+│
+├── .agents/
 │   └── skills/
-│       └── <skill_id>/SKILL.md          Skill definition + required permissions
+│       └── <skill_id>/SKILL.md          Skill definition (agentskills.io standard)
 │
 ├── intake/
 │   └── <source>/raw/                    Raw event staging (pre-session)
@@ -78,8 +80,8 @@ $WORKSPACE_DIR
 
 | Path | Purpose |
 |------|---------|
-| `catalog/skills/index.md` | Skill registry |
-| `catalog/skills/<skill_id>/SKILL.md` | Skill definition + required permissions |
+| `WORKSPACE_FOLDER_STRUCTURE.md` | Authoritative directory layout — read it once per session |
+| `.agents/skills/<skill_id>/SKILL.md` | Skill definition (agentskills.io standard) |
 | `catalog/contacts/<source>/<user_id>.md` | Per-contact config, `allowed_permissions` |
 | `memory/wiki/index.md` | Knowledge wiki index — always read first |
 | `sessions/<source>/<sid>/transcript.md` | Session transcript |

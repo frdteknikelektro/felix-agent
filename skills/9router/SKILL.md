@@ -1,13 +1,11 @@
 ---
-id: 9router
-name: 9Router
+name: 9router
 description: 9Router gateway setup and capability routing. Use when the user mentions 9Router or NINEROUTER_URL, or asks to call an AI capability through the configured 9Router gateway.
-version: 1
-enabled: true
-kind: general
-match:
-  - 9router
-  - NINEROUTER_URL
+metadata:
+  author: felix-agent
+  kind: general
+  version: "1.0.0"
+  match: 9router, NINEROUTER_URL
 ---
 
 ## Permissions

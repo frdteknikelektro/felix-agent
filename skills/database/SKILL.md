@@ -1,28 +1,15 @@
 ---
-id: database
-name: Database
+name: database
 description: >-
   Manage and query database connections. Use when the user mentions databases,
   tables, queries, SQL, connections, schemas, backup, migration, or wants to
   inspect, query, backup, or migrate data.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - connection.read
-  - connection.write
-  - read.*
-  - write.*
-  - admin.*
-match:
-  - database
-  - query
-  - sql
-  - table
-  - connection
-  - schema
-  - backup
-  - migration
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: connection.read, connection.write, read.*, write.*, admin.*
+  match: database, query, sql, table, connection, schema, backup, migration
 ---
 
 # Database

@@ -6,7 +6,7 @@ import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
 import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import type { ContactRecord, OwnerDecision, SessionQueueItem, SessionState, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
-import { loadSkills, writeSkillIndex } from "./slices/skills/index.js";
+import { loadSkills } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
@@ -58,7 +58,6 @@ export class FelixEngine {
 
   async refreshSkills(): Promise<void> {
     this.skills = await loadSkills(this.cfg);
-    await writeSkillIndex(this.cfg, this.skills);
   }
 
   async ingest(event: UniversalEvent): Promise<void> {

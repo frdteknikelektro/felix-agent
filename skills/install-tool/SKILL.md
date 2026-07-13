@@ -1,20 +1,12 @@
 ---
-id: install-tool
-name: Install Tool
+name: install-tool
 description: Workspace-scoped tool management. Use to install or update a binary, directory-style tool, npm CLI, or pip CLI; remove one; list installed tools; or check a tool and its version.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - install.run
-match:
-  - install tool
-  - update tool
-  - remove tool
-  - list installed tools
-  - check tool
-  - npm install
-  - pip install
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: install.run
+  match: install tool, update tool, remove tool, list installed tools, check tool, npm install, pip install
 ---
 
 # Install Tool

@@ -1,15 +1,11 @@
 ---
-id: general
-name: General
+name: general
 description: Conversational fallback for factual questions, short explanations, summaries, and clarifications. Use only when no specialized installed skill matches.
-version: 1
-enabled: true
-kind: general
-match:
-  - general
-  - help
-  - info
-  - explain
+metadata:
+  author: felix-agent
+  kind: general
+  version: "1.0.0"
+  match: general, help, info, explain
 ---
 
 ## Permissions

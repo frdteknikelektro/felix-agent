@@ -315,8 +315,7 @@ async function scanSkillEnv(dirs) {
       }
 
       const fm = extractFrontmatter(raw);
-      if (!fm || fm.enabled === false) continue;
-      if (!Array.isArray(fm.env)) continue;
+      if (!fm || !Array.isArray(fm.env)) continue;
 
       for (const entry of fm.env) {
         if (!entry || !entry.key || seen.has(entry.key)) continue;
@@ -326,7 +325,7 @@ async function scanSkillEnv(dirs) {
           description: entry.description || "",
           required: entry.required === true,
           default: entry.default || "",
-          skill: fm.id || d.name,
+          skill: d.name,
         });
       }
     }
@@ -847,8 +846,8 @@ async function main() {
     step(6, 7, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
-    const catalogDir = join(WORKSPACE_PATH, "catalog", "skills");
-    if (existsSync(catalogDir)) skillDirs.push(catalogDir);
+    const agentsDir = join(WORKSPACE_PATH, ".agents", "skills");
+    if (existsSync(agentsDir)) skillDirs.push(agentsDir);
 
     const skillVars = await scanSkillEnv(skillDirs);
     const pendingSkillVars = skillVars.filter((v) => !(v.key in wizard));
@@ -866,6 +865,11 @@ async function main() {
       }
 
       for (const [skill, vars] of bySkill) {
+        const setupEnv = await confirm({
+          message: `Configure environment variables for ${skill}?`,
+          default: true,
+        });
+        if (!setupEnv) continue;
         console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${skill}${c.reset}`);
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];

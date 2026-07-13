@@ -1,19 +1,14 @@
 ---
-id: template-skill
-name: Template Skill
+name: template-skill
 description: Replace with one leading-word description of the capability and one trigger for each distinct branch.
-version: 1
-enabled: false
-kind: general
-permissions:
-  - template.read
-  - template.write
-match:
-  - replace with trigger phrase
+metadata:
+  author: felix-agent
+  kind: general
+  version: "1.0.0"
+  permissions: template.read, template.write
+  match: replace with trigger phrase
 # env:
-#   - key: SERVICE_API_KEY
-#     description: Access token for the service
-#     required: true
+#   SERVICE_API_KEY: Access token for the service
 ---
 
 # Template Skill

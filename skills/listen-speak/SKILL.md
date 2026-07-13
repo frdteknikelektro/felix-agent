@@ -1,22 +1,14 @@
 ---
-id: listen-speak
-name: Listen & Speak
+name: listen-speak
 description: >-
   Transcribe voice notes and handle audio attachments. Also provides TTS
   (text-to-speech) synthesis via piper. Use when the event contains
   audio attachments or the user asks to transcribe/synthesize audio.
-version: 1
-enabled: true
-kind: operational
-permissions: []
-match:
-  - audio
-  - voice
-  - transcribe
-  - transcription
-  - speak
-  - tts
-  - voice note
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  match: audio, voice, transcribe, transcription, speak, tts, voice note
 ---
 
 # Listen & Speak

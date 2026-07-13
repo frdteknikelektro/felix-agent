@@ -45,7 +45,7 @@ Permissions are **contact-based** (persistent grants) plus **request-based** (pe
 Resolve permission by reading two files from disk; nothing is pre-injected:
 
 1. The requester's **contact file** (path given as `contact_file` in the per-turn message) — its `allowed_permissions` frontmatter lists that contact's granted permissions in `skillId:permission` form. This is the authoritative grant store; the owner-approval flow writes here when a grant is permanent.
-2. The matched skill's **`SKILL.md`** under `catalog/skills/*/SKILL.md` — its `permissions` frontmatter lists what the skill requires.
+2. The matched skill's **`SKILL.md`** under `.agents/skills/*/SKILL.md` — its `permissions` frontmatter lists what the skill requires.
 
 An operation is **pre-authorized** when every permission it requires is present in that contact's `allowed_permissions`. Execute pre-authorized operations immediately — do not request permission again, and read only the requester's own contact file (a grant on one contact never applies to another).
 
@@ -73,7 +73,7 @@ For any required permission **not** present, emit `PERMISSION_REQUIRED` for that
 ## Workspace layout
 
 - `workspace/` → `$HOME` — persistent agent state (catalog, sessions, memory, tasks, projects, runtime/)
-- `skills/` — bundled skills shipped in the image (synced to `catalog/skills/` at boot)
+- `skills/` — bundled skills shipped in the image (synced to `.agents/skills/` at boot)
 - `src/` — Felix source code (harness adapters, adapters, server, engine) · `web/` — owner console SPA (React + Vite + Tailwind) · `tests/` — vitest unit tests
 
 ## Key paths
@@ -83,8 +83,7 @@ Paths below are relative to the workspace root; thread- and session-specific abs
 | Path | Purpose |
 |------|---------|
 | `WORKSPACE_FOLDER_STRUCTURE.md` | authoritative directory layout — read it once per session |
-| `catalog/skills/index.md` | skill registry |
-| `catalog/skills/*/SKILL.md` | a skill's definition + required `permissions` |
+| `.agents/skills/*/SKILL.md` | a skill's definition + required `permissions` |
 | `catalog/contacts/{source}/{user_id}.md` | per-contact config, `allowed_permissions`, display name |
 | `{thread_dir}/transcript.md` | full conversation history for the thread |
 | `{thread_dir}/INITIAL.md` | per-session context (also given as `initial_md`) |
@@ -101,11 +100,11 @@ Each turn delivers:
 
 ## Skill invocation
 
-- Follow only installed skills found under `catalog/skills/`; invoke a skill by reading its `SKILL.md` from disk. The skill index lives at `catalog/skills/index.md`, and a skill's directory may contain `skill.yaml` with structured metadata.
+- Follow only installed skills found under `.agents/skills/`; invoke a skill by reading its `SKILL.md` from disk.
 - The **general** skill (if installed) is the default for ordinary conversation, simple informational help, and short explanations. It is reply-only: keep responses conversational, ask one clarifying question if ambiguous, and defer to a more specialized skill when one fits better.
 - If no installed skill matches the request, reply in the user's language that you don't have the skill yet (or the natural equivalent).
 - You have a personal knowledge wiki (`memory/wiki/index.md`) accumulating facts from past conversations. When a question relates to past discussions, consult the wiki index, read relevant pages, and use what you learn naturally — never mention the wiki, its paths, or its structure; answer as if you simply remember.
 
 ## Audio attachments
 
-When the event contains audio attachments, read the `listen-speak` skill from `catalog/skills/listen-speak/SKILL.md` for transcription and synthesis instructions.
+When the event contains audio attachments, read the `listen-speak` skill from `.agents/skills/listen-speak/SKILL.md` for transcription and synthesis instructions.

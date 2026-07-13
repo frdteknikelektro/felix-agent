@@ -28,14 +28,14 @@ describe("bundled skills", () => {
     expect(loaded[0]?.id).toBe("general");
   });
 
-  it("copies reference skills but does not load disabled ones", async () => {
+  it("copies reference skills and loads all of them", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-skills-reference-"));
     const workspace = path.join(root, "workspace");
     const sourceSkills = path.join(root, "skills");
     for (const [name, frontmatter] of [
       ["general", "name: general"],
-      ["memory", "id: memory\nname: Memory Wiki"],
-      ["template-skill", "id: template-skill\nname: Template Skill\nenabled: false"],
+      ["memory", "name: memory"],
+      ["template-skill", "name: template-skill"],
     ]) {
       const dir = path.join(sourceSkills, name);
       await fs.mkdir(dir, { recursive: true });
@@ -50,7 +50,7 @@ describe("bundled skills", () => {
     expect(await fs.stat(path.join(paths.skills, "memory", "SKILL.md"))).toBeTruthy();
     expect(await fs.stat(path.join(paths.skills, "template-skill", "SKILL.md"))).toBeTruthy();
     const loaded = await loadSkills({ WORKSPACE_DIR: workspace, paths } as never);
-    expect(loaded.map((s) => s.id)).toEqual(["general", "memory"]);
+    expect(loaded.map((s) => s.id)).toEqual(["general", "memory", "template-skill"]);
   });
 
   it("keeps the general skill conservative and reply-only", async () => {

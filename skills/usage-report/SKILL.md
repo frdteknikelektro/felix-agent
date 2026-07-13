@@ -1,17 +1,12 @@
 ---
-id: usage-report
-name: Usage Report
+name: usage-report
 description: Token-usage reporting for today, week, month, or all time, including contact, source, model, and thread breakdowns. Use for Felix token totals or consumption breakdowns.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - usage.read
-match:
-  - token usage
-  - tokens used
-  - usage report
-  - token consumption
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: usage.read
+  match: token usage, tokens used, usage report, token consumption
 ---
 
 ## Permissions
@@ -31,7 +26,7 @@ Report recorded token counts through the bundled read-only reporter. Pricing and
 3. Run:
 
    ```bash
-   node "${WORKSPACE_DIR}/catalog/skills/usage-report/report.mjs" <window>
+   node "${WORKSPACE_DIR}/.agents/skills/usage-report/report.mjs" <window>
    ```
 
 4. Relay the requested section after the command exits successfully. If it reports no records, say `No usage recorded yet.`

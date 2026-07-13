@@ -39,7 +39,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     approvals: path.join(root, "approvals"),
     audit: path.join(root, "audit.jsonl"),
     catalog,
-    skills: path.join(catalog, "skills"),
+    skills: path.join(root, ".agents", "skills"),
     contacts: path.join(catalog, "contacts"),
     runtime,
     bin: path.join(runtime, "bin"),

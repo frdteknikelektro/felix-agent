@@ -1,23 +1,17 @@
 ---
-id: skill-creator
-name: Skill Creator
+name: skill-creator
 description: Permission-based wizard for creating or editing Felix catalog skills from chat, docs, URLs, attachments, or repo context.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - skill.write
-match:
-  - skill creator
-  - create skill
-  - edit skill
-  - skill wizard
-  - manage skills
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: skill.write
+  match: skill creator, create skill, edit skill, skill wizard, manage skills
 ---
 
 # Skill Creator
 
-Create or edit Felix skills in `${WORKSPACE_DIR}/catalog/skills` through a chat wizard. Reading/listing existing skill definitions is open; creating or editing skills requires `skill.write` through the normal owner approval flow.
+Create or edit Felix skills in `${WORKSPACE_DIR}/.agents/skills` through a chat wizard. Reading/listing existing skill definitions is open; creating or editing skills requires `skill.write` through the normal owner approval flow.
 
 ## Permissions
 
@@ -49,7 +43,7 @@ Do not write until the skill is coherent enough to be useful. Include only the s
 
 Use the harness file tools directly. Do not require a bundled script or CLI for skill creation.
 
-For creates, write a new `catalog/skills/<skill-id>/SKILL.md` and any supporting files the skill actually needs. For edits, patch the existing files in place. Keep `catalog/skills/index.md` in sync when the skill catalog changes.
+For creates, write a new `.agents/skills/<skill-id>/SKILL.md` and any supporting files the skill actually needs. For edits, patch the existing files in place.
 
 Completion for writes requires the intended files to exist, `SKILL.md` frontmatter to include the skill id, name, description, kind, permissions, and triggers as needed, and `index.md` to include the skill.
 
@@ -61,4 +55,4 @@ Use `template-skill` as the reference shape when it exists in the catalog; it is
 
 Never create instructions that bypass permission checks, auto-approve the owner, read secret/env files, expose secret values, probe filesystem layout, default to destructive behavior, or hide external side effects. If requested, refuse that part and offer the safe version.
 
-Editing bundled skills in `catalog/skills` may be overwritten on restart; new custom skills persist because bundled sync does not remove unrelated catalog folders.
+Editing bundled skills in `.agents/skills` may be overwritten on restart; new custom skills persist because bundled sync does not remove unrelated folders.

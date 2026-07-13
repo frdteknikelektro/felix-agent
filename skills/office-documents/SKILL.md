@@ -1,32 +1,15 @@
 ---
-id: office-documents
-name: Office Documents
+name: office-documents
 description: >-
   Create, edit, read, and convert Office documents — Word (.docx),
   PowerPoint (.pptx), Excel (.xlsx), and PDF. Use when the user mentions a
   document, report, memo, letter, deck, slides, presentation, spreadsheet,
   workbook, or PDF, or attaches one of these files.
-version: 1
-enabled: true
-kind: operational
-match:
-  - document
-  - word
-  - docx
-  - report
-  - memo
-  - letter
-  - excel
-  - xlsx
-  - spreadsheet
-  - workbook
-  - csv
-  - powerpoint
-  - pptx
-  - deck
-  - slides
-  - presentation
-  - pdf
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  match: document, word, docx, report, memo, letter, excel, xlsx, spreadsheet, workbook, csv, powerpoint, pptx, deck, slides, presentation, pdf
 ---
 
 # Office Documents

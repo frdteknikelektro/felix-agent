@@ -64,7 +64,7 @@ function makeContact(allowed_permissions: string[] = []): ContactRecord {
 }
 
 function makeSkill(id: string, permissions: string[]): SkillRecord {
-  return { id, permissions, path: `/tmp/catalog/skills/${id}/SKILL.md`, body: "" };
+  return { id, permissions, path: `/tmp/.agents/skills/${id}/SKILL.md`, body: "" };
 }
 
 function makeResult(overrides: Partial<TurnResult> = {}): TurnResult {

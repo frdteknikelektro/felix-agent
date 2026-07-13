@@ -1,19 +1,12 @@
 ---
-id: ssh
-name: SSH
+name: ssh
 description: Connect to a remote host over SSH and execute commands. Use when the user says "ssh", "remote", or "deploy" to a server.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - ssh.execute
-  - ssh.transfer
-match:
-  - ssh
-  - remote
-  - deploy to server
-  - connect to server
-  - log into server
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: ssh.execute, ssh.transfer
+  match: ssh, remote, deploy to server, connect to server, log into server
 ---
 
 # SSH

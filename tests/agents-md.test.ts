@@ -54,6 +54,6 @@ describe("AGENTS.md", () => {
 
   it("points audio attachments at the listen-speak skill", () => {
     expect(agentsMd).toContain("## Audio attachments");
-    expect(agentsMd).toContain("catalog/skills/listen-speak/SKILL.md");
+    expect(agentsMd).toContain(".agents/skills/listen-speak/SKILL.md");
   });
 });

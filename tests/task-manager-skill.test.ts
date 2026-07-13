@@ -16,13 +16,13 @@ describe("task-manager skill", () => {
   it("declares its lifecycle, permissions, and deterministic writer", async () => {
     const raw = await fs.readFile("skills/task-manager/SKILL.md", "utf8");
 
-    expect(raw).toContain("id: task-manager");
+    expect(raw).toContain("name: task-manager");
     expect(raw).toContain("kind: operational");
     expect(raw).toContain("task.create");
     expect(raw).toContain("task.read");
     expect(raw).toContain("make this a task");
     expect(raw).toContain("kanban");
-    expect(raw).toContain('TASK_CLI="${WORKSPACE_DIR}/catalog/skills/task-manager/task.mjs"');
+    expect(raw).toContain('TASK_CLI="${WORKSPACE_DIR}/.agents/skills/task-manager/task.mjs"');
     expect(raw).toContain("jq -n");
     expect(raw).toContain("always confirms before creating");
     expect(raw).toContain("reopen");

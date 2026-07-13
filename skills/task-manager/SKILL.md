@@ -1,21 +1,12 @@
 ---
-id: task-manager
-name: Task Manager
-description: Kanban task lifecycle for creating, listing, showing, starting, completing, cancelling, blocking, pausing, and reopening tasks. Use for task, todo, backlog, board, sprint, or “make this a task” requests.
-version: 1
-enabled: true
-kind: operational
-permissions:
-  - task.create
-  - task.read
-match:
-  - task
-  - todo
-  - kanban
-  - board
-  - backlog
-  - sprint
-  - make this a task
+name: task-manager
+description: Kanban task lifecycle for creating, listing, showing, starting, completing, cancelling, blocking, pausing, and reopening tasks. Use for task, todo, backlog, board, sprint, or "make this a task" requests.
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: task.create, task.read
+  match: task, todo, kanban, board, backlog, sprint, make this a task
 ---
 
 # Task Manager
@@ -25,7 +16,7 @@ Use the bundled CLI as the single writer for `${WORKSPACE_DIR}/tasks`; do not re
 The board has no assignments, due dates, estimates, recursive subtasks, or automatic event-to-task conversion.
 
 ```bash
-TASK_CLI="${WORKSPACE_DIR}/catalog/skills/task-manager/task.mjs"
+TASK_CLI="${WORKSPACE_DIR}/.agents/skills/task-manager/task.mjs"
 ```
 
 ## Permission boundary

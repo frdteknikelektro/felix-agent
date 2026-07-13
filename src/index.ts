@@ -105,7 +105,7 @@ function sleep(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function syncMemorySchema(paths: import("./workspace.js").WorkspacePaths): Promise<void> {
-  const source = path.resolve(process.cwd(), "skills", "memory", "SKILL.md");
+  const source = path.join(paths.skills, "memory", "SKILL.md");
   const dest = path.join(paths.wikiDir, ".schema.md");
   try {
     await fs.cp(source, dest, { force: true });

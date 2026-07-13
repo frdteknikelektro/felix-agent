@@ -20,7 +20,7 @@ describe("workspace paths", () => {
     expect(paths.approvals).toBe(path.join("/workspace", "approvals"));
     expect(paths.audit).toBe(path.join("/workspace", "audit.jsonl"));
     expect(paths.botMessageIndex).toBe(path.join("/workspace", "index", "bot-messages"));
-    expect(paths.skills).toBe(path.join("/workspace", "catalog", "skills"));
+    expect(paths.skills).toBe(path.join("/workspace", ".agents", "skills"));
     expect(paths.contacts).toBe(path.join("/workspace", "catalog", "contacts"));
     expect(paths.bin).toBe(path.join("/workspace", "runtime", "bin"));
     expect(paths.tools).toBe(path.join("/workspace", "runtime", "tools"));

@@ -14,7 +14,7 @@ describe("skills", () => {
     await fs.mkdir(skillsDir, { recursive: true });
     await fs.writeFile(
       path.join(skillsDir, "SKILL.md"),
-      `---\nid: demo\nname: Demo Skill\ndescription: test\npermissions:\n  - repo.read\n---\n\nbody\n`,
+      `---\nname: demo\ndescription: test\nmetadata:\n  permissions: repo.read\n---\n\nbody\n`,
       "utf8",
     );
     const cfg = {
