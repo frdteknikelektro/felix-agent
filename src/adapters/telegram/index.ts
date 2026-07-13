@@ -849,8 +849,15 @@ class TelegramAdapter implements SourceAdapter {
     }
 
     const isGroup = input.event.visibility === "channel";
+    const isSystem = input.event.sender.id === "system";
     const threadId = input.event.source_thread_ref.root_message_id;
     const html = markdownToTelegramHtml(input.text);
+    const replyParams = isSystem ? {} : {
+      reply_parameters: {
+        message_id: Number(input.event.event_id),
+        allow_sending_without_reply: true,
+      },
+    };
 
     await this.waitForSendSlot();
     const ok = await this.apiCall("sendMessage", {
@@ -858,10 +865,7 @@ class TelegramAdapter implements SourceAdapter {
       text: html,
       parse_mode: "HTML",
       ...(isGroup && threadId !== chatId ? { message_thread_id: Number(threadId) } : {}),
-      reply_parameters: {
-        message_id: Number(input.event.event_id),
-        allow_sending_without_reply: true,
-      },
+      ...replyParams,
     });
     if (!ok) {
       // fallback: send as plain text
@@ -869,10 +873,7 @@ class TelegramAdapter implements SourceAdapter {
         chat_id: chatId,
         text: input.text,
         ...(isGroup && threadId !== chatId ? { message_thread_id: Number(threadId) } : {}),
-        reply_parameters: {
-          message_id: Number(input.event.event_id),
-          allow_sending_without_reply: true,
-        },
+        ...replyParams,
       });
     }
   }
