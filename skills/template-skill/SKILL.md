@@ -8,7 +8,9 @@ metadata:
   permissions: template.read, template.write
   match: replace with trigger phrase
 # env:
-#   SERVICE_API_KEY: Access token for the service
+#   - key: SERVICE_API_KEY
+#     description: Access token for the service
+#     required: true
 ---
 
 # Template Skill
