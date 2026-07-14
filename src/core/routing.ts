@@ -9,9 +9,10 @@ export function shouldAcceptEvent(
   event: UniversalEvent,
   thread?: { managed_by_felix: boolean; blocked?: boolean },
 ): boolean {
-  if (event.visibility === "dm" && !thread?.blocked) return true;
-  if (event.mentions_bot && !thread?.blocked) return true;
-  if (thread?.managed_by_felix && !thread.blocked) return true;
+  if (thread?.blocked) return false;
+  if (event.visibility === "dm") return true;
+  if (event.mentions_bot) return true;
+  if (thread?.managed_by_felix) return true;
   return false;
 }
 
@@ -25,4 +26,16 @@ export function isOwnMessage(event: UniversalEvent, source: string, botUserId?: 
   if (event.source !== source) return false;
   if (!botUserId) return false;
   return event.sender.id === botUserId || event.sender.id === `${source}:${botUserId}`;
+}
+
+/**
+ * Returns true when the event was sent by the configured Owner for this
+ * source. Symmetric to `isOwnMessage` — the engine uses it to gate owner-only
+ * commands like `/block` and `/unblock`. When `ownerUserId` is unset the
+ * owner identity is unknown and the check returns false (closed by default).
+ */
+export function isOwnerMessage(event: UniversalEvent, source: string, ownerUserId?: string): boolean {
+  if (event.source !== source) return false;
+  if (!ownerUserId) return false;
+  return event.sender.id === ownerUserId || event.sender.id === `${source}:${ownerUserId}`;
 }

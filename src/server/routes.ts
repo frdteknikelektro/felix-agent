@@ -146,31 +146,15 @@ export const API_ROUTES: Route[] = [
   {
     method: "POST",
     pattern: "/api/threads/:threadKey/block",
-    async handler({ cfg, engine, params, send }) {
-      const threadKey = params["threadKey"];
-      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
-      try {
-        await engine.setBlocked(threadKey, true);
-      } catch {
-        send(404, { error: "not_found" });
-        return;
-      }
-      send(200, { ok: true, blocked: true });
+    async handler({ engine, params, send }) {
+      await setThreadBlockedRoute(engine, params["threadKey"], true, send);
     },
   },
   {
     method: "POST",
     pattern: "/api/threads/:threadKey/unblock",
-    async handler({ cfg, engine, params, send }) {
-      const threadKey = params["threadKey"];
-      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
-      try {
-        await engine.setBlocked(threadKey, false);
-      } catch {
-        send(404, { error: "not_found" });
-        return;
-      }
-      send(200, { ok: true, blocked: false });
+    async handler({ engine, params, send }) {
+      await setThreadBlockedRoute(engine, params["threadKey"], false, send);
     },
   },
 
@@ -522,4 +506,23 @@ function normalizeList(value: unknown): string[] {
 
 function isContactEditorError(error: unknown, code: string): boolean {
   return error instanceof ContactEditorError && error.code === code;
+}
+
+async function setThreadBlockedRoute(
+  engine: FelixEngine,
+  threadKey: string | undefined,
+  blocked: boolean,
+  send: (status: number, data: unknown) => void,
+): Promise<void> {
+  if (!threadKey) {
+    send(400, { error: "missing_thread_key" });
+    return;
+  }
+  try {
+    await engine.setBlocked(threadKey, blocked);
+  } catch {
+    send(400, { error: "invalid_thread_key" });
+    return;
+  }
+  send(200, { ok: true, blocked });
 }
