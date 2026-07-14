@@ -376,8 +376,16 @@ export function isFelixMessage(
   target: ReplyTargetInfo,
   botName: string,
 ): boolean {
-  // Dedicated number mode: SenderJID matches the bot's own JID
+  // Dedicated/shared: SenderJID matches the bot's own JID
   if (botJid && target.senderJid === botJid) return true;
+  // Fallback: wacli may return the sender as a different JID flavour
+  // (e.g. @lid) while still using the same phone number. Match by the
+  // phone-number prefix so the reply-to-Felix detection survives that.
+  if (botJid) {
+    const at = botJid.indexOf("@");
+    const phone = at > 0 ? botJid.slice(0, at) : "";
+    if (phone && target.senderJid && target.senderJid.startsWith(phone)) return true;
+  }
 
   // Shared number mode: text or caption starts with *[BotName]*
   const prefix = `*[${botName}]*`;
