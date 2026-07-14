@@ -46,7 +46,7 @@ RUN apt-get update \
 
 # Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite.
 # Single self-contained binary, so it extracts straight to /usr/local/bin (no /opt dir).
-ARG WACLI_VERSION=0.11.1
+ARG WACLI_VERSION=0.12.0
 RUN arch="$(uname -m)" \
     && case "$arch" in \
          aarch64) asset_arch=arm64 ;; \

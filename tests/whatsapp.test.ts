@@ -784,6 +784,8 @@ describe("WhatsAppAdapter send methods exist", () => {
       "typing",
       "--to",
       "1234567890@s.whatsapp.net",
+      "--lock-wait",
+      "10s",
     ]);
   });
 
