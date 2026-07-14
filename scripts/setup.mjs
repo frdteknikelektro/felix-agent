@@ -889,6 +889,18 @@ async function main() {
       }
 
       for (const [skill, vars] of bySkill) {
+        const setupEnv = await confirm({
+          message: `Configure ${skill} environment now?`,
+          default: true,
+        });
+        if (!setupEnv) {
+          for (const v of vars) {
+            if (existing && existing[v.key] && !(v.key in wizard)) {
+              wizard[v.key] = existing[v.key];
+            }
+          }
+          continue;
+        }
         section(skill);
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];
