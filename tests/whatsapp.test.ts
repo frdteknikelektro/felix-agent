@@ -726,7 +726,7 @@ describe("WhatsAppAdapter send methods exist", () => {
     const bin = path.join(root, "wacli");
     await fs.writeFile(
       bin,
-      `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(argsFile)}\nprintf '{"data":{"id":"sent-1"}}\\n'\n`,
+      `#!/bin/sh\nprintf '%s\\n' "$@" >> ${JSON.stringify(argsFile)}\nprintf '{"data":{"id":"sent-1"}}\\n'\n`,
       { mode: 0o755 },
     );
 

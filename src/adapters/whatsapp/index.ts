@@ -1068,6 +1068,17 @@ class WhatsAppAdapter implements SourceAdapter {
     });
   }
 
+  private async sendPaused(chatJid: string): Promise<void> {
+    try {
+      spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
+        "presence", "paused",
+        "--to", chatJid,
+      ], { stdio: "ignore", timeout: 5_000 });
+    } catch {
+      // best-effort
+    }
+  }
+
   async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid) {
@@ -1116,6 +1127,7 @@ class WhatsAppAdapter implements SourceAdapter {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+    await this.sendPaused(chatJid);
   }
 
   async sendUserMessage(input: {
