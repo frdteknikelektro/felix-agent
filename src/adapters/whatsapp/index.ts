@@ -1033,8 +1033,6 @@ class WhatsAppAdapter implements SourceAdapter {
     const elapsed = Date.now() - (lastTypingAtByChat.get(chatJid) ?? 0);
     if (elapsed < WHATSAPP_OUTBOUND_MIN_GAP_MS) return;
 
-    const senderArgs = this.senderArgsForChat(chatJid, input.event.sender.id, "typing");
-
     lastTypingAtByChat.set(chatJid, Date.now());
     this.typingInFlight = true;
     await new Promise<void>((resolve) => {
@@ -1043,7 +1041,6 @@ class WhatsAppAdapter implements SourceAdapter {
         "presence", "typing",
         "--to", chatJid,
         "--lock-wait", "10s",
-        ...senderArgs,
       ], {
         stdio: ["ignore", "pipe", "pipe"],
         env: {

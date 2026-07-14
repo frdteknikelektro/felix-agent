@@ -152,10 +152,6 @@ ENV NODE_ENV=production \
     WORKSPACE_DIR=/home/node \
     NODE_PATH=/app/node_modules \
     PYTHONUSERBASE=/home/node/runtime/python \
-    GIT_AUTHOR_NAME="felix-agent" \
-    GIT_AUTHOR_EMAIL="felix@agent" \
-    GIT_COMMITTER_NAME="felix-agent" \
-    GIT_COMMITTER_EMAIL="felix@agent" \
     PATH="/app/node_modules/.bin:/home/node/runtime/bin:/home/node/runtime/npm/bin:/home/node/runtime/python/bin:$PATH"
 
 # package.json stays: its "type": "module" drives ESM resolution for dist/*.js.
