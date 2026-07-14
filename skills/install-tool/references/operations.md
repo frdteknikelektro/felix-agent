@@ -15,6 +15,12 @@ RESOLVED=$(command -v "$NAME" || true)
 
 If empty, report not installed. Otherwise require `RESOLVED` to be under `$WORKSPACE_RUNTIME`, then run the documented version probe with a short timeout. Report path, mode, and version. A command elsewhere on system `PATH` is not a workspace installation.
 
+If the tool is a single executable or directory tool (not npm/pip) and `RESOLVED` is not under `$WORKSPACE_BIN`, the tool is missing its symlink. Create one:
+
+```bash
+ln -sfn "$RESOLVED" "$WORKSPACE_BIN/$NAME"
+```
+
 ## List
 
 Enumerate the three bin directories, deduplicate command names, and inspect each through the check procedure:
@@ -35,6 +41,8 @@ Single executable or directory tool:
 rm -f "$WORKSPACE_BIN/$NAME"
 rm -rf "$WORKSPACE_TOOLS/$NAME"
 ```
+
+Also remove any symlink in `$WORKSPACE_BIN` that pointed to the removed tool (the `rm -f` above covers this for direct entries; check for dangling symlinks with `find "$WORKSPACE_BIN" -type l ! -exec test -e {} \; -print` and clean them up).
 
 npm CLI: read [npm packages](npm.md) and uninstall its owning package rather than deleting only a symlink.
 

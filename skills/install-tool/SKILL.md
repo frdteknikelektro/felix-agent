@@ -34,6 +34,7 @@ mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS" "$NPM_PREFIX" "$PYTHON_USER_BASE"
 
 - Single executables: `workspace/runtime/bin/`
 - Directory tools with required sibling files: `workspace/runtime/tools/<name>/`, plus a wrapper in the shared bin
+- **Every single executable or directory tool must be reachable from `workspace/runtime/bin/`** — either as a direct binary, a wrapper script, or a symlink. This directory is on `$PATH`. npm/pip tools resolve through their own bin dirs.
 - npm packages: `workspace/runtime/npm/`; both `workspace/runtime/bin/` and `workspace/runtime/npm/bin` are on `PATH`
 - pip packages: `workspace/runtime/python/`, resolved automatically via `PYTHONUSERBASE`; `workspace/runtime/python/bin` is on `PATH`
 
@@ -52,6 +53,7 @@ mkdir -p "$WORKSPACE_BIN" "$WORKSPACE_TOOLS" "$NPM_PREFIX" "$PYTHON_USER_BASE"
 5. For remove/list/check, read [installed-tool operations](references/operations.md).
 6. Verify independently after every mutation:
    - the resolved executable is inside `$WORKSPACE_RUNTIME`;
+   - **for single-executable and directory tools, `command -v "$NAME"` resolves to a path under `$WORKSPACE_BIN`** — if the binary lives elsewhere (e.g. `$WORKSPACE_TOOLS/<name>/bin/<name>`), create a symlink: `ln -sfn "$REAL_PATH" "$WORKSPACE_BIN/$NAME"`. npm/pip tools resolve through their own bin dirs which are also on `$PATH`;
    - it starts successfully with `--version`, `version`, or a documented non-mutating probe;
    - temporary files are gone.
 7. Report the tool, operation, resolved version, and install mode. On failure, include the attempted source and concrete error without claiming success.
@@ -65,6 +67,7 @@ Completion requires the requested final state to be observed from disk and, for 
 - Accept only HTTPS artifacts unless the user explicitly supplied a local file.
 - Verify a publisher checksum or signature whenever one is available; abort on mismatch.
 - Never choose the first executable in an archive heuristically. Identify the intended executable from publisher layout or ask.
+- **Never leave a single executable or directory tool without a `$WORKSPACE_BIN` entry.** If the binary is not directly placed in `$WORKSPACE_BIN`, create a symlink or wrapper so `command -v "$NAME"` resolves there. npm/pip tools are exempt — their own bin dirs are on `$PATH`.
 - Normalize platform only for archive downloads:
 
   ```bash

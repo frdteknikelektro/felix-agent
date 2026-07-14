@@ -107,3 +107,11 @@ If the post-swap probe fails, remove the failed directory and restore `$OLD_DIR`
 ## Completion
 
 Resolve with `command -v "$NAME"`, require a path below `$WORKSPACE_RUNTIME`, record the new version, and let the cleanup trap remove staging.
+
+If the resolved path is not directly under `$WORKSPACE_BIN` (e.g. the binary ended up inside `$WORKSPACE_TOOLS`), create a symlink:
+
+```bash
+ln -sfn "$RESOLVED" "$WORKSPACE_BIN/$NAME"
+```
+
+Then re-verify with `command -v "$NAME"` to confirm it resolves through `$WORKSPACE_BIN`.
