@@ -889,11 +889,6 @@ async function main() {
       }
 
       for (const [skill, vars] of bySkill) {
-        const setupEnv = await confirm({
-          message: `Configure environment variables for ${skill}?`,
-          default: true,
-        });
-        if (!setupEnv) continue;
         section(skill);
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];
@@ -903,12 +898,12 @@ async function main() {
           const val = await input({
             message: `${v.key}  ${reqTag(v.required)}:${hint}`,
             default: hasExisting ? existing[v.key] : (v.default || ""),
-            validate: (val) => {
-              if (v.required && !val && !hasExisting) return `${v.key} is required by ${skill}`;
-              return true;
-            },
           });
-          if (val) wizard[v.key] = val;
+          if (val) {
+            wizard[v.key] = val;
+          } else if (v.required && !hasExisting) {
+            warn(`${v.key} is required by ${skill} — set it in .env later.`);
+          }
         }
       }
     }
