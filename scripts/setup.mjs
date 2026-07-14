@@ -178,7 +178,19 @@ function parseTemplate(path) {
   return raw.split(/\r?\n/).map((line) => {
     const trimmed = line.trim();
     if (!trimmed) return { type: "blank", raw: line };
-    if (trimmed.startsWith("#")) return { type: "comment", raw: line };
+    if (trimmed.startsWith("#")) {
+      const inner = trimmed.slice(1).trim();
+      const eq = inner.indexOf("=");
+      if (eq > 0) {
+        return {
+          type: "optional",
+          raw: line,
+          key: inner.slice(0, eq).trim(),
+          value: inner.slice(eq + 1).trim(),
+        };
+      }
+      return { type: "comment", raw: line };
+    }
     const eq = trimmed.indexOf("=");
     if (eq < 1) return { type: "comment", raw: line };
     return {
@@ -194,15 +206,28 @@ function writeEnv(templatePath, outputPath, answers, existing) {
   const template = parseTemplate(templatePath);
   const templateKeys = new Set();
   const lines = template.map((entry) => {
-    if (entry.type !== "setting") return entry.raw;
-    templateKeys.add(entry.key);
-    if (entry.key in answers) {
-      const eqIdx = entry.raw.indexOf("=");
-      let val = answers[entry.key] ?? "";
-      if (/[\s"'#]/.test(val) || val.includes("\n")) {
-        val = "'" + val.replace(/'/g, "'\\''") + "'";
+    if (entry.type === "setting") {
+      templateKeys.add(entry.key);
+      if (entry.key in answers) {
+        const eqIdx = entry.raw.indexOf("=");
+        let val = answers[entry.key] ?? "";
+        if (/[\s"'#]/.test(val) || val.includes("\n")) {
+          val = "'" + val.replace(/'/g, "'\\''") + "'";
+        }
+        return entry.raw.slice(0, eqIdx + 1) + val;
       }
-      return entry.raw.slice(0, eqIdx + 1) + val;
+      return entry.raw;
+    }
+    if (entry.type === "optional") {
+      templateKeys.add(entry.key);
+      if (entry.key in answers && answers[entry.key]) {
+        let val = answers[entry.key];
+        if (/[\s"'#]/.test(val) || val.includes("\n")) {
+          val = "'" + val.replace(/'/g, "'\\''") + "'";
+        }
+        return `${entry.key}=${val}`;
+      }
+      return entry.raw;
     }
     return entry.raw;
   });
@@ -935,13 +960,13 @@ async function main() {
     const templateKeys = new Set();
     const final = {};
     for (const entry of template) {
-      if (entry.type !== "setting") continue;
+      if (entry.type !== "setting" && entry.type !== "optional") continue;
       templateKeys.add(entry.key);
       if (entry.key in wizard) {
         final[entry.key] = wizard[entry.key];
       } else if (entry.key in existing) {
         final[entry.key] = existing[entry.key];
-      } else {
+      } else if (entry.type === "setting") {
         final[entry.key] = entry.value;
       }
     }
@@ -966,6 +991,11 @@ async function main() {
         const display = SECRET_KEYS.has(entry.key)
           ? c.dim + mask(final[entry.key]) + c.reset
           : final[entry.key] || `${c.dim}<not set>${c.reset}`;
+        console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
+      } else if (entry.type === "optional" && entry.key in final && final[entry.key]) {
+        const display = SECRET_KEYS.has(entry.key)
+          ? c.dim + mask(final[entry.key]) + c.reset
+          : final[entry.key];
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
       }
     }
