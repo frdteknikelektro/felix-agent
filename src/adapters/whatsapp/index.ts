@@ -651,7 +651,7 @@ export async function handleWhatsAppWebhook(
           sendJson(res, 200, { ignored: "self_reaction" });
           return;
         }
-        const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
+        const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
         if (!event) {
           sendJson(res, 200, { ignored: "empty_event" });
           return;
@@ -686,7 +686,7 @@ export async function handleWhatsAppWebhook(
         sendJson(res, 200, { ignored: "self_media" });
         return;
       }
-      const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
+      const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
         return;
@@ -721,7 +721,7 @@ export async function handleWhatsAppWebhook(
   if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)
       && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
     const replyTarget = payload.ReplyToID;
-    const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
+    const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
     if (!event) {
       sendJson(res, 200, { ignored: "empty_event" });
       return;
@@ -765,13 +765,22 @@ export async function handleWhatsAppWebhook(
   // ── Reply-to-Felix detection (non-FromMe) ──────────────────────────
   let replyToBot = false;
   if (payload.ReplyToID && !payload.FromMe) {
-    const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
-    if (target && isFelixMessage(target, botName)) {
-      replyToBot = true;
+    if (!ownerSharesNumber) {
+      // Dedicated number: any reply to a bot message triggers
+      const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
+      if (target && botJid && target.senderJid === botJid) {
+        replyToBot = true;
+      }
+    } else {
+      // Shared number: only trigger if Felix prefix is present
+      const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
+      if (target && isFelixMessage(target, botName)) {
+        replyToBot = true;
+      }
     }
   }
 
-  const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta);
+  const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
@@ -1341,6 +1350,7 @@ function normalizeParsedMessage(
   botName: string,
   aliases: string[] = [],
   resolveMeta?: WhatsAppResolveMeta,
+  sameNumber = true,
 ): UniversalEvent | null {
   const chatJid = pm.Chat || "";
   if (!chatJid) return null;
@@ -1352,7 +1362,8 @@ function normalizeParsedMessage(
   const hasReaction = Boolean(pm.ReactionToID);
   if (!hasText && !hasMedia && !hasReaction) return null;
 
-  const visibility = "channel"; // all WhatsApp chats require @mention; no auto-answer DMs
+  const isGroup = isWhatsAppGroupJid(chatJid);
+  const visibility = !sameNumber && !isGroup ? "dm" : "channel";
   const senderJid = pm.SenderJID ?? "unknown";
   const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases);
 
