@@ -1010,10 +1010,8 @@ class WhatsAppAdapter implements SourceAdapter {
     // "processing" → add ⏳; everything else → remove ⏳ (aligns with Discord/Slack/Mattermost)
     const reaction = input.status === "processing" ? "⏳" : "";
     // --sender is the JID of the person who sent the message being reacted to
-    // (required for group reactions). Strip the "owner:" prefix that shared-number
-    // mode applies to the owner's messages.
-    const messageSenderJid = input.event.sender.id.replace(/^owner:/, "");
-    const senderArgs = this.senderArgsForChat(chatJid, messageSenderJid, "status");
+    // (required for group reactions).
+    const senderArgs = this.senderArgsForChat(chatJid, input.event.sender.id, "status");
     await waitForSendSlot();
     try {
       spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
@@ -1035,6 +1033,8 @@ class WhatsAppAdapter implements SourceAdapter {
     const elapsed = Date.now() - (lastTypingAtByChat.get(chatJid) ?? 0);
     if (elapsed < WHATSAPP_OUTBOUND_MIN_GAP_MS) return;
 
+    const senderArgs = this.senderArgsForChat(chatJid, input.event.sender.id, "typing");
+
     lastTypingAtByChat.set(chatJid, Date.now());
     this.typingInFlight = true;
     await new Promise<void>((resolve) => {
@@ -1043,6 +1043,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "presence", "typing",
         "--to", chatJid,
         "--lock-wait", "10s",
+        ...senderArgs,
       ], {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
@@ -1344,11 +1345,11 @@ class WhatsAppAdapter implements SourceAdapter {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
-  private senderArgsForChat(chatJid: string, messageSenderJid: string, operation: string): string[] {
-    if (!isWhatsAppGroupJid(chatJid)) return [];
+  private senderArgsForChat(chatJid: string, rawSenderId: string, operation: string): string[] {
+    const messageSenderJid = rawSenderId.replace(/^owner:/, "");
     if (messageSenderJid) return ["--sender", messageSenderJid];
 
-    log.warn("whatsapp.group_sender_missing", { chat_jid: chatJid, operation });
+    log.warn("whatsapp.sender_missing", { chat_jid: chatJid, operation });
     return [];
   }
 }
