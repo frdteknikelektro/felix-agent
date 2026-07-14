@@ -143,6 +143,36 @@ export const API_ROUTES: Route[] = [
       send(200, { items: messages });
     },
   },
+  {
+    method: "POST",
+    pattern: "/api/threads/:threadKey/block",
+    async handler({ cfg, engine, params, send }) {
+      const threadKey = params["threadKey"];
+      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      try {
+        await engine.setBlocked(threadKey, true);
+      } catch {
+        send(404, { error: "not_found" });
+        return;
+      }
+      send(200, { ok: true, blocked: true });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/threads/:threadKey/unblock",
+    async handler({ cfg, engine, params, send }) {
+      const threadKey = params["threadKey"];
+      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      try {
+        await engine.setBlocked(threadKey, false);
+      } catch {
+        send(404, { error: "not_found" });
+        return;
+      }
+      send(200, { ok: true, blocked: false });
+    },
+  },
 
   // Skills
   {

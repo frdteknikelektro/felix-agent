@@ -50,6 +50,42 @@ describe("shouldAcceptEvent", () => {
       ),
     ).toBe(false);
   });
+
+  it("rejects a DM when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "dm", mentions_bot: false }),
+        { managed_by_felix: true, blocked: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a bot mention when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: true }),
+        { managed_by_felix: true, blocked: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a managed-thread reply when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: false }),
+        { managed_by_felix: true, blocked: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts again once the thread is unblocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: false }),
+        { managed_by_felix: true, blocked: false },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("isOwnMessage", () => {

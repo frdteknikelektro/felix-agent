@@ -4,7 +4,7 @@ import type { AppConfig } from "./config.js";
 import { ApprovalRequestLifecycle, hasPendingApproval } from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
+import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, loadThreadState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
 import type { ContactRecord, OwnerDecision, SessionQueueItem, SessionState, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
 import { loadSkills } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
@@ -63,7 +63,18 @@ export class FelixEngine {
   async ingest(event: UniversalEvent): Promise<void> {
     const adapter = this.requireAdapter(event.source);
     const thread = await findThreadHandle(this.cfg, event.thread_key);
-    if (!this.shouldAccept(thread, event)) {
+    // /block and /unblock are owner escape hatches — they bypass the
+    // block-state check so an Owner can recover a silenced thread. They
+    // still need a real thread on disk to be meaningful.
+    const isBlockEscape = !!thread && (FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event));
+    if (!this.shouldAccept(thread, event) && !isBlockEscape) {
+      // Blocked-thread events are queued silently (no reply, no process
+      // call) and replayed in order when the thread is unblocked. Anything
+      // else that shouldAccept rejected is just not for us.
+      if (thread?.state.blocked) {
+        await this.queueBlockedEvent(thread, event, adapter);
+        return;
+      }
       await this.persistRawIgnored(event);
       return;
     }
@@ -72,13 +83,32 @@ export class FelixEngine {
     await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
   }
 
+  /**
+   * Set the blocked flag on a thread. When transitioning to unblocked,
+   * triggers processing so any events queued while the thread was blocked
+   * are replayed in order.
+   */
+  async setBlocked(threadKey: string, blocked: boolean): Promise<void> {
+    const thread = await findThreadHandle(this.cfg, threadKey);
+    if (!thread) throw new Error(`No thread for key ${threadKey}`);
+    await updateThreadState(thread, { blocked });
+    if (!blocked) {
+      void this.processThread(thread).catch((error) => {
+        log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+      });
+    }
+  }
+
   private async handleEventAcceptance(
     thread: ThreadHandle,
     event: UniversalEvent,
     adapter: SourceAdapter,
     opts?: { isNew?: boolean },
   ): Promise<void> {
-    if (!this.shouldAccept(thread, event)) {
+    // Block/unblock commands are owner escape hatches — they bypass the
+    // block-state check below. See the matching bypass in `ingest`.
+    const isBlockEscape = FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event);
+    if (!this.shouldAccept(thread, event) && !isBlockEscape) {
       await this.persistRawIgnored(event);
       return;
     }
@@ -94,6 +124,11 @@ export class FelixEngine {
 
     if (opts?.isNew) {
       await this.notifyOwnerNewThread(thread, event, adapter);
+    }
+
+    if (FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event)) {
+      await this.handleBlockCommand(thread, event, adapter);
+      return;
     }
 
     if (FelixEngine.isStopCommand(event)) {
@@ -211,8 +246,85 @@ export class FelixEngine {
     return FelixEngine.stripMentions(event.text).toLowerCase() === "/new";
   }
 
+  private static isBlockCommand(event: UniversalEvent): boolean {
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/block";
+  }
+
+  private static isUnblockCommand(event: UniversalEvent): boolean {
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/unblock";
+  }
+
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
     await clearThreadQueue(thread);
+  }
+
+  /**
+   * Persist + queue an event for a blocked thread. No reply is sent and
+   * processThread is not called. When the thread is unblocked, the events
+   * sit in session.json.queue and drain in order on the next processThread.
+   */
+  private async queueBlockedEvent(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): Promise<void> {
+    if (await hasThreadEvent(thread, event.source, event.event_id)) {
+      log.info("thread.event_duplicate", {
+        thread_key: thread.state.thread_key,
+        event_id: event.event_id,
+        source: event.source,
+      });
+      return;
+    }
+    event.attachments = await this.prepareAttachments(thread, event, adapter);
+    const eventFile = await appendEventToThread(thread, event);
+    await queueThreadEvent(thread, {
+      received_at: event.received_at,
+      event_file: eventFile,
+      source_event_id: event.event_id,
+    });
+    log.info("thread.event_queued_blocked", {
+      thread_key: thread.state.thread_key,
+      event_id: event.event_id,
+    });
+  }
+
+  private async handleBlockCommand(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): Promise<void> {
+    const isOwner =
+      !!adapter.ownerUserId &&
+      (event.sender.id === adapter.ownerUserId ||
+        event.sender.id === `${adapter.source}:${adapter.ownerUserId}`);
+    if (!isOwner) {
+      // Non-owner attempt: silently ignore — do not leak command existence,
+      // do not call the harness, do not change state.
+      log.info("thread.block_command_rejected", {
+        thread_key: thread.state.thread_key,
+        sender: event.sender.id,
+      });
+      return;
+    }
+
+    const wantsBlock = FelixEngine.isBlockCommand(event);
+    const next = wantsBlock;
+    if (thread.state.blocked === next) {
+      const text = next ? "Thread is already blocked." : "Thread is not blocked.";
+      await this.postThreadReply(thread, event, undefined, text);
+      return;
+    }
+
+    await updateThreadState(thread, { blocked: next });
+    const text = next ? "Thread blocked. Felix will queue events and skip processing until unblocked." : "Thread unblocked. Queued events will be replayed in order.";
+    await this.postThreadReply(thread, event, undefined, text);
+
+    if (!next) {
+      void this.processThread(thread).catch((error) => {
+        log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+      });
+    }
   }
 
   async processThread(thread: ThreadHandle): Promise<void> {
@@ -277,6 +389,11 @@ export class FelixEngine {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
       while (true) {
+        // Re-check the block flag before each turn. A processThread started
+        // while the thread was unblocked must not drain events that arrived
+        // after a block was set.
+        const liveState = await loadThreadState(thread);
+        if (liveState.blocked) break;
         const preceding: { event: UniversalEvent; eventFile: string }[] = [];
         const trigger = await this.dequeueTriggerEvent(thread, preceding);
         if (!trigger) break;
