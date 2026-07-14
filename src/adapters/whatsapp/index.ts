@@ -1375,7 +1375,7 @@ function normalizeParsedMessage(
   const isGroup = isWhatsAppGroupJid(chatJid);
   const visibility = !sameNumber && !isGroup ? "dm" : "channel";
   const senderJid = pm.SenderJID ?? "unknown";
-  const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases);
+  const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases, botJid);
 
   const displayText = hasReaction
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
@@ -1425,13 +1425,26 @@ function normalizeParsedMessage(
 
 // ─── Mention detection ────────────────────────────────────────────────────────
 
-export function detectsWhatsappMention(text: string, botName: string, aliases: string[] = []): boolean {
+export function detectsWhatsappMention(
+  text: string,
+  botName: string,
+  aliases: string[] = [],
+  botJid?: string,
+): boolean {
   const lower = text.toLowerCase();
   const botLower = botName.toLowerCase();
   if (lower.includes(`@${botLower}`)) return true;
   for (const alias of aliases) {
     const a = alias.trim().toLowerCase();
     if (a && lower.includes(`@${a}`)) return true;
+  }
+  // WhatsApp serialises resolved @mentions as `@<phone-number>`, not the
+  // display name. If the bot's JID is known, also match the bot's own phone
+  // so mentions in resolved text still trigger the agent.
+  if (botJid) {
+    const at = botJid.indexOf("@");
+    const phone = at > 0 ? botJid.slice(0, at) : botJid;
+    if (phone && lower.includes(`@${phone.toLowerCase()}`)) return true;
   }
   return false;
 }

@@ -270,6 +270,21 @@ describe("detectsWhatsappMention", () => {
   it("does not match partial name", () => {
     expect(detectsWhatsappMention("@Felix hi", "FelixBot")).toBe(false);
   });
+
+  it("matches @phone-number mention when botJid is provided", () => {
+    // wacli resolves @FelixBot to @<phone-number> in the resolved text
+    expect(detectsWhatsappMention("@6281234567890 hello", "FelixBot", [], "6281234567890@s.whatsapp.net")).toBe(true);
+    expect(detectsWhatsappMention("hey @6281234567890", "FelixBot", [], "6281234567890@s.whatsapp.net")).toBe(true);
+  });
+
+  it("phone-number mention check is case-insensitive", () => {
+    expect(detectsWhatsappMention("@6281234567890 hi", "FelixBot", [], "6281234567890@s.whatsapp.net")).toBe(true);
+    expect(detectsWhatsappMention("hello", "FelixBot", [], "6281234567890@s.whatsapp.net")).toBe(false);
+  });
+
+  it("phone-number mention check is a no-op when botJid is empty", () => {
+    expect(detectsWhatsappMention("@6281234567890 hi", "FelixBot", [], "")).toBe(false);
+  });
 });
 
 describe("isWhatsAppGroupJid", () => {
