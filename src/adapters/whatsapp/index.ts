@@ -1425,13 +1425,16 @@ function normalizeParsedMessage(
 
 export function detectsWhatsappMention(text: string, botName: string, aliases: string[] = []): boolean {
   const lower = text.toLowerCase();
-  const botLower = botName.toLowerCase();
-  if (lower.includes(`@${botLower}`)) return true;
+  if (containsStrictMention(lower, botName.toLowerCase())) return true;
   for (const alias of aliases) {
     const a = alias.trim().toLowerCase();
-    if (a && lower.includes(`@${a}`)) return true;
+    if (a && containsStrictMention(lower, a)) return true;
   }
   return false;
+}
+
+function containsStrictMention(text: string, name: string): boolean {
+  return new RegExp(`(?:^|(?<=\\s))@${name}(?!\\w)`).test(text);
 }
 
 export function isWhatsAppGroupJid(jid: string): boolean {

@@ -270,6 +270,32 @@ describe("detectsWhatsappMention", () => {
   it("does not match partial name", () => {
     expect(detectsWhatsappMention("@Felix hi", "FelixBot")).toBe(false);
   });
+
+  it("does not match when followed by word characters", () => {
+    expect(detectsWhatsappMention("@FelixBot2 hi", "FelixBot")).toBe(false);
+    expect(detectsWhatsappMention("@FelixBot_extra hi", "FelixBot")).toBe(false);
+  });
+
+  it("matches at end of text", () => {
+    expect(detectsWhatsappMention("hello @FelixBot", "FelixBot")).toBe(true);
+  });
+
+  it("matches when followed by punctuation", () => {
+    expect(detectsWhatsappMention("@FelixBot, hello", "FelixBot")).toBe(true);
+    expect(detectsWhatsappMention("@FelixBot!", "FelixBot")).toBe(true);
+  });
+
+  it("strict alias matching", () => {
+    expect(detectsWhatsappMention("@f hello", "FelixBot", ["f"])).toBe(true);
+    expect(detectsWhatsappMention("@format hi", "FelixBot", ["f"])).toBe(false);
+    expect(detectsWhatsappMention("@bot hi", "FelixBot", ["bot"])).toBe(true);
+    expect(detectsWhatsappMention("@botanical hi", "FelixBot", ["bot"])).toBe(false);
+  });
+
+  it("does not match when preceded by word character", () => {
+    expect(detectsWhatsappMention("adasdas@FelixBot hi", "FelixBot")).toBe(false);
+    expect(detectsWhatsappMention("test@FelixBot", "FelixBot")).toBe(false);
+  });
 });
 
 describe("isWhatsAppGroupJid", () => {
