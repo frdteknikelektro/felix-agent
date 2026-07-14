@@ -55,11 +55,15 @@ function box(text, color = c.cyan) {
 }
 
 function step(n, total, label) {
-  console.log(`\n${c.cyan}${c.bold}▌${c.reset} ${c.bold}Step ${n}/${total}${c.reset} ${c.dim}·${c.reset} ${c.yellow}${label}${c.reset}\n`);
+  console.log(`\n${c.cyan}${c.bold}▌${c.reset} ${c.bold}Step ${n}/${total}${c.reset} ${c.dim}·${c.reset} ${c.yellow}${label}${c.reset}`);
+}
+
+function section(label) {
+  console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${label}${c.reset}`);
 }
 
 function succeed(msg) {
-  console.log(`\n${c.green}${c.bold}✓${c.reset}  ${msg}`);
+  console.log(`${c.green}${c.bold}✓${c.reset}  ${msg}`);
 }
 
 function warn(msg) {
@@ -67,7 +71,13 @@ function warn(msg) {
 }
 
 function info(msg) {
-  console.log(`${c.dim}${msg}${c.reset}`);
+  console.log(`  ${msg}`);
+}
+
+function reqTag(required) {
+  return required
+    ? `${c.red}[required]${c.reset}`
+    : `${c.dim}[optional]${c.reset}`;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -244,7 +254,7 @@ function secretTransformer(value, { isFinal }) {
 
 function existingHint(existing, key) {
   if (existing && key in existing && existing[key]) {
-    return ` ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`;
+    return `  ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`;
   }
   return "";
 }
@@ -252,10 +262,10 @@ function existingHint(existing, key) {
 async function promptRequired(key, src, existing) {
   const hasExisting = existing && existing[key];
   const hint = hasExisting
-    ? ` ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`
+    ? `  ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`
     : "";
   const val = await input({
-    message: `${key} [required]:${hint}`,
+    message: `${key}  ${reqTag(true)}:${hint}`,
     transformer: secretTransformer,
     validate: (v) => {
       if (v.length > 0) return true;
@@ -421,13 +431,14 @@ async function main() {
     );
 
     if (existingExists) {
-      info("\n  Existing .env found — values are pre-filled.");
-      info("  Press Enter to keep, type to change.");
+      console.log();
+      info("Existing .env found — values are pre-filled.");
+      info("Press Enter to keep, type to change.");
     }
 
     // ═══ Step 1: Harness ═══════════════════════════════════════════════════
 
-    step(1, 6, "Harness");
+    step(1, 7, "Harness");
 
     const harness = await select({
       message: "Select LLM backend:",
@@ -447,15 +458,17 @@ async function main() {
     wizard.NINEROUTER_ENABLED = ninerouterEnabled ? "true" : "false";
 
     if (ninerouterEnabled) {
-      info("\n  9router will override the active harness API key, base URL, and model.\n");
-      info("  Enter the bare gateway base, e.g. https://host.example (no /v1).");
-      info("  Codex/Opencode append /v1; Claude Code appends /v1/messages.\n");
+      console.log();
+      info("9router will override the active harness API key, base URL, and model.");
+      info("Enter the bare gateway base, e.g. https://host.example (no /v1).");
+      info("Codex/Opencode append /v1; Claude Code appends /v1/messages.");
+      console.log();
 
       const nrKey = await promptRequired("NINEROUTER_KEY", "9router", existing);
       if (nrKey) wizard.NINEROUTER_KEY = nrKey;
 
       const nrBaseUrl = await input({
-        message: "NINEROUTER_URL [required] (e.g. https://9router.example.com):",
+        message: `NINEROUTER_URL  ${reqTag(true)}  (e.g. https://9router.example.com):`,
         default: existing.NINEROUTER_URL || "",
         validate: (v) => {
           if (!v.trim()) return "NINEROUTER_URL is required when 9router is enabled";
@@ -470,14 +483,14 @@ async function main() {
       wizard.NINEROUTER_URL = nrBaseUrl;
 
       const nrModel = await input({
-        message: "NINEROUTER_MODEL [required]:",
+        message: `NINEROUTER_MODEL  ${reqTag(true)}:`,
         default: existing.NINEROUTER_MODEL || "",
         validate: (v) => v.trim().length > 0 ? true : "NINEROUTER_MODEL is required when 9router is enabled",
       });
       wizard.NINEROUTER_MODEL = nrModel;
 
       const nrMemModel = await input({
-        message: "NINEROUTER_MODEL_FOR_MEMORIZING [optional, falls back to NINEROUTER_MODEL]:",
+        message: `NINEROUTER_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
         default: existing.NINEROUTER_MODEL_FOR_MEMORIZING || nrModel,
       });
       wizard.NINEROUTER_MODEL_FOR_MEMORIZING = nrMemModel;
@@ -490,25 +503,26 @@ async function main() {
 
     // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
 
-    step(2, 6, "API Keys");
+    step(2, 7, "API Keys");
 
     if (harness === "codex") {
       const codexModel = await input({
-        message: "CODEX_MODEL [optional]:",
+        message: `CODEX_MODEL  ${reqTag(false)}:`,
         default: existing.CODEX_MODEL || "gpt-5.4-mini",
       });
       wizard.CODEX_MODEL = codexModel;
 
       const codexMemModel = await input({
-        message: "CODEX_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        message: `CODEX_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
         default: existing.CODEX_MODEL_FOR_MEMORIZING || codexModel,
       });
       wizard.CODEX_MODEL_FOR_MEMORIZING = codexMemModel;
 
       if (ninerouterEnabled) {
-        info("  9router is enabled, so Codex will use NINEROUTER_KEY at runtime.\n");
+        info("9router is enabled, so Codex will use NINEROUTER_KEY at runtime.");
+        console.log();
         const oaiKey = await input({
-          message: `OPENAI_API_KEY [optional fallback]:${existingHint(existing, "OPENAI_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+          message: `OPENAI_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENAI_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
           transformer: secretTransformer,
         });
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
@@ -530,8 +544,10 @@ async function main() {
           const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
           mkdirSync(tmpHome, { recursive: true });
 
-          info("\n  Launching device auth...");
-          info("  A browser window will open. Enter the code shown below.\n");
+          console.log();
+          info("Launching device auth...");
+          info("A browser window will open. Enter the code shown below.");
+          console.log();
 
           const child = spawn("codex", ["login", "--device-auth"], {
             env: { ...process.env, CODEX_HOME: tmpHome },
@@ -562,33 +578,32 @@ async function main() {
     if (harness === "opencode") {
       const ocKey = ninerouterEnabled
         ? await input({
-            message: `OPENCODE_API_KEY [optional fallback]:${existingHint(existing, "OPENCODE_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+            message: `OPENCODE_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENCODE_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
             transformer: secretTransformer,
           })
         : await promptRequired("OPENCODE_API_KEY", "opencode", existing);
       if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
 
       const orKey = await input({
-        message: `OPENROUTER_API_KEY [optional]:${existingHint(existing, "OPENROUTER_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+        message: `OPENROUTER_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENROUTER_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
         transformer: secretTransformer,
       });
       if (orKey) wizard.OPENROUTER_API_KEY = orKey;
 
       const ocModel = await input({
-        message:
-          "OPENCODE_MODEL [optional] (provider/model format):\n  Browse: https://models.dev",
+        message: `OPENCODE_MODEL  ${reqTag(false)}:`,
         default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
       });
       wizard.OPENCODE_MODEL = ocModel;
 
       const ocMemModel = await input({
-        message: "OPENCODE_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        message: `OPENCODE_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
         default: existing.OPENCODE_MODEL_FOR_MEMORIZING || ocModel,
       });
       wizard.OPENCODE_MODEL_FOR_MEMORIZING = ocMemModel;
 
       const ocVariant = await input({
-        message: "OPENCODE_VARIANT [optional] (reasoning effort):",
+        message: `OPENCODE_VARIANT  ${reqTag(false)}:`,
         default: existing.OPENCODE_VARIANT || "high",
       });
       wizard.OPENCODE_VARIANT = ocVariant;
@@ -597,20 +612,20 @@ async function main() {
     if (harness === "claude-code") {
       const ccKey = ninerouterEnabled
         ? await input({
-            message: `ANTHROPIC_API_KEY [optional fallback]:${existingHint(existing, "ANTHROPIC_API_KEY") || ` ${c.dim}(Enter to skip)${c.reset}`}`,
+            message: `ANTHROPIC_API_KEY  ${reqTag(false)}:${existingHint(existing, "ANTHROPIC_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
             transformer: secretTransformer,
           })
         : await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
       if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
 
       const ccModel = await input({
-        message: "CLAUDE_CODE_MODEL [optional] (alias: sonnet, opus, haiku, fable or full model ID):",
+        message: `CLAUDE_CODE_MODEL  ${reqTag(false)}:`,
         default: existing.CLAUDE_CODE_MODEL || "sonnet",
       });
       wizard.CLAUDE_CODE_MODEL = ccModel;
 
       const ccMemModel = await input({
-        message: "CLAUDE_CODE_MODEL_FOR_MEMORIZING [optional, cheaper model for background tasks]:",
+        message: `CLAUDE_CODE_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
         default: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || ccModel,
       });
       wizard.CLAUDE_CODE_MODEL_FOR_MEMORIZING = ccMemModel;
@@ -620,11 +635,12 @@ async function main() {
 
     step(3, 7, "Owner Console");
 
-    info("  Enter a secret for the owner web console.");
-    info("  Press Enter to auto-generate one.\n");
+    info("Enter a secret for the owner web console.");
+    info("Press Enter to auto-generate one.");
+    console.log();
 
     const secret = await input({
-      message: "OWNER_UI_SECRET [optional]:",
+      message: `OWNER_UI_SECRET  ${reqTag(false)}:`,
       default: existing.OWNER_UI_SECRET || randomUUID(),
     });
     wizard.OWNER_UI_SECRET = secret;
@@ -633,11 +649,12 @@ async function main() {
 
     step(4, 7, "Database Encryption");
 
-    info("  A key is needed to encrypt database connection credentials.");
-    info("  Press Enter to auto-generate one.\n");
+    info("A key is needed to encrypt database connection credentials.");
+    info("Press Enter to auto-generate one.");
+    console.log();
 
     const dbKey = await input({
-      message: "DB_ENCRYPTION_KEY [optional]:",
+      message: `DB_ENCRYPTION_KEY  ${reqTag(false)}:`,
       default: existing.DB_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
     });
     wizard.DB_ENCRYPTION_KEY = dbKey;
@@ -646,7 +663,8 @@ async function main() {
 
     step(5, 7, "Sources");
 
-    info("  Select chat sources Felix will listen to.\n");
+    info("Select chat sources Felix will listen to.");
+    console.log();
 
     const listenSources = await checkbox({
       message: "Listening sources:",
@@ -660,7 +678,8 @@ async function main() {
     });
 
     if (listenSources.length > 1) {
-      info("  Where should permission notifications go?\n");
+      info("Where should permission notifications go?");
+      console.log();
       const notifyChannel = await select({
         message: "Permission notification channel:",
         choices: [
@@ -689,7 +708,7 @@ async function main() {
 
     for (const src of listenSources) {
       const def = SOURCE_DEFS[src];
-      console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${def.label}${c.reset}`);
+      section(def.label);
 
       for (const reqKey of def.required) {
         // WHATSAPP_BOT_NAME handled in the WhatsApp block (plain input, no masking)
@@ -700,7 +719,7 @@ async function main() {
 
       for (const [optKey, fallback] of Object.entries(def.optional)) {
         const val = await input({
-          message: `${optKey} [optional]:`,
+          message: `${optKey}  ${reqTag(false)}:`,
           default: existing[optKey] || fallback,
         });
         wizard[optKey] = val;
@@ -713,13 +732,13 @@ async function main() {
           const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
 
           const username = await input({
-            message: `MATTERMOST_OWNER_USERNAME [optional] (your login username for API lookups):`,
+            message: `MATTERMOST_OWNER_USERNAME  ${reqTag(false)}:`,
             default: existingUsername,
           });
           wizard.MATTERMOST_OWNER_USERNAME = username;
 
           if (mmUrl && mmToken && username) {
-            info("  Looking up your User ID and display name via Mattermost API...\n");
+            info("Looking up your User ID and display name via Mattermost API...");
             try {
               const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(username)}`, {
                 headers: { Authorization: `Bearer ${mmToken}` },
@@ -730,7 +749,7 @@ async function main() {
                 succeed(`Found User ID: ${user.id}`);
                 if (user.nickname || user.first_name || user.last_name) {
                   const fetchedDisplay = user.nickname || [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-                  info(`  Fetched display name: ${fetchedDisplay}`);
+                  info(`Fetched display name: ${fetchedDisplay}`);
                   if (!existingDisplay || existingDisplay === def.ownerDefaults.MATTERMOST_OWNER_DISPLAY) {
                     wizard.MATTERMOST_OWNER_DISPLAY = fetchedDisplay;
                   }
@@ -738,7 +757,7 @@ async function main() {
               } else {
                 warn(`API lookup failed (${res.status}). Please enter manually.`);
                 const val = await input({
-                  message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+                  message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
                   default: existing.MATTERMOST_OWNER_USER_ID || ""
                 });
                 wizard.MATTERMOST_OWNER_USER_ID = val;
@@ -746,28 +765,28 @@ async function main() {
             } catch (err) {
               warn(`API lookup failed: ${err.message}. Please enter manually.`);
               const val = await input({
-                message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+                message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
                 default: existing.MATTERMOST_OWNER_USER_ID || ""
               });
               wizard.MATTERMOST_OWNER_USER_ID = val;
             }
           } else {
             const val = await input({
-              message: `MATTERMOST_OWNER_USER_ID [optional]:`,
+              message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
               default: existing.MATTERMOST_OWNER_USER_ID || ""
             });
             wizard.MATTERMOST_OWNER_USER_ID = val;
           }
 
           const display = await input({
-            message: `MATTERMOST_OWNER_DISPLAY [optional] (your display name shown in channels):`,
+            message: `MATTERMOST_OWNER_DISPLAY  ${reqTag(false)}:`,
             default: existingDisplay,
           });
           wizard.MATTERMOST_OWNER_DISPLAY = display;
         } else if (src === "whatsapp") {
           // WHATSAPP_BOT_NAME — plain input, no masking
           const botName = await input({
-            message: `WHATSAPP_BOT_NAME [required] (letters, digits, underscores):`,
+            message: `WHATSAPP_BOT_NAME  ${reqTag(true)}:`,
             default: existing.WHATSAPP_BOT_NAME || "",
             validate: (v) => v.trim().length > 0 ? true : "WHATSAPP_BOT_NAME is required for WhatsApp",
           });
@@ -775,18 +794,19 @@ async function main() {
 
           // WHATSAPP_BOT_ALIASES — plain input, optional
           const aliases = await input({
-            message: `WHATSAPP_BOT_ALIASES [optional] (comma-separated short names, e.g. f,F,lix):`,
+            message: `WHATSAPP_BOT_ALIASES  ${reqTag(false)}:`,
             default: existing.WHATSAPP_BOT_ALIASES || "",
             validate: (v) => /^[A-Za-z0-9_,]*$/.test(v) ? true : "Only letters, digits, underscores, and commas allowed",
           });
           wizard.WHATSAPP_BOT_ALIASES = aliases;
 
           // WHATSAPP_OWNER_PHONE → derive WHATSAPP_OWNER_JID
-          info(`\n  ${def.ownerHint}`);
+          console.log();
+          info(def.ownerHint);
           const existingJid = existing.WHATSAPP_OWNER_JID || "";
           const existingPhone = existingJid ? existingJid.split("@")[0] : "";
           const phone = await input({
-            message: `WHATSAPP_OWNER_PHONE [optional] (e.g. 6281234567890):`,
+            message: `WHATSAPP_OWNER_PHONE  ${reqTag(false)}:`,
             default: existingPhone,
           });
           if (phone) {
@@ -794,7 +814,7 @@ async function main() {
           }
 
           const display = await input({
-            message: `WHATSAPP_OWNER_DISPLAY [optional]:`,
+            message: `WHATSAPP_OWNER_DISPLAY  ${reqTag(false)}:`,
             default: existing.WHATSAPP_OWNER_DISPLAY || def.ownerDefaults.WHATSAPP_OWNER_DISPLAY,
           });
           wizard.WHATSAPP_OWNER_DISPLAY = display;
@@ -805,11 +825,13 @@ async function main() {
             succeed(`wacli is already paired${authStatus.jid ? ` as ${authStatus.jid}` : ""}.`);
           } else if (authStatus.status === "locked") {
             warn("wacli store is locked, likely by the running Felix container. Skipping pairing.");
-            info("  Stop the container before re-pairing, or keep the existing logged-in session.");
+            info("Stop the container before re-pairing, or keep the existing logged-in session.");
           } else {
-            info("\n  Pairing wacli with WhatsApp...");
-            info("  A QR code will appear. Scan it with WhatsApp on your phone.");
-            info("  WhatsApp → Settings → Linked Devices → Link a Device\n");
+            console.log();
+            info("Pairing wacli with WhatsApp...");
+            info("A QR code will appear. Scan it with WhatsApp on your phone.");
+            info("WhatsApp → Settings → Linked Devices → Link a Device");
+            console.log();
 
             const { exitCode, error } = await runWacliAuth(wacliBin);
             if (exitCode !== 0) {
@@ -819,10 +841,11 @@ async function main() {
             }
           }
         } else {
-          info(`\n  ${def.ownerHint}`);
+          console.log();
+          info(def.ownerHint);
           for (const ownerKey of def.ownerKeys) {
             const val = await input({
-              message: `${ownerKey} [optional]:`,
+              message: `${ownerKey}  ${reqTag(false)}:`,
               default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
             });
             wizard[ownerKey] = val;
@@ -832,13 +855,13 @@ async function main() {
 
     // ── Telegram privacy mode reminder ───────────────────────────────────────
     if (listenSources.includes("telegram")) {
-      info("");
+      console.log();
       warn("Telegram groups require privacy mode to be DISABLED for the bot to see mentions.");
-      info("  Go to @BotFather → /setprivacy → select your bot → Disable.\n");
+      info("Go to @BotFather → /setprivacy → select your bot → Disable.");
     }
 
     if (listenSources.length === 0) {
-      warn("No sources selected. You can re-run setup later.\n");
+      warn("No sources selected. You can re-run setup later.");
     }
 
     // ═══ Step 6: Skill Environment ══════════════════════════════════════════
@@ -853,9 +876,10 @@ async function main() {
     const pendingSkillVars = skillVars.filter((v) => !(v.key in wizard));
 
     if (pendingSkillVars.length === 0) {
-      info("  No skill environment variables to configure.\n");
+      info("No skill environment variables to configure.");
     } else {
-      info("  Bundled skills request these environment variables.\n");
+      info("Bundled skills request these environment variables.");
+      console.log();
 
       // Group by skill
       const bySkill = new Map();
@@ -870,14 +894,14 @@ async function main() {
           default: true,
         });
         if (!setupEnv) continue;
-        console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${skill}${c.reset}`);
+        section(skill);
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];
           const hint = hasExisting
-            ? ` ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
+            ? `  ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
             : "";
           const val = await input({
-            message: `${v.key} — ${v.description} [${v.required ? "required" : "optional"}]:${hint}`,
+            message: `${v.key}  ${reqTag(v.required)}:${hint}`,
             default: hasExisting ? existing[v.key] : (v.default || ""),
             validate: (val) => {
               if (v.required && !val && !hasExisting) return `${v.key} is required by ${skill}`;
@@ -894,7 +918,8 @@ async function main() {
     step(7, 7, "Review");
 
     if (wizard.NINEROUTER_ENABLED === "true") {
-      info("\n  9router override is enabled — it will replace the selected harness key, base URL, and model at runtime.");
+      console.log();
+      info("9router override is enabled — it will replace the selected harness key, base URL, and model at runtime.");
     }
 
     const template = parseTemplate(EXAMPLE_PATH);
@@ -924,9 +949,10 @@ async function main() {
     const keyLens = Object.keys(final).map((k) => k.length);
     const maxKey = keyLens.length > 0 ? Math.min(32, Math.max(...keyLens) + 2) : 16;
 
+    console.log();
     for (const entry of template) {
       if (entry.type === "comment" && /^# ──/.test(entry.raw)) {
-        console.log(`\n  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
+        console.log(`  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
       } else if (entry.type === "setting" && entry.key in final) {
         const display = SECRET_KEYS.has(entry.key)
           ? c.dim + mask(final[entry.key]) + c.reset
@@ -936,13 +962,14 @@ async function main() {
     }
 
     if (skillExtras.length > 0) {
-      console.log(`\n  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
+      console.log(`  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
       for (const key of skillExtras.sort()) {
         console.log(`  ${c.bold}${pad(key, maxKey)}${c.reset}  ${final[key]}`);
       }
     }
 
-    const ok = await confirm({ message: "\nWrite .env?", default: true });
+    console.log();
+    const ok = await confirm({ message: "Write .env?", default: true });
     if (!ok) {
       console.log(`\n${c.yellow}Aborted.${c.reset}`);
       return;
@@ -967,7 +994,7 @@ async function main() {
     }
   } catch (err) {
     if (err && err.name === "ExitPromptError") {
-      console.log(`\n${c.yellow}Setup cancelled.${c.reset}\n`);
+      console.log(`\n${c.yellow}Setup cancelled.${c.reset}`);
       process.exit(0);
     }
     throw err;
