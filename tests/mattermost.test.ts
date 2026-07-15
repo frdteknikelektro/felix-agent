@@ -1,11 +1,27 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { buildThreadLink, createMattermostAdapter, isDirectMessageChannelType, mattermostSourceThreadRef, mattermostThreadKey } from "../src/adapters/mattermost/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildThreadLink, createMattermostAdapter, isDirectMessageChannelType, mattermostSourceThreadRef, mattermostThreadKey, startMattermostSource } from "../src/adapters/mattermost/index.js";
 import { mattermostMentionToken, mattermostMentionTokens } from "../src/adapters/mattermost/mentions.js";
 import type { UniversalEvent } from "../src/types.js";
 import { makeTestConfig, mattermostThreadRef } from "./helpers/workspace.js";
+import type { FelixEngine } from "../src/engine.js";
+import type { SourceAdapter } from "../src/core/ports.js";
+
+describe("Mattermost source lifecycle", () => {
+  it("starts the already-registered adapter instance", async () => {
+    const cfg = await makeTestConfig("felix-mm-shared-");
+    const lifecycle = { stop: vi.fn(), done: Promise.resolve() };
+    const start = vi.fn().mockResolvedValue(lifecycle);
+    const adapter = { source: "mattermost", start } as unknown as SourceAdapter;
+    const engine = {} as FelixEngine;
+
+    await expect(startMattermostSource(cfg, engine, adapter)).resolves.toBe(lifecycle);
+    expect(start).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(engine);
+  });
+});
 
 describe("Mattermost mention token", () => {
   it("normalizes the canonical bot username into an @mention token", () => {
@@ -130,6 +146,120 @@ describe("Mattermost attachment download", () => {
 });
 
 describe("Mattermost source turn context", () => {
+  it("derives bot identity from /users/me and does not rewrite configuration", async () => {
+    const cfg = await makeTestConfig("felix-mm-api-identity-", {
+      MATTERMOST_URL: "https://mm.example.com",
+      MATTERMOST_BOT_TOKEN: "token",
+      MATTERMOST_BOT_USER_ID: "legacy-id",
+      MATTERMOST_BOT_USERNAME: "legacy-name",
+    });
+    const adapter = createMattermostAdapter(cfg);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/v4/users/me")) {
+        return new Response(JSON.stringify({ id: "api-id", username: "api-name", display_name: "API Name" }));
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    try {
+      const context = await adapter.getTurnContext({
+        event: {
+          source: "mattermost", event_id: "api-event", thread_key: "mattermost:c:r",
+          received_at: "2026-05-25T00:00:00.000Z", visibility: "channel", mentions_bot: true,
+          sender: { source: "mattermost", id: "user" }, text: "hello", attachments: [], raw_path: "",
+          source_thread_ref: mattermostThreadRef("c", "r", "api-event"),
+        },
+      });
+      expect(adapter.botUserId).toBe("api-id");
+      expect(cfg.MATTERMOST_BOT_USER_ID).toBe("legacy-id");
+      expect(context.behaviorInstructions[1]).toContain("@api-name");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("resolves the owner display from the configured owner ID", async () => {
+    const cfg = await makeTestConfig("felix-mm-owner-api-", {
+      MATTERMOST_URL: "https://mm.example.com",
+      MATTERMOST_BOT_TOKEN: "token",
+      MATTERMOST_OWNER_USER_ID: "owner-id",
+      MATTERMOST_OWNER_DISPLAY: "",
+    });
+    const adapter = createMattermostAdapter(cfg);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/v4/users/me")) return new Response(JSON.stringify({ id: "bot-id", username: "bot" }));
+      if (url.endsWith("/api/v4/users/owner-id")) return new Response(JSON.stringify({ username: "owner", display_name: "API Owner" }));
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    try {
+      await adapter.getTurnContext({
+        event: {
+          source: "mattermost", event_id: "owner-api-event", thread_key: "mattermost:c:r",
+          received_at: "2026-05-25T00:00:00.000Z", visibility: "channel", mentions_bot: true,
+          sender: { source: "mattermost", id: "user" }, text: "hello", attachments: [], raw_path: "",
+          source_thread_ref: mattermostThreadRef("c", "r", "owner-api-event"),
+        },
+      });
+      expect(adapter.ownerDisplay).toBe("API Owner");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("marks a malformed successful identity response as legacy fallback", async () => {
+    const cfg = await makeTestConfig("felix-mm-malformed-identity-", {
+      MATTERMOST_URL: "https://mm.example.com",
+      MATTERMOST_BOT_TOKEN: "token",
+      MATTERMOST_BOT_USER_ID: "legacy-id",
+    });
+    const adapter = createMattermostAdapter(cfg);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("not-json")) as typeof fetch;
+    try {
+      await adapter.getTurnContext({
+        event: {
+          source: "mattermost", event_id: "malformed-event", thread_key: "mattermost:c:r",
+          received_at: "2026-05-25T00:00:00.000Z", visibility: "channel", mentions_bot: true,
+          sender: { source: "mattermost", id: "user" }, text: "hello", attachments: [], raw_path: "",
+          source_thread_ref: mattermostThreadRef("c", "r", "malformed-event"),
+        },
+      });
+      expect(adapter.botIdentity?.source).toBe("legacy");
+      expect(adapter.botIdentity?.discovered).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("uses the configured agent name when no Mattermost identity is set", async () => {
+    const cfg = await makeTestConfig("felix-mm-name-", {
+      FELIX_NAME: "Nova",
+      MATTERMOST_BOT_DISPLAY: "",
+    });
+    const adapter = createMattermostAdapter(cfg);
+
+    const context = await adapter.getTurnContext({
+      event: {
+        source: "mattermost",
+        event_id: "reply-post",
+        thread_key: "mattermost:channel:root-post",
+        received_at: "2026-05-25T00:00:00.000Z",
+        visibility: "channel",
+        mentions_bot: true,
+        sender: { source: "mattermost", id: "user" },
+        text: "hello",
+        attachments: [],
+        raw_path: "",
+        source_thread_ref: mattermostThreadRef("channel", "root-post", "reply-post"),
+      },
+    });
+
+    expect(context.behaviorInstructions[1]).toContain("@Nova");
+  });
+
   it("owns Mattermost-specific prompt instructions", async () => {
     const cfg = await makeTestConfig("felix-mm-context-", {
       MATTERMOST_BOT_USERNAME: "felix-agent",

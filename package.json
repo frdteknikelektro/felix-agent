@@ -1,7 +1,7 @@
 {
   "name": "felix-agent-docker",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -16,17 +16,20 @@
     "setup": "node scripts/setup.mjs",
     "dev": "tsx src/index.ts",
     "dev:web": "npm --prefix web run dev",
-    "build:web": "npm --prefix web ci && npm --prefix web run build",
+    "build:web": "npm --prefix web run build",
     "build:server": "tsc -p tsconfig.build.json",
     "build": "npm run build:web && npm run build:server",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "release:evidence": "node scripts/generate-release-evidence.mjs",
+    "security:gate": "node scripts/evaluate-image-scan.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.161",
     "@aws-sdk/client-dynamodb": "^3.700.0",
     "@azure/cosmos": "^4.3.0",
+    "@inquirer/prompts": "^8.5.2",
     "@openai/codex": "^0.133.0",
     "@slack/bolt": "^4.7.3",
     "discord.js": "^14.18.0",
@@ -42,7 +45,6 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@inquirer/prompts": "^8.5.2",
     "@types/node": "^22.13.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.20.6",

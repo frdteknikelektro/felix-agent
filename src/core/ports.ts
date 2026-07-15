@@ -1,10 +1,15 @@
 import type { ContactRecord, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
+import type { PlatformIdentity } from "./platform-identity.js";
 
 // ─── Source port ──────────────────────────────────────────────────────────────
 
 export interface SourceAdapter {
   source: string;
+  /** Runtime bot identity, discovered from the platform or paired account. */
+  readonly botIdentity?: PlatformIdentity;
+  /** Human-facing owner display resolved by the adapter when available. */
+  readonly ownerDisplay?: string;
   /** Bot's user ID on this source, used for self-message filtering. */
   botUserId?: string;
   /** Owner's user ID on this source, used for permission-request DMs. */
@@ -112,6 +117,7 @@ export interface DecisionNotificationInput {
   skillId: string;
   reason: string;
   ownerDisplay?: string;
+  agentName?: string;
 }
 
 export interface CompactResult {

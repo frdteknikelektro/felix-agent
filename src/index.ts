@@ -207,7 +207,7 @@ async function main(): Promise<void> {
         } catch {
           await fs.mkdir(codexHome, { recursive: true });
           const authJson = cfg.OPENAI_CODEX_AUTH_JSON.replace(/^'|'$/g, "");
-          await fs.writeFile(authPath, authJson, "utf-8");
+          await writeTextAtomic(authPath, authJson, 0o600);
           log.info("codex.auth_written", { path: authPath });
         }
       }
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
 
   const { server: health, port: healthPort } = await startAppServer(cfg, engine);
 
-  await supervise("mattermost", () => startMattermostSource(cfg, engine));
+  await supervise("mattermost", () => startMattermostSource(cfg, engine, mmAdapter));
   await supervise("discord", () => startDiscordSource(cfg, engine, discordAdapter));
   await supervise("slack", () => startSlackSource(cfg, engine, slackAdapter));
   await supervise("whatsapp", () => startWhatsAppSource(cfg, engine, waAdapter));

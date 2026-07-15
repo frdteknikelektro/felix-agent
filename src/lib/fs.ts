@@ -23,11 +23,18 @@ export async function readText(file: string, fallback = ""): Promise<string> {
   }
 }
 
-export async function writeTextAtomic(file: string, text: string): Promise<void> {
+export async function writeTextAtomic(file: string, text: string, mode?: number): Promise<void> {
   await ensureDir(path.dirname(file));
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-  await fs.writeFile(tmp, text, "utf8");
-  await fs.rename(tmp, file);
+  try {
+    await fs.writeFile(tmp, text, { encoding: "utf8", mode });
+    if (mode !== undefined && process.platform !== "win32") await fs.chmod(tmp, mode);
+    await fs.rename(tmp, file);
+    if (mode !== undefined && process.platform !== "win32") await fs.chmod(file, mode);
+  } catch (error) {
+    await fs.unlink(tmp).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function appendText(file: string, text: string): Promise<void> {

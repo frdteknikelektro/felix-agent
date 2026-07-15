@@ -17,6 +17,7 @@ import {
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
+import { preferDiscoveredIdentity, type PlatformIdentity } from "../../core/platform-identity.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -42,17 +43,49 @@ const SKIP_SUBTYPES = new Set([
   "thread_broadcast",
 ]);
 
+function platformIdentityFromSlackAuth(auth: { user_id?: string; user?: string; real_name?: string }): PlatformIdentity | undefined {
+  if (!auth.user_id) return undefined;
+  return {
+    userId: auth.user_id,
+    username: auth.user,
+    displayName: auth.real_name || auth.user,
+    source: "api",
+    discovered: true,
+  };
+}
+
+async function discoverSlackBotIdentity(client: { auth: { test(): Promise<{ user_id?: string; user?: string; real_name?: string; url?: string }> } }): Promise<{ identity?: PlatformIdentity; workspaceUrl?: string }> {
+  const auth = await client.auth.test();
+  return {
+    identity: platformIdentityFromSlackAuth(auth),
+    workspaceUrl: auth.url,
+  };
+}
+
 class SlackAdapter implements SourceAdapter {
   source = "slack";
+  get botIdentity(): PlatformIdentity | undefined {
+    const discovered = platformIdentityFromSlackAuth({
+      user_id: this.discoveredBotUserId,
+      user: this.discoveredBotUsername,
+      real_name: this.discoveredBotDisplay,
+    });
+    return preferDiscoveredIdentity(discovered, this.cfg.SLACK_BOT_USER_ID);
+  }
   get botUserId(): string | undefined {
-    return this.cfg.SLACK_BOT_USER_ID;
+    return this.botIdentity?.userId;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.SLACK_OWNER_USER_ID;
   }
+  get ownerDisplay(): string {
+    return this.cfg.SLACK_OWNER_DISPLAY || "Owner";
+  }
   private app?: App;
   private workspaceUrl?: string;
   private discoveredBotUserId?: string;
+  private discoveredBotUsername?: string;
+  private discoveredBotDisplay?: string;
   private userDisplayCache = new Map<string, { display: string; username: string }>();
   private readonly host = createSourceHost({ source: "slack" });
 
@@ -98,12 +131,12 @@ class SlackAdapter implements SourceAdapter {
           log.warn("slack.app_error", { error: error.message });
         });
 
-        await app.start();
-
         try {
-          const auth = await app.client.auth.test();
-          this.workspaceUrl = (auth as any).url;
-          this.discoveredBotUserId = (auth as any).user_id as string;
+          const discovered = await discoverSlackBotIdentity(app.client);
+          this.workspaceUrl = discovered.workspaceUrl;
+          this.discoveredBotUserId = discovered.identity?.userId;
+          this.discoveredBotUsername = discovered.identity?.username;
+          this.discoveredBotDisplay = discovered.identity?.displayName;
           log.info("slack.ready", {
             user_id: this.discoveredBotUserId,
             workspace: this.workspaceUrl,
@@ -111,6 +144,8 @@ class SlackAdapter implements SourceAdapter {
         } catch (error) {
           log.warn("slack.auth_test_failed", { error: (error as Error).message });
         }
+
+        await app.start();
 
         this.app = app;
 
@@ -134,7 +169,7 @@ class SlackAdapter implements SourceAdapter {
   }
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
-    const botId = this.cfg.SLACK_BOT_USER_ID ?? this.discoveredBotUserId ?? "unknown";
+    const botId = this.botUserId ?? "unknown";
     const botMention = `<@${botId}>`;
     const rootMessageId =
       input.event.source_thread_ref.root_message_id ??
@@ -412,7 +447,7 @@ class SlackAdapter implements SourceAdapter {
     const isDM = channelId?.startsWith("D");
     const visibility = isDM ? "dm" : "channel";
 
-    const botId = this.cfg.SLACK_BOT_USER_ID ?? this.discoveredBotUserId;
+    const botId = this.botUserId;
     const text = (event.text as string) ?? "";
     const mentionsBot = botId ? text.includes(`<@${botId}>`) : false;
 

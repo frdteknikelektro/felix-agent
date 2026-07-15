@@ -14,6 +14,7 @@ import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { createSourceHost } from "../../core/source-host.js";
+import type { PlatformIdentity } from "../../core/platform-identity.js";
 import { readRequestBody } from "../../server/request-body.js";
 import {
   AttachmentRejectedError,
@@ -50,7 +51,7 @@ export function startWhatsAppSource(
 
 const BOT_MSG_TTL_MS = 60 * 60 * 1000;
 let wacliStartedAt: number | null = null;
-let webhookSecret: string | null = null;
+const webhookSecrets = new WeakMap<AppConfig, string>();
 let ownerSharesNumber = true;
 let botJid: string | undefined;
 let lastSendAt = 0;
@@ -74,12 +75,12 @@ const retargetsInFlight = new Set<string>();
 let lastBotMessageCleanupAt = 0;
 const BOT_MSG_CLEANUP_INTERVAL_MS = 60_000;
 
-function setWebhookSecret(secret: string): void {
-  webhookSecret = secret;
-}
-
-function clearWebhookSecret(): void {
-  webhookSecret = null;
+function getWebhookSecret(cfg: AppConfig): string {
+  const existing = webhookSecrets.get(cfg);
+  if (existing) return existing;
+  const secret = cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomBytes(32).toString("hex");
+  webhookSecrets.set(cfg, secret);
+  return secret;
 }
 
 function getBotMessagesDir(cfg: AppConfig): string {
@@ -545,23 +546,21 @@ export async function handleWhatsAppWebhook(
 ): Promise<void> {
   const body = await readRequestBody(req);
 
+  const signature = req.headers["x-wacli-signature"];
+  if (typeof signature !== "string" || !verifyWebhookSignature(body, getWebhookSecret(cfg), signature)) {
+    log.warn("whatsapp.webhook_invalid_signature");
+    sendJson(res, 401, { error: "invalid_signature" });
+    return;
+  }
+
   const nowMs = Date.now();
   if (nowMs - lastBotMessageCleanupAt >= BOT_MSG_CLEANUP_INTERVAL_MS) {
     lastBotMessageCleanupAt = nowMs;
     await cleanupExpiredBotMessages(cfg);
   }
 
-  const botName = cfg.WHATSAPP_BOT_NAME ?? "Felix";
+  const botName = cfg.WHATSAPP_BOT_NAME ?? cfg.FELIX_NAME;
   const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
-
-  if (webhookSecret) {
-    const signature = req.headers["x-wacli-signature"] as string | undefined;
-    if (!signature || !verifyWebhookSignature(body, webhookSecret, signature)) {
-      log.warn("whatsapp.webhook_invalid_signature");
-      sendJson(res, 401, { error: "invalid_signature" });
-      return;
-    }
-  }
 
   let payload: ParsedMessage;
   try {
@@ -863,11 +862,21 @@ interface ParsedMessage {
 
 class WhatsAppAdapter implements SourceAdapter {
   source = "whatsapp";
+  get botIdentity(): PlatformIdentity | undefined {
+    if (!this.botJid) return undefined;
+    return {
+      ...platformIdentityFromWacliAuth({ jid: this.botJid, connected: true }),
+      displayName: this.cfg.WHATSAPP_BOT_NAME || this.cfg.FELIX_NAME,
+    };
+  }
   get botUserId(): string | undefined {
     return this.botJid;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.WHATSAPP_OWNER_JID;
+  }
+  get ownerDisplay(): string {
+    return this.cfg.WHATSAPP_OWNER_DISPLAY || "Owner";
   }
   private process?: ReturnType<typeof spawn>;
   private sameNumber = false;
@@ -880,11 +889,6 @@ class WhatsAppAdapter implements SourceAdapter {
   // ── start (supervisor contract) ──────────────────────────────────────────
 
   async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
-    if (!this.cfg.WHATSAPP_BOT_NAME) {
-      log.warn("whatsapp.disabled", { reason: "missing_bot_name" });
-      return { stop: () => undefined, done: Promise.resolve() };
-    }
-
     const authOk = checkWacliAuth(this.cfg.WHATSAPP_WACLI_BIN);
     if (!authOk) {
       log.warn("whatsapp.disabled", { reason: "unauthenticated" });
@@ -898,8 +902,7 @@ class WhatsAppAdapter implements SourceAdapter {
     ownerSharesNumber = this.sameNumber;
     botJid = authOk.jid;
 
-    const secret = this.cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomUUID();
-    setWebhookSecret(secret);
+    const secret = getWebhookSecret(this.cfg);
 
     const port = 3000;
     const args = [
@@ -934,14 +937,12 @@ class WhatsAppAdapter implements SourceAdapter {
         });
         this.process!.on("exit", (code) => {
           log.info("whatsapp.process_exit", { code });
-          clearWebhookSecret();
           wacliStartedAt = null;
           resolveClosed();
         });
 
         return {
           disconnect: () => {
-            clearWebhookSecret();
             this.process!.kill("SIGTERM");
             wacliStartedAt = null;
           },
@@ -959,7 +960,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
     const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
     const mentionHow = aliases.length > 0
       ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
@@ -1094,7 +1095,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];
 
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 
@@ -1137,7 +1138,7 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? "Felix";
+    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 
@@ -1458,12 +1459,21 @@ export function isWhatsAppGroupJid(jid: string): boolean {
 
 // ─── wacli helpers ────────────────────────────────────────────────────────────
 
-interface WacliAuthInfo {
+export interface WacliAuthInfo {
   jid: string;
   connected: boolean;
 }
 
-function checkWacliAuth(bin: string): WacliAuthInfo | null {
+function platformIdentityFromWacliAuth(info: WacliAuthInfo): PlatformIdentity {
+  return {
+    userId: info.jid,
+    displayName: undefined,
+    source: "paired-account",
+    discovered: true,
+  };
+}
+
+export function discoverWhatsAppAuth(bin: string): WacliAuthInfo | null {
   try {
     const result = spawnSync(bin, ["doctor", "--json"], {
       encoding: "utf8",
@@ -1482,19 +1492,15 @@ function checkWacliAuth(bin: string): WacliAuthInfo | null {
   }
 }
 
+const checkWacliAuth = discoverWhatsAppAuth;
+
 // ─── Webhook HMAC verification ────────────────────────────────────────────────
 
 function verifyWebhookSignature(body: string, secret: string, signature: string): boolean {
-  const prefix = "sha256=";
-  if (!signature.startsWith(prefix)) return false;
-  const expected = crypto.createHmac("sha256", secret).update(body).digest("hex");
-  let provided: Buffer;
-  try {
-    provided = Buffer.from(signature.slice(prefix.length), "hex");
-  } catch {
-    return false;
-  }
-  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), provided);
+  if (!/^sha256=[0-9a-fA-F]{64}$/.test(signature)) return false;
+  const expected = crypto.createHmac("sha256", secret).update(body).digest();
+  const provided = Buffer.from(signature.slice("sha256=".length), "hex");
+  return provided.length === expected.length && crypto.timingSafeEqual(expected, provided);
 }
 
 // ─── HTTP utils (for webhook handler, avoid coupling to app.ts) ───────────────

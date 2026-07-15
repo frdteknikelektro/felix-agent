@@ -5,20 +5,45 @@
 #   UID=$(id -u) GID=$(id -g) docker compose up -d
 
 services:
+  setup:
+    image: ${FELIX_IMAGE:-frdinawan/felix-agent:0.1.1}
+    container_name: felix-setup
+    user: "${UID:-1000}:${GID:-1000}"
+    entrypoint: ["/usr/bin/dumb-init", "--"]
+    command: ["node", "scripts/setup.mjs"]
+    volumes:
+      - ./:/config
+      - ./workspace:/home/node
+    profiles: ["setup"]
+    stdin_open: true
+    tty: true
+    networks:
+      - felix-net
+
   felix:
-    image: frdinawan/felix-agent:latest
+    image: ${FELIX_IMAGE:-frdinawan/felix-agent:0.1.1}
     container_name: felix-agent
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
     ports:
-      - "53318:3000"
+      - "127.0.0.1:53318:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./.env:/run/secrets/.env:ro
       - ./workspace:/home/node
+    secrets:
+      - .env
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
     networks:
       - felix-net
+
+secrets:
+  .env:
+    file: .env
 
 networks:
   felix-net:

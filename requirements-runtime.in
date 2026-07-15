@@ -1,0 +1,15 @@
+# Runtime data and office stack used by bundled skills. Resolve only binary wheels.
+lxml
+markitdown
+matplotlib
+numpy
+openpyxl
+pandas
+pdfplumber
+pillow
+pypdf
+python-dateutil
+reportlab
+requests
+seaborn
+xlsxwriter

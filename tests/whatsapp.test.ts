@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import fs, { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,10 +9,37 @@ import {
   detectsWhatsappMention,
   isWhatsAppGroupJid,
   isFelixMessage,
+  discoverWhatsAppAuth,
 } from "../src/adapters/whatsapp/index.js";
 import type { ReplyTargetInfo } from "../src/adapters/whatsapp/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
+
+describe("WhatsApp paired-account identity", () => {
+  it("uses the linked JID discovered by wacli doctor on the real adapter", async () => {
+    const cfg = await makeTestConfig("whatsapp-api-identity-", { FELIX_NAME: "Felix" });
+    const adapter = createWhatsAppAdapter(cfg);
+    Object.assign(adapter, { botJid: "628123@s.whatsapp.net" });
+    expect(adapter.botIdentity).toEqual({
+      userId: "628123@s.whatsapp.net",
+      displayName: "Felix",
+      source: "paired-account",
+      discovered: true,
+    });
+  });
+
+  it("discovers the paired account through wacli doctor --json", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "felix-wacli-test-"));
+    const bin = path.join(root, "wacli");
+    await writeFile(bin, "#!/bin/sh\nprintf '%s' '{\"data\":{\"connected\":true,\"linked_jid\":\"628123@s.whatsapp.net\"}}'\n");
+    await chmod(bin, 0o755);
+    try {
+      expect(discoverWhatsAppAuth(bin)).toEqual({ connected: true, jid: "628123@s.whatsapp.net" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 // ─── Thread key ────────────────────────────────────────────────────────────
 
@@ -62,6 +89,23 @@ describe("whatsappSourceThreadRef", () => {
 // ─── getTurnContext ────────────────────────────────────────────────────────
 
 describe("WhatsAppAdapter getTurnContext", () => {
+  it("uses FELIX_NAME when the optional source-specific name is absent", async () => {
+    const cfg = await makeTestConfig("wa-turnctx-fallback-", {
+      FELIX_NAME: "Nova",
+      WHATSAPP_BOT_NAME: undefined,
+    });
+    const adapter: SourceAdapter = createWhatsAppAdapter(cfg);
+    const ctx = await adapter.getTurnContext({
+      event: {
+        source: "whatsapp", event_id: "evt-fallback", thread_key: "whatsapp:chat:chat",
+        received_at: "2026-06-01T00:00:00.000Z", visibility: "dm", mentions_bot: true,
+        sender: { source: "whatsapp", id: "sender" }, text: "hello", attachments: [], raw_path: "",
+        source_thread_ref: whatsappSourceThreadRef({ chatJid: "chat", rootMessageId: "chat", messageId: "evt-fallback" }),
+      },
+    });
+    expect(ctx.behaviorInstructions[0]).toContain("@Nova");
+  });
+
   it("returns WhatsApp-specific behavior instructions", async () => {
     const cfg = await makeTestConfig("wa-turnctx-", {
       WHATSAPP_BOT_NAME: "Felix",

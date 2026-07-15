@@ -18,6 +18,7 @@ import {
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
+import type { PlatformIdentity } from "../../core/platform-identity.js";
 import { readRequestBody } from "../../server/request-body.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
@@ -39,13 +40,15 @@ export function startTelegramSource(
 
 // Module-level singleton for webhook mode — shares the dedup cache and rate
 // limiter across webhook requests instead of creating a new adapter per call.
-let webhookAdapter: TelegramAdapter | null = null;
+const webhookAdapters = new WeakMap<AppConfig, TelegramAdapter>();
 
 function getWebhookAdapter(cfg: AppConfig): TelegramAdapter {
-  if (!webhookAdapter) {
-    webhookAdapter = new TelegramAdapter(cfg);
+  let adapter = webhookAdapters.get(cfg);
+  if (!adapter) {
+    adapter = new TelegramAdapter(cfg);
+    webhookAdapters.set(cfg, adapter);
   }
-  return webhookAdapter;
+  return adapter;
 }
 
 export async function handleTelegramWebhook(
@@ -54,15 +57,17 @@ export async function handleTelegramWebhook(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
+  if (cfg.TELEGRAM_MODE !== "webhook") {
+    sendJson(res, 404, { error: "webhook_mode_disabled" });
+    return;
+  }
   const body = await readRequestBody(req);
 
-  if (cfg.TELEGRAM_WEBHOOK_SECRET) {
-    const secretToken = req.headers["x-telegram-bot-api-secret-token"] as string | undefined;
-    if (secretToken !== cfg.TELEGRAM_WEBHOOK_SECRET) {
-      log.warn("telegram.webhook_invalid_secret");
-      sendJson(res, 401, { error: "invalid_secret" });
-      return;
-    }
+  const secretToken = req.headers["x-telegram-bot-api-secret-token"] as string | undefined;
+  if (secretToken !== cfg.TELEGRAM_WEBHOOK_SECRET) {
+    log.warn("telegram.webhook_invalid_secret");
+    sendJson(res, 401, { error: "invalid_secret" });
+    return;
   }
 
   let update: TelegramUpdate;
@@ -74,9 +79,13 @@ export async function handleTelegramWebhook(
     return;
   }
 
-  sendJson(res, 200, { ok: true });
-
   const adapter = getWebhookAdapter(cfg);
+  if (!(await adapter.ensureBotIdentity())) {
+    log.warn("telegram.webhook_identity_unavailable");
+    sendJson(res, 503, { error: "telegram_identity_unavailable" });
+    return;
+  }
+  sendJson(res, 200, { ok: true });
   void adapter.processUpdate(engine, update).catch((error) => {
     log.warn("telegram.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
   });
@@ -403,14 +412,29 @@ interface TelegramFile {
 
 class TelegramAdapter implements SourceAdapter {
   source = "telegram";
+  get botIdentity(): PlatformIdentity | undefined {
+    return this.botId === undefined
+      ? undefined
+      : {
+          userId: String(this.botId),
+          username: this.botUsername,
+          displayName: this.botDisplayName,
+          source: "api",
+          discovered: true,
+        };
+  }
   get botUserId(): string | undefined {
-    return this.cfg.TELEGRAM_BOT_USER_ID;
+    return this.botIdentity?.userId;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.TELEGRAM_OWNER_USER_ID;
   }
+  get ownerDisplay(): string {
+    return this.cfg.TELEGRAM_OWNER_DISPLAY || "Owner";
+  }
   private botId?: number;
   private botUsername?: string;
+  private botDisplayName?: string;
   private offset = 0;
   private polling = false;
   private lastSendAt = 0;
@@ -469,27 +493,37 @@ class TelegramAdapter implements SourceAdapter {
       return { stop: () => undefined, done: Promise.resolve() };
     }
 
-    // Verify bot identity
-    const me = await this.apiCall<TelegramUser>("getMe");
+    const me = await this.ensureBotIdentity();
     if (!me) {
       log.warn("telegram.disabled", { reason: "auth_failed" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
-    this.botId = me.id;
-    this.botUsername = me.username;
-    log.info("telegram.ready", { user_id: me.id, username: me.username });
 
-    // If owner didn't configure bot user ID, auto-detect
-    if (!this.cfg.TELEGRAM_BOT_USER_ID) {
-      this.cfg.TELEGRAM_BOT_USER_ID = String(me.id);
+    if (this.cfg.TELEGRAM_MODE === "webhook") {
+      const registered = await this.apiCall<boolean>("setWebhook", {
+        url: this.cfg.TELEGRAM_WEBHOOK_URL,
+        secret_token: this.cfg.TELEGRAM_WEBHOOK_SECRET,
+        allowed_updates: ["message", "edited_message", "message_reaction"],
+      });
+      if (!registered) {
+        log.warn("telegram.disabled", { reason: "webhook_registration_failed" });
+        return { stop: () => undefined, done: Promise.resolve() };
+      }
+      log.info("telegram.webhook_registered", { url: this.cfg.TELEGRAM_WEBHOOK_URL });
+    } else {
+      await this.apiCall("deleteWebhook");
     }
-
-    // Delete any existing webhook before starting long-polling
-    await this.apiCall("deleteWebhook");
 
     return this.host.run({
       source: "telegram",
       connect: async () => {
+        if (this.cfg.TELEGRAM_MODE === "webhook") {
+          return {
+            disconnect: async () => {
+              await this.apiCall("deleteWebhook");
+            },
+          };
+        }
         this.polling = true;
         void this.pollLoop(engine);
 
@@ -507,6 +541,19 @@ class TelegramAdapter implements SourceAdapter {
         };
       },
     });
+  }
+
+  async ensureBotIdentity(): Promise<TelegramUser | null> {
+    if (this.botId !== undefined) {
+      return { id: this.botId, is_bot: true, first_name: this.botUsername ?? "Telegram bot", username: this.botUsername };
+    }
+    const me = await this.apiCall<TelegramUser>("getMe");
+    if (!me) return null;
+    this.botId = me.id;
+    this.botUsername = me.username;
+    this.botDisplayName = me.first_name;
+    log.info("telegram.ready", { user_id: me.id, username: me.username });
+    return me;
   }
 
   private async pollLoop(engine: FelixEngine): Promise<void> {
@@ -760,7 +807,7 @@ class TelegramAdapter implements SourceAdapter {
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
     const chatId = input.event.source_thread_ref.conversation_id;
-    const botName = this.botUsername ? `@${this.botUsername}` : "@felix";
+    const botName = this.botUsername ? `@${this.botUsername}` : `@${this.cfg.FELIX_NAME}`;
     const ownerMentionToken = this.cfg.TELEGRAM_OWNER_USER_ID
       ? `[${this.cfg.TELEGRAM_OWNER_DISPLAY}](tg://user?id=${this.cfg.TELEGRAM_OWNER_USER_ID})`
       : undefined;

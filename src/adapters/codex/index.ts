@@ -151,7 +151,7 @@ export class CodexHarness implements Harness {
     const promptPath = path.join(input.thread.turnsDir, `${baseName}.md`);
     const lastMessagePath = path.join(input.thread.turnsDir, `${baseName}.last-message.txt`);
 
-    const prompt = buildDecisionNotificationPrompt(input);
+    const prompt = buildDecisionNotificationPrompt({ ...input, agentName: this.cfg.FELIX_NAME });
     await writeTextAtomic(promptPath, prompt);
     const settings = codexSettings(this.cfg);
 

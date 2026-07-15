@@ -549,6 +549,8 @@ export class FelixEngine {
   }
 
   private ownerDisplayForSource(source: string): string | undefined {
+    const adapterDisplay = this.sourceAdapters.get(source)?.ownerDisplay;
+    if (adapterDisplay) return adapterDisplay;
     const map: Record<string, string> = {
       mattermost: this.cfg.MATTERMOST_OWNER_DISPLAY,
       discord: this.cfg.DISCORD_OWNER_DISPLAY,

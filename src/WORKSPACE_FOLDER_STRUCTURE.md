@@ -65,7 +65,7 @@ $WORKSPACE_DIR
 
 | Variable | Example | Meaning |
 |----------|---------|---------|
-| `<source>` | `mattermost`, `discord`, `slack`, `whatsapp` | Message platform |
+| `<source>` | `mattermost`, `discord`, `slack`, `whatsapp`, `telegram` | Message platform |
 | `<user_id>` | `djpbhx7h778e78bz4sekjrxhue` | Platform-specific user identifier |
 | `<skill_id>` | `github`, `install-tool`, `art-of-melancomedy` | Skill directory name |
 | `<sid>` | `2026-06-08_03-41-53-202Z_mattermost_wr7oorm3bpgo7ydbw1wkbuf5fo_b4uookbgd7nr3kszaene8r7tgr` | Session directory name (`<timestamp>_<thread_key_safe>`) |

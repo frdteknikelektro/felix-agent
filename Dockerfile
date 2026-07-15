@@ -1,4 +1,28 @@
-FROM node:24-bookworm-slim AS build
+ARG NODE_IMAGE=node:24-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573
+ARG GO_IMAGE=golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
+
+FROM ${GO_IMAGE} AS go-tools-build
+ARG WACLI_COMMIT=c9a5100308166bc2657472fd63f30a1aed5fbfbb
+ARG WACLI_SOURCE_SHA256=7003fc753f2de0c940a8d9235a0e0a82a71f551d6726ecfa2fce3111d4276717
+WORKDIR /src
+RUN curl -fsSL "https://github.com/openclaw/wacli/archive/${WACLI_COMMIT}.tar.gz" -o /tmp/wacli-source.tar.gz \
+    && echo "${WACLI_SOURCE_SHA256}  /tmp/wacli-source.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/wacli-source.tar.gz --strip-components=1 \
+    && rm /tmp/wacli-source.tar.gz \
+    && GOTOOLCHAIN=local CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -buildid=" -o /out/wacli ./cmd/wacli \
+    && go version -m /out/wacli | grep -F 'go1.26.5'
+
+ARG GOG_VERSION=0.34.0
+ARG GOG_SOURCE_SHA256=5ae7664dc9e79c0aad57864551e9f7db2a4be3a995e34db7a54bb1d01cba5af9
+WORKDIR /gog
+RUN curl -fsSL "https://github.com/openclaw/gogcli/archive/refs/tags/v${GOG_VERSION}.tar.gz" -o /tmp/gog-source.tar.gz \
+    && echo "${GOG_SOURCE_SHA256}  /tmp/gog-source.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gog-source.tar.gz --strip-components=1 \
+    && rm /tmp/gog-source.tar.gz \
+    && GOTOOLCHAIN=local CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -buildid=" -o /out/gog ./cmd/gog \
+    && go version -m /out/gog | grep -F 'go1.26.5'
+
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 # No apt toolchain needed: nothing in the dependency tree compiles via node-gyp
@@ -22,7 +46,11 @@ RUN npm run build:server \
 FROM build AS prod-deps
 RUN npm prune --omit=dev
 
-FROM node:24-bookworm-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
+RUN npm install --global npm@12.0.1 \
+    && npm --version \
+    && npm cache clean --force \
+    && rm -rf /root/.npm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -38,29 +66,17 @@ RUN apt-get update \
         poppler-utils \
         python3 \
         python3-pip \
-        python3-venv \
         rsync \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install wacli (WhatsApp CLI) — statically linked Go binary with cgo+SQLite.
-# Single self-contained binary, so it extracts straight to /usr/local/bin (no /opt dir).
-ARG WACLI_VERSION=0.12.0
-RUN arch="$(uname -m)" \
-    && case "$arch" in \
-         aarch64) asset_arch=arm64; asset_sha256=32be461045c03701101310137bdbc7a48a342f2f7d5317e996fbc7111a2f6145 ;; \
-         x86_64)  asset_arch=amd64; asset_sha256=49baa180fa7f0f4a694f683b8f7386ea64023ed79c0307037f0680bd21c116e0 ;; \
-         *)       echo "wacli: no prebuilt release for $arch" >&2; exit 1 ;; \
-       esac \
-    && curl -fsSL "https://github.com/openclaw/wacli/releases/download/v${WACLI_VERSION}/wacli_${WACLI_VERSION}_linux_${asset_arch}.tar.gz" \
-         -o /tmp/wacli.tar.gz \
-    && echo "${asset_sha256}  /tmp/wacli.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/wacli.tar.gz -C /usr/local/bin wacli \
-    && rm /tmp/wacli.tar.gz \
-    && chmod +x /usr/local/bin/wacli \
-    && wacli --version \
-    && echo "wacli installed ok"
+# Build the bundled Go CLIs from pinned sources with a supported toolchain.
+COPY --from=go-tools-build /out/wacli /usr/local/bin/wacli
+COPY --from=go-tools-build /out/gog /usr/local/bin/gog
+RUN wacli --version \
+    && gog --version \
+    && echo "bundled Go CLIs installed ok"
 
 # Install whisper.cpp CLI (speech-to-text transcription, available to every source
 # adapter) — prebuilt release binary + its sibling shared libs (ggml's CPU backends
@@ -109,23 +125,11 @@ RUN arch="$(uname -m)" \
     && test -x /opt/piper/piper \
     && echo "piper installed ok"
 
-# --only-binary=:all: — the image ships no compiler, so a source-dist fallback would
-# fail obscurely mid-build; force prebuilt wheels and fail loudly at resolve time instead.
-RUN python3 -m pip install --no-cache-dir --break-system-packages --only-binary=:all: \
-        lxml \
-        markitdown \
-        matplotlib \
-        numpy \
-        openpyxl \
-        pandas \
-        pdfplumber \
-        pillow \
-        pypdf \
-        python-dateutil \
-        reportlab \
-        requests \
-        seaborn \
-        xlsxwriter \
+# The complete transitive Python graph is version- and hash-locked. Binary-only
+# installation keeps compiler toolchains out of the runtime image.
+COPY requirements-runtime.txt ./requirements-runtime.txt
+RUN python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed --only-binary=:all: --require-hashes \
+        -r requirements-runtime.txt \
     && node --version \
     && python3 --version \
     && python3 - <<'PY'
@@ -152,6 +156,9 @@ ENV NODE_ENV=production \
     HOME=/home/node \
     USER=node \
     WORKSPACE_DIR=/home/node \
+    GOG_HOME=/home/node/.config/gogcli \
+    GOG_KEYRING_BACKEND=file \
+    FELIX_SETUP_ENV_FILE=/config/.env \
     NODE_PATH=/app/node_modules \
     PYTHONUSERBASE=/home/node/runtime/python \
     PATH="/app/node_modules/.bin:/home/node/runtime/bin:/home/node/runtime/npm/bin:/home/node/runtime/python/bin:$PATH"
@@ -161,10 +168,11 @@ COPY package.json ./
 COPY --from=prod-deps /app/node_modules ./node_modules
 
 COPY --chown=node:node skills ./skills
+COPY --chown=node:node scripts/setup.mjs ./scripts/setup.mjs
+COPY --chown=node:node scripts/setup-support.mjs ./scripts/setup-support.mjs
+COPY --chown=node:node .env.example ./.env.example
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
-
-RUN echo "node:x:1002:1002::/home/node:/bin/sh" >> /etc/passwd
 
 USER node
 
@@ -177,11 +185,12 @@ ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "dist/index.js"]
 
 # ── Setup stage ─────────────────────────────────────────────────────────────
-# Reuses the build stage's full dev install (setup.mjs needs @inquirer/prompts,
-# a devDependency) instead of running a second npm ci in a dedicated stage.
+# The runtime image already contains the setup wizard and its production dependency,
+# so this target only changes the default command for local setup composition.
 FROM runtime AS setup
-COPY --from=build /app/node_modules /app/node_modules
-COPY scripts/setup.mjs /app/scripts/setup.mjs
-COPY .env.example /app/.env.example
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["node", "scripts/setup.mjs"]
+
+# Keep the default (last) build target deployable. The setup image remains
+# available only when callers explicitly select --target setup.
+FROM runtime AS production

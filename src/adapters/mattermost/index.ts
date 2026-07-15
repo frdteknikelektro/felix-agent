@@ -19,6 +19,7 @@ import {
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
+import type { PlatformIdentity } from "../../core/platform-identity.js";
 
 function ensureTableBlankLines(text: string): string {
   return text.replace(/(?<!\|)(?<!\n)\n(\|)/g, "\n\n$1");
@@ -68,6 +69,8 @@ interface MattermostIdentity {
   username?: string;
   displayName?: string;
   mentionTokens: string[];
+  source: "api" | "legacy";
+  discovered: boolean;
 }
 
 export function createMattermostAdapter(cfg: AppConfig): SourceAdapter {
@@ -77,18 +80,44 @@ export function createMattermostAdapter(cfg: AppConfig): SourceAdapter {
 export function startMattermostSource(
   cfg: AppConfig,
   engine: FelixEngine,
+  adapter?: SourceAdapter,
 ): Promise<{ stop(): void; done: Promise<void> }> {
-  const adapter = createMattermostAdapter(cfg) as MattermostAdapter;
-  return adapter.start(engine);
+  const source = (adapter ?? createMattermostAdapter(cfg)) as MattermostAdapter;
+  return source.start(engine);
 }
 
 class MattermostAdapter implements SourceAdapter {
   source = "mattermost";
+  get botIdentity(): PlatformIdentity | undefined {
+    const identity = this.resolvedBotIdentity;
+    if (identity) {
+      return {
+        userId: identity.userId,
+        username: identity.username,
+        displayName: identity.displayName,
+        source: identity.source,
+        discovered: identity.discovered,
+      };
+    }
+    const userId = this.cfg.MATTERMOST_BOT_USER_ID;
+    return userId
+      ? {
+          userId,
+          username: this.cfg.MATTERMOST_BOT_USERNAME,
+          displayName: this.cfg.MATTERMOST_BOT_DISPLAY || this.cfg.FELIX_NAME,
+          source: "legacy",
+          discovered: false,
+        }
+      : undefined;
+  }
   get botUserId(): string | undefined {
-    return this.cfg.MATTERMOST_BOT_USER_ID;
+    return this.resolvedBotIdentity?.userId ?? this.cfg.MATTERMOST_BOT_USER_ID;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.MATTERMOST_OWNER_USER_ID;
+  }
+  get ownerDisplay(): string {
+    return this.cfg.MATTERMOST_OWNER_DISPLAY || this.ownerIdentity?.displayName || "Owner";
   }
   private socket?: WebSocket;
   private reconnectTimer?: NodeJS.Timeout;
@@ -99,8 +128,10 @@ class MattermostAdapter implements SourceAdapter {
   private channelTeamCache = new Map<string, string | undefined>();
   private teamNameCache = new Map<string, string | undefined>();
   private fileInfoCache = new Map<string, { name?: string; mime_type?: string; size?: number } | null>();
-  private botIdentity: MattermostIdentity | null = null;
+  private resolvedBotIdentity: MattermostIdentity | null = null;
   private botIdentityPromise?: Promise<MattermostIdentity | null>;
+  private ownerIdentity?: { username?: string; displayName?: string };
+  private ownerIdentityPromise?: Promise<{ username?: string; displayName?: string } | undefined>;
 
   constructor(private readonly cfg: AppConfig) {}
 
@@ -114,6 +145,7 @@ class MattermostAdapter implements SourceAdapter {
       log.warn("mattermost.disabled", { reason: "missing_bot_identity" });
       return { stop: () => undefined, done: Promise.resolve() };
     }
+    await this.ensureOwnerIdentity();
     await this.prefetchBotTeams();
     return this.host.run({
       source: "mattermost",
@@ -146,10 +178,12 @@ class MattermostAdapter implements SourceAdapter {
   }
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
-    const mentionTokens = mattermostMentionTokens(this.cfg.MATTERMOST_BOT_USERNAME, this.cfg.MATTERMOST_BOT_DISPLAY);
+    const botIdentity = await this.ensureBotIdentity();
+    const botDisplay = botIdentity?.displayName || this.cfg.MATTERMOST_BOT_DISPLAY || this.cfg.FELIX_NAME;
+    const mentionTokens = botIdentity?.mentionTokens ?? mattermostMentionTokens(this.cfg.MATTERMOST_BOT_USERNAME, botDisplay);
     const botMentionText =
       mentionTokens.length === 0
-        ? "@Felix"
+        ? `@${this.cfg.FELIX_NAME}`
         : mentionTokens.length === 1
           ? mentionTokens[0]
           : `${mentionTokens[0]} or ${mentionTokens[1]}`;
@@ -158,7 +192,8 @@ class MattermostAdapter implements SourceAdapter {
       input.event.source_thread_ref.thread_id ??
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
-    const ownerMentionToken = mattermostMentionToken(this.cfg.MATTERMOST_OWNER_USERNAME);
+    const ownerIdentity = await this.ensureOwnerIdentity();
+    const ownerMentionToken = mattermostMentionToken(ownerIdentity?.username ?? this.cfg.MATTERMOST_OWNER_USERNAME);
     return {
       behaviorInstructions: [
         `M1. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
@@ -336,7 +371,7 @@ class MattermostAdapter implements SourceAdapter {
     if (!isOwnerDecisionReactionToken(reaction.emoji_name)) return;
     const post = await this.fetchPost(reaction.post_id);
     if (!post?.id || !post.channel_id || !post.user_id) return;
-    if (this.cfg.MATTERMOST_BOT_USER_ID && !isSelfMessage(post.user_id, this.cfg.MATTERMOST_BOT_USER_ID)) {
+    if (this.botUserId && !isSelfMessage(post.user_id, this.botUserId)) {
       return;
     }
     await handleSourceReactionIntake(this.cfg, {
@@ -415,47 +450,55 @@ class MattermostAdapter implements SourceAdapter {
   }
 
   private async ensureBotIdentity(): Promise<MattermostIdentity | null> {
-    if (this.botIdentity) return this.botIdentity;
+    if (this.resolvedBotIdentity) return this.resolvedBotIdentity;
     if (this.botIdentityPromise) return this.botIdentityPromise;
     this.botIdentityPromise = this.fetchBotIdentity().finally(() => {
       this.botIdentityPromise = undefined;
     });
-    this.botIdentity = await this.botIdentityPromise;
-    return this.botIdentity;
+    this.resolvedBotIdentity = await this.botIdentityPromise;
+    return this.resolvedBotIdentity;
   }
 
   private async fetchBotIdentity(): Promise<MattermostIdentity | null> {
+    const legacyIdentity = (): MattermostIdentity | null => {
+      const legacyBotUserId = this.cfg.MATTERMOST_BOT_USER_ID;
+      if (!legacyBotUserId) return null;
+      const fallbackMentionTokens = mattermostMentionTokens(
+        this.cfg.MATTERMOST_BOT_USERNAME,
+        this.cfg.MATTERMOST_BOT_DISPLAY || this.cfg.FELIX_NAME,
+      );
+      return {
+        userId: legacyBotUserId,
+        username: this.cfg.MATTERMOST_BOT_USERNAME,
+        displayName: this.cfg.MATTERMOST_BOT_DISPLAY || this.cfg.FELIX_NAME,
+        mentionTokens: fallbackMentionTokens.length > 0 ? fallbackMentionTokens : [`@${legacyBotUserId}`],
+        source: "legacy",
+        discovered: false,
+      };
+    };
+
+    if (!this.cfg.MATTERMOST_URL || !this.cfg.MATTERMOST_BOT_TOKEN) {
+      return legacyIdentity();
+    }
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/me`;
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
       },
-    });
-    if (!res.ok) {
-      log.warn("mattermost.bot_identity_failed", { status: res.status });
-      if (!this.cfg.MATTERMOST_BOT_USER_ID) {
-        return null;
-      }
-      const fallbackMentionTokens = mattermostMentionTokens(
-        this.cfg.MATTERMOST_BOT_USERNAME,
-        this.cfg.MATTERMOST_BOT_DISPLAY,
-      );
-      return {
-        userId: this.cfg.MATTERMOST_BOT_USER_ID,
-        username: this.cfg.MATTERMOST_BOT_USERNAME,
-        displayName: this.cfg.MATTERMOST_BOT_DISPLAY,
-        mentionTokens:
-          fallbackMentionTokens.length > 0 ? fallbackMentionTokens : [`@${this.cfg.MATTERMOST_BOT_USER_ID}`],
-      };
+    }).catch(() => null);
+    if (!res?.ok) {
+      log.warn("mattermost.bot_identity_failed", { status: res?.status });
+      return legacyIdentity();
     }
-    const me = (await res.json()) as MattermostMe;
-    const userId = normalizeMattermostName(me.id ?? this.cfg.MATTERMOST_BOT_USER_ID);
+    const me = (await res.json().catch(() => null)) as MattermostMe | null;
+    const userId = normalizeMattermostName(me?.id);
     if (!userId) {
-      return null;
+      log.warn("mattermost.bot_identity_invalid");
+      return legacyIdentity();
     }
-    const username = normalizeMattermostName(me.username ?? this.cfg.MATTERMOST_BOT_USERNAME);
+    const username = normalizeMattermostName(me?.username ?? this.cfg.MATTERMOST_BOT_USERNAME);
     const displayName = normalizeMattermostName(
-      me.display_name ?? me.nickname ?? this.cfg.MATTERMOST_BOT_DISPLAY,
+      me?.display_name ?? me?.nickname ?? (this.cfg.MATTERMOST_BOT_DISPLAY || this.cfg.FELIX_NAME),
     );
     const mentionTokens = mattermostMentionTokens(username, displayName);
     if (mentionTokens.length === 0) {
@@ -467,15 +510,40 @@ class MattermostAdapter implements SourceAdapter {
         fetched_user_id: userId,
       });
     }
-    this.cfg.MATTERMOST_BOT_USER_ID = userId;
-    if (username) this.cfg.MATTERMOST_BOT_USERNAME = username;
-    if (displayName) this.cfg.MATTERMOST_BOT_DISPLAY = displayName;
     return {
       userId,
       username,
       displayName,
       mentionTokens,
+      source: "api",
+      discovered: true,
     };
+  }
+
+  private async ensureOwnerIdentity(): Promise<{ username?: string; displayName?: string } | undefined> {
+    if (this.ownerIdentity) return this.ownerIdentity;
+    if (this.ownerIdentityPromise) return this.ownerIdentityPromise;
+    const ownerId = this.cfg.MATTERMOST_OWNER_USER_ID;
+    if (!ownerId || !this.cfg.MATTERMOST_URL || !this.cfg.MATTERMOST_BOT_TOKEN) {
+      return undefined;
+    }
+    const mattermostUrl = this.cfg.MATTERMOST_URL;
+    this.ownerIdentityPromise = (async () => {
+      const url = `${mattermostUrl.replace(/\/$/, "")}/api/v4/users/${encodeURIComponent(ownerId)}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}` },
+      }).catch(() => null);
+      if (!res?.ok) return undefined;
+      const user = (await res.json()) as MattermostMe & { first_name?: string; last_name?: string };
+      const displayName = normalizeMattermostName(
+        user.display_name ?? user.nickname ?? [user.first_name, user.last_name].filter(Boolean).join(" "),
+      );
+      return { username: normalizeMattermostName(user.username), displayName };
+    })().finally(() => {
+      this.ownerIdentityPromise = undefined;
+    });
+    this.ownerIdentity = await this.ownerIdentityPromise;
+    return this.ownerIdentity;
   }
 
 
@@ -522,7 +590,7 @@ class MattermostAdapter implements SourceAdapter {
       case "posted": {
         const post = await this.normalizePostedEvent(payload);
         if (!post) return;
-        if (this.cfg.MATTERMOST_BOT_USER_ID && isSelfMessage(post.sender.id, this.cfg.MATTERMOST_BOT_USER_ID)) {
+        if (this.botUserId && isSelfMessage(post.sender.id, this.botUserId)) {
           return;
         }
         const postId = post.event_id;
@@ -579,7 +647,7 @@ class MattermostAdapter implements SourceAdapter {
   }
 
   private async resolveDirectChannel(userId?: string): Promise<string | undefined> {
-    if (!userId || !this.cfg.MATTERMOST_BOT_USER_ID) return undefined;
+    if (!userId || !this.botUserId) return undefined;
     const url = `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/channels/direct`;
     const res = await fetch(url, {
       method: "POST",
@@ -587,7 +655,7 @@ class MattermostAdapter implements SourceAdapter {
         Authorization: `Bearer ${this.cfg.MATTERMOST_BOT_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify([this.cfg.MATTERMOST_BOT_USER_ID, userId]),
+      body: JSON.stringify([this.botUserId, userId]),
     });
     if (!res.ok) return undefined;
     const json = (await res.json()) as { id?: string };
@@ -598,12 +666,12 @@ class MattermostAdapter implements SourceAdapter {
     method: "POST" | "DELETE",
     input: { postId: string; emoji: string },
   ): Promise<void> {
-    if (!this.cfg.MATTERMOST_BOT_USER_ID) return;
+    if (!this.botUserId) return;
     const emojiName = normalizeReactionEmoji(input.emoji);
     const url =
       method === "POST"
         ? `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/reactions`
-        : `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/${encodeURIComponent(this.cfg.MATTERMOST_BOT_USER_ID)}/posts/${encodeURIComponent(input.postId)}/reactions/${encodeURIComponent(emojiName)}`;
+        : `${this.cfg.MATTERMOST_URL?.replace(/\/$/, "")}/api/v4/users/${encodeURIComponent(this.botUserId)}/posts/${encodeURIComponent(input.postId)}/reactions/${encodeURIComponent(emojiName)}`;
     const res = await fetch(url, {
       method,
       headers: {
@@ -613,7 +681,7 @@ class MattermostAdapter implements SourceAdapter {
       body:
         method === "POST"
           ? JSON.stringify({
-              user_id: this.cfg.MATTERMOST_BOT_USER_ID,
+              user_id: this.botUserId,
               post_id: input.postId,
               emoji_name: emojiName,
             })

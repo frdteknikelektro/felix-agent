@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The current stable release is `0.1.0`. Security fixes are prioritized for the current stable release. Older image tags should be upgraded before requesting support.
+The current stable release is `0.1.1`. Security fixes are prioritized for the current stable release. `0.1.0` remains immutable and available but is superseded; upgrade before requesting support.
 
 ## Reporting a vulnerability
 
@@ -24,3 +24,7 @@ We will acknowledge reports when reviewed and coordinate a fix or mitigation bef
 - Set `OWNER_UI_SECURE_COOKIE=true` when HTTPS terminates at a reverse proxy.
 - Configure webhook secrets before exposing Telegram or WhatsApp webhooks.
 - Back up the Workspace volume and `DB_ENCRYPTION_KEY` securely.
+
+## Release vulnerability policy
+
+Candidate images retain full vulnerability, secret, and misconfiguration reports. Fixable high/critical findings, reachable high/critical findings, embedded secrets, high/critical image misconfigurations, and CISA KEV findings block publication. A KEV or non-fixable finding may be classified `not_affected` only by an exact package-PURL OpenVEX statement with committed evidence, reviewer, review date, and unexpired review metadata under `security/`. Medium, low, and unknown findings remain visible and are reviewed without automatically blocking unless promoted by KEV or manual review.

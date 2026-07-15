@@ -12,6 +12,8 @@ const BoolString = z.preprocess((value) => {
 }, z.boolean());
 
 const Env = z.object({
+  // Name shown to users when a source-specific identity is not available.
+  FELIX_NAME: z.string().trim().min(1).default("Felix"),
   WORKSPACE_DIR: z.string().default("./workspace"),
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
   CODEX_BIN: z.string().default("codex"),
@@ -48,10 +50,10 @@ const Env = z.object({
   MATTERMOST_BOT_TOKEN: z.string().optional(),
   MATTERMOST_BOT_USER_ID: z.string().optional(),
   MATTERMOST_BOT_USERNAME: z.string().optional(),
-  MATTERMOST_BOT_DISPLAY: z.string().default("Felix"),
+  MATTERMOST_BOT_DISPLAY: z.string().default(""),
   MATTERMOST_OWNER_USER_ID: z.string().optional(),
   MATTERMOST_OWNER_USERNAME: z.string().optional(),
-  MATTERMOST_OWNER_DISPLAY: z.string().default("Owner"),
+  MATTERMOST_OWNER_DISPLAY: z.string().default(""),
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_BOT_USER_ID: z.string().optional(),
   DISCORD_OWNER_USER_ID: z.string().optional(),
@@ -77,7 +79,20 @@ const Env = z.object({
   TELEGRAM_BOT_USER_ID: z.string().optional(),
   TELEGRAM_OWNER_USER_ID: z.string().optional(),
   TELEGRAM_OWNER_DISPLAY: z.string().default("Owner"),
+  TELEGRAM_MODE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["polling", "webhook"]).default("polling"),
+  ),
+  TELEGRAM_WEBHOOK_URL: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().url().optional(),
+  ),
   TELEGRAM_WEBHOOK_SECRET: z.string().default(""),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOG_HOME: z.string().default("/home/node/.config/gogcli"),
+  GOG_KEYRING_BACKEND: z.string().default("file"),
+  GOG_KEYRING_PASSWORD: z.string().optional(),
   SOURCE: z.string().default("mattermost"),
   // Empty string (an unset OWNER_CHANNEL= line in .env) means "route to the
   // event's own channel" — coerce it to undefined before the enum check, which
@@ -90,20 +105,37 @@ const Env = z.object({
   // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
   USAGE_TZ: z.string().default("UTC"),
 }).superRefine((env, ctx) => {
-  if (!env.NINEROUTER_ENABLED) return;
-  const required: Array<keyof typeof env> = [
-    "NINEROUTER_KEY",
-    "NINEROUTER_MODEL",
-    "NINEROUTER_URL",
-  ];
-  for (const key of required) {
-    const value = env[key];
-    if (typeof value !== "string" || value.trim() === "") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [key],
-        message: `${key} is required when NINEROUTER_ENABLED=true`,
-      });
+  if (env.NINEROUTER_ENABLED) {
+    const required: Array<keyof typeof env> = [
+      "NINEROUTER_KEY",
+      "NINEROUTER_MODEL",
+      "NINEROUTER_URL",
+    ];
+    for (const key of required) {
+      const value = env[key];
+      if (typeof value !== "string" || value.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when NINEROUTER_ENABLED=true`,
+        });
+      }
+    }
+  }
+  if (env.TELEGRAM_MODE === "webhook") {
+    if (!env.TELEGRAM_WEBHOOK_URL) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["TELEGRAM_WEBHOOK_URL"], message: "TELEGRAM_WEBHOOK_URL is required when TELEGRAM_MODE=webhook" });
+    } else {
+      try {
+        if (new URL(env.TELEGRAM_WEBHOOK_URL).protocol !== "https:") {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["TELEGRAM_WEBHOOK_URL"], message: "TELEGRAM_WEBHOOK_URL must use HTTPS when TELEGRAM_MODE=webhook" });
+        }
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["TELEGRAM_WEBHOOK_URL"], message: "TELEGRAM_WEBHOOK_URL must be a valid HTTPS URL when TELEGRAM_MODE=webhook" });
+      }
+    }
+    if (!env.TELEGRAM_WEBHOOK_SECRET.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["TELEGRAM_WEBHOOK_SECRET"], message: "TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_MODE=webhook" });
     }
   }
 });

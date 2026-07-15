@@ -248,7 +248,7 @@ export function buildSpawnPath(cfg: AppConfig): string {
 export function buildDecisionNotificationPrompt(input: DecisionNotificationInput): string {
   const owner = input.ownerDisplay ?? "your owner";
   const lines = [
-    "You are Felix, replying in a conversation thread.",
+    `You are ${input.agentName ?? "Felix"}, replying in a conversation thread.`,
     `${owner} just ${input.mode === "reject" ? "rejected" : "approved"} a permission request for skill "${input.skillId}".`,
     input.reason ? `Reason: ${input.reason}` : "",
     input.mode === "reject"
@@ -319,4 +319,3 @@ export function buildOwnerPermissionNotification(input: OwnerPermissionNotificat
     ...footer,
   ].join("\n");
 }
-

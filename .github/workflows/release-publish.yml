@@ -1,0 +1,132 @@
+name: Publish immutable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful candidate workflow run ID
+        required: true
+        type: string
+      digest:
+        description: Accepted sha256 candidate digest
+        required: true
+        type: string
+      commit:
+        description: Accepted full source commit SHA
+        required: true
+        type: string
+      version:
+        description: Semver without v prefix
+        required: true
+        default: 0.1.1
+        type: string
+      manual_evidence:
+        description: Sanitized completed 0.1.1 evidence markdown bound to this candidate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  IMAGE: frdinawan/felix-agent
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ inputs.digest }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Download exact candidate evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh run view "$RUN_ID" --repo "$REPOSITORY" \
+            --json conclusion,headSha,url,workflowName > /tmp/candidate-run.json
+          test "$(jq -r '.conclusion' /tmp/candidate-run.json)" = success
+          test "$(jq -r '.headSha' /tmp/candidate-run.json)" = "$COMMIT"
+          test "$(jq -r '.workflowName' /tmp/candidate-run.json)" = "Release candidate"
+          test "$(jq -r '.url' /tmp/candidate-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
+          gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-evidence" --dir release-evidence
+          gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-attestations" --dir release-evidence
+      - name: Verify candidate binding and complete evidence
+        env:
+          MANUAL_EVIDENCE: ${{ inputs.manual_evidence }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFileAtomic } from "./scripts/setup-support.mjs";
+          writeFileAtomic("release-evidence/manual-acceptance.md", process.env.MANUAL_EVIDENCE, 0o600);
+          NODE
+          node scripts/verify-release-candidate.mjs \
+            --manifest release-evidence/candidate-manifest.json \
+            --run-id "${{ inputs.candidate_run_id }}" \
+            --digest "${{ inputs.digest }}" \
+            --commit "${{ inputs.commit }}" \
+            --version "${{ inputs.version }}"
+          test "$(jq '.blockers | length' release-evidence/policy-result.json)" = 0
+          test "$(jq '.policyErrors | length' release-evidence/policy-result.json)" = 0
+          node scripts/generate-release-evidence.mjs \
+            --version "${{ inputs.version }}" \
+            --candidate-run-id "${{ inputs.candidate_run_id }}" \
+            --candidate-commit "${{ inputs.commit }}" \
+            --image-digest "${{ inputs.digest }}" \
+            --scan release-evidence/policy-result.json \
+            --sbom release-evidence/sbom.spdx.json \
+            --provenance release-evidence/provenance-attestation.jsonl \
+            --manual release-evidence/manual-acceptance.md \
+            --output release-evidence/release-evidence.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: felix-${{ inputs.version }}-verified-release-evidence
+          path: release-evidence
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: felix-${{ inputs.version }}-verified-release-evidence
+          path: release-evidence
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Create immutable source and Docker tags
+        env:
+          VERSION: ${{ inputs.version }}
+          DIGEST: ${{ inputs.digest }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          test -z "$(git ls-remote --tags origin "refs/tags/v${VERSION}")"
+          ! docker buildx imagetools inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -a "v${VERSION}" "$COMMIT" -m "Felix ${VERSION}"
+          git push origin "v${VERSION}"
+          docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${IMAGE}@${DIGEST}"
+          test "$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" | sed -n 's/^Digest: //p' | head -1)" = "$DIGEST"
+      - name: Create GitHub Release with raw evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release create "v${VERSION}" release-evidence/* --verify-tag --title "Felix ${VERSION}" --notes-file CHANGELOG.md

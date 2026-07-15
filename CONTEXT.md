@@ -3,6 +3,7 @@
 ## Glossary
 
 - `Owner`: the single operator who approves permissions and manages skills for this Felix instance.
+- `Agent identity`: the customer-configured name in `FELIX_NAME`, collected by the first-run setup wizard and used when a source does not provide its own bot identity. It defaults to `Felix` for backward compatibility; API- or paired-account-discovered identities are authoritative, while `WHATSAPP_BOT_NAME` remains an optional presentation override.
 - `Session`: a persisted interaction tied to one source thread and one Codex run history.
 - `Session record`: the on-disk durable representation of a `Session`, stored under `workspace/sessions/<source>/`.
 - `Thread key`: an opaque stable source-thread identifier produced by a source adapter; core modules store and index it but do not parse it.
@@ -70,24 +71,40 @@
 - `Wildcard grant`: a contact grant of the form `<name>.*`, satisfying any scope of that permission name. Full wildcard only — no partial patterns (`read.staging-*`).
 - `DB_ENCRYPTION_KEY`: a 32-byte random key auto-generated during setup, stored in `.env`, used to encrypt/decrypt database connection credentials at rest.
 - `Release`: a customer-distributable Felix runtime image accompanied by its version, release notes, and operating instructions.
-- `Release version`: the semantic version assigned to a Release; `0.1.0` is the first stable Release version. A leading `v` may be used only as the Git tag prefix.
-- `Supported integration`: a source or harness included in the `0.1.0` core runtime support promise; it must have customer-facing configuration guidance and an acceptance test.
+- `Release version`: the semantic version assigned to a Release; `0.1.1` is the current recommended production version and `0.1.0` is superseded. A leading `v` may be used only as the Git tag prefix.
+- `Supported integration`: a source or harness included in the `0.1.1` core runtime support promise; it must have customer-facing configuration guidance and an acceptance test.
 - `Support matrix`: the explicit list of Supported integrations, bundled-skill capabilities, architectures, and deployment environments covered by a Release.
-- `Supported deployment environment`: the environment covered by the Release support promise; for `0.1.0`, this is Docker Compose running on a single host.
+- `Supported deployment environment`: the environment covered by the Release support promise; for `0.1.1`, this is Docker Compose running on a single host.
 - `Workspace data`: the customer-owned persistent state under the Felix workspace, including sessions, approvals, audit history, skills, credentials, and runtime state.
 - `Internal persistence`: Felix's own filesystem-based storage under the Workspace data directory; Felix does not require or run on an internal database engine.
 - `Skill capability`: a customer-usable behavior packaged as a Skill; database engine support belongs to the `database` Skill rather than to Felix's core runtime integration list.
-- `Bundled skill`: a Skill shipped inside the `0.1.0` image and included in the Release promise; it is not a separately distributed product.
+- `Bundled skill`: a Skill shipped inside the `0.1.1` image and included in the Release promise; it is not a separately distributed product.
 - `Bundled skill acceptance`: the Release evidence that each Bundled skill loads, declares its prerequisites, and completes its basic smoke test; customer-owned external services and credentials remain prerequisites rather than image contents.
 - `Prerequisite integration test`: an acceptance test that exercises a Bundled skill against a customer-owned external service or credential when that prerequisite is available.
 - `Release package`: the customer-facing set shipped with a Release: the versioned image, GitHub release metadata, operating documentation, security and legal notices, image evidence, and rollback materials.
 - `Data durability policy`: the Release promise that Workspace data survives supported upgrades and can be recovered using the documented backup and restore procedure.
 - `Network exposure policy`: the Release rule for reachability; the Owner console is private by default, while any public webhook access requires customer-managed HTTPS, firewall controls, and webhook authentication.
 - `Update policy`: customers upgrade manually to a versioned image or immutable digest after backing up Workspace data; the `latest` alias is not a production deployment target.
-- `Release gate`: the set of checks that must pass before a Release is customer-distributable; for `0.1.0`, failures in supported integrations, security checks, image validation, upgrade, backup, or restore block publication.
-- `Release evidence`: the recorded results demonstrating that a Release passed its Release gate, including software checks, image checks, integration acceptance, lifecycle tests, and customer documentation review.
-- `Security exception`: a documented, time-bounded decision to ship with a non-blocking vulnerability, including its risk, affected dependency or path, mitigation, owner, and review date.
-- `Support policy`: the customer assistance promise for a Release; `0.1.0` provides best-effort issue-tracker support without uptime, response-time, or resolution-time guarantees.
+- `Release evidence`: the single sanitized record demonstrating that a Release passed automated checks, exact-digest image verification, integration acceptance, lifecycle recovery, and documentation review.
+- `Webhook mode`: a source transport in which the platform pushes authenticated HTTPS requests to Felix; Telegram webhook mode requires a URL and secret, while polling is the default.
+- `Persisted integration state`: customer-owned authorization and runtime state stored under the Workspace volume, including Google `GOG_HOME` and the `gog` file keyring.
+- `Image promotion`: the manual operation that retags an already verified immutable image digest as `latest`; it is not part of automatic version publication.
+- `Release candidate digest`: the immutable multi-architecture registry digest produced under a non-customer-facing candidate tag before security scanning.
+- `Verified release digest`: the candidate digest that passed the release scan and was used unchanged to create the customer-facing `0.1.1` tag.
+- `Platform identity snapshot`: the runtime bot identity for a source — platform user ID or JID, optional username, optional display name, discovery source, and discovery status. It is discovered from the authenticated platform or paired account and is never written into `.env`; human owner IDs remain configured manually.
+- `Platform identity discovery`: runtime resolution of a bot identity through its authenticated source API or paired-account state. Mattermost, Discord, and Slack may use legacy environment values when discovery is unavailable; Telegram requires `getMe` and treats its legacy identity as parse-only.
+- `Deprecated identity configuration`: legacy bot identity environment variables retained only so existing `.env` files parse; setup no longer requests them and runtime discovery is authoritative where supported.
+- `Release gate`: the set of checks that must pass before a Release is customer-distributable; for `0.1.1`, failures in supported integrations, risk policy, image validation, upgrade, backup, or restore block publication.
+- `Security exception`: an exact package-PURL OpenVEX `not_affected` statement with committed justification, evidence, reviewer, review date, and expiry; unmatched or expired statements fail the Release gate.
+- `Support policy`: the customer assistance promise for a Release; `0.1.1` provides best-effort issue-tracker support without uptime, response-time, restoration-time, or resolution-time guarantees.
 - `Data-handling policy`: Felix collects no Felix-owned telemetry; Workspace data remains on the customer's host, while messages and prompts may be sent to the customer-selected source and model providers.
-- `License policy`: `0.1.0` is distributed under Apache-2.0, with applicable third-party notices included.
+- `License policy`: `0.1.1` is distributed under Apache-2.0, with applicable third-party notices included.
 - `Distribution policy`: the official source is the public GitHub repository and the official customer image is the matching public Docker Hub repository; customers use the versioned image tag and GitHub release notes.
+- `Google Workspace skill`: the bundled operational `Skill` that wraps the `gog` CLI to provide Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Contacts, Tasks, Admin, Chat, Classroom, Groups, Keep, YouTube, Maps, Photos, Meet, and other Google Workspace operations through Felix chat.
+- `gog CLI`: a single Go binary for Google Workspace — Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Apps Script, Contacts, Tasks, Classroom, Chat, Groups, Keep, YouTube, Maps, Photos, Meet, and Workspace Admin. Pre-installed in the agent runtime image.
+- `gog account`: a Google account (email) authorized with `gog auth add`. Multiple accounts can be stored; `gog --account <email>` selects which one to use. Default account is set via `gog auth alias set`.
+- `gog credential`: an OAuth client JSON file stored by `gog auth credentials set`, containing `client_id` and `client_secret`. Environment placeholders supported with `--expand-env`. Stored under `gogcli/` config directory.
+- `gog manual auth`: the headless OAuth flow (`gog auth add --manual`) where `gog` prints an authorization URL, the user opens it in a browser and pastes back the redirect URL. Used in Docker/headless environments.
+- `gog schema`: the machine-readable command/flag contract (`gog schema --json`) that exposes command shape, flags, output modes, and safety state. Used for auto-discovery of available Google Workspace operations.
+- `Google Workspace scope`: the OAuth service scopes authorized for a `gog account` — e.g. `gmail`, `calendar`, `drive`, `docs`, `sheets`, `contacts`, `tasks`. Selected at `gog auth add` time via `--services`.
+- `gog readonly mode`: the `--readonly` flag that blocks mutating API requests at runtime. Applied per the contact's permission level — contacts with only `read` grants get `--readonly`; contacts with `write` grants get full access.

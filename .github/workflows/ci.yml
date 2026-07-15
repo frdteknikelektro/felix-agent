@@ -1,0 +1,39 @@
+name: Continuous integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci
+      - run: npm --prefix web ci
+      - name: Validate dependency trees
+        run: npm ls --all && npm --prefix web ls --all
+      - name: Audit dependencies
+        run: npm audit --audit-level=high && npm --prefix web audit --audit-level=high
+      - name: Test and enforce the established suite floor
+        run: |
+          npm test -- --reporter=default --reporter=json --outputFile.json=/tmp/vitest-report.json
+          test "$(jq -r '.numTotalTests' /tmp/vitest-report.json)" -ge 517
+      - run: npm run lint
+      - run: npm run build
+      - name: Validate Compose contracts
+        run: docker compose config --quiet && docker compose -f docker-compose.image.yml config --quiet
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7

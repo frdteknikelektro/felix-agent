@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviews"],
+  "properties": {
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["vulnerability", "product", "evidence", "reviewer", "reviewed_at", "expires_at"],
+        "properties": {
+          "vulnerability": { "type": "string", "minLength": 1 },
+          "product": { "type": "string", "pattern": "^pkg:" },
+          "evidence": { "type": "string", "minLength": 1 },
+          "reviewer": { "type": "string", "minLength": 1 },
+          "reviewed_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

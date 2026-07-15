@@ -16,6 +16,30 @@ describe("discordMentionToken", () => {
   });
 });
 
+describe("Discord API-derived identity", () => {
+  it("captures the logged-in client ID and display identity on the real adapter", async () => {
+    const cfg = await makeTestConfig("discord-api-identity-", { DISCORD_BOT_USER_ID: "legacy-id" });
+    const adapter = createDiscordAdapter(cfg);
+    (adapter as unknown as { client: { user: Record<string, unknown> } }).client = {
+      user: { id: "api-id", username: "felix", globalName: "Felix Agent" },
+    };
+    expect(adapter.botIdentity).toEqual({
+      userId: "api-id",
+      username: "felix",
+      displayName: "Felix Agent",
+      source: "api",
+      discovered: true,
+    });
+  });
+
+  it("falls back to the legacy identity when no client is connected", async () => {
+    const cfg = await makeTestConfig("discord-legacy-identity-", { DISCORD_BOT_USER_ID: "legacy-id" });
+    expect(createDiscordAdapter(cfg).botIdentity).toMatchObject({
+      userId: "legacy-id", source: "legacy", discovered: false,
+    });
+  });
+});
+
 describe("discordThreadKey", () => {
   it("formats as discord:channelId:rootId", () => {
     expect(discordThreadKey("chan-1", "root-2")).toBe("discord:chan-1:root-2");

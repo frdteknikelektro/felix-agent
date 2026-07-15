@@ -145,7 +145,7 @@ export async function loadChatTimeline(cfg: AppConfig, threadKey: string): Promi
     const raw = await readText(path.join(thread.eventsDir, entry.name), "");
     const parsed = parseEventFile(raw);
     const at = eventAt(parsed) ?? fsDateFromName(entry.name);
-    messages.push(chatMessageFromEvent(parsed, at, entry.name, thread.state.source));
+    messages.push(chatMessageFromEvent(parsed, at, entry.name, thread.state.source, cfg.FELIX_NAME));
   }
   return messages.sort((a, b) => a.at.localeCompare(b.at));
 }
@@ -159,6 +159,7 @@ export function chatMessageFromEvent(
   at: string,
   fallbackId: string,
   source: string,
+  agentName = "Felix",
 ): ChatMessage {
   switch (parsed.kind) {
     case "source_event":
@@ -176,7 +177,7 @@ export function chatMessageFromEvent(
         at,
         kind: parsed.kind,
         direction: "outbound",
-        sender: { source, id: "felix", display: "Felix" },
+        sender: { source, id: "felix", display: agentName },
         text: parsed.body.trim(),
       };
     case "permission_request":
@@ -185,7 +186,7 @@ export function chatMessageFromEvent(
         at,
         kind: parsed.kind,
         direction: "system",
-        sender: { source, id: "felix", display: "Felix" },
+        sender: { source, id: "felix", display: agentName },
         text: parsed.body.trim(),
       };
     case "owner_permission":
@@ -221,7 +222,7 @@ export async function dashboardSnapshot(cfg: AppConfig): Promise<DashboardSnapsh
     listAuditForUi(cfg),
     tokensToday(cfg, now),
   ]);
-  return buildDashboardSnapshot(summaries, approvals, audit, now, todayTokens, cfg.USAGE_TZ);
+  return buildDashboardSnapshot(summaries, approvals, audit, now, todayTokens, cfg.USAGE_TZ, cfg.FELIX_NAME);
 }
 
 /**
@@ -236,6 +237,7 @@ export function buildDashboardSnapshot(
   now: Date,
   tokensToday = 0,
   tz = "UTC",
+  agentName = "Felix",
 ): DashboardSnapshot {
   const pending = approvals.filter((a) => a.status === "pending");
   const today = tzDateKey(now, tz);
@@ -260,7 +262,7 @@ export function buildDashboardSnapshot(
   }
   for (const s of summaries) {
     if (s.lastTurnAt) {
-      activity.push({ at: s.lastTurnAt, kind: "turn", summary: `Felix replied in ${s.source}`, threadKey: s.threadKey, source: s.source });
+      activity.push({ at: s.lastTurnAt, kind: "turn", summary: `${agentName} replied in ${s.source}`, threadKey: s.threadKey, source: s.source });
     }
     if (s.lastEventAt && s.lastEventAt !== s.lastTurnAt) {
       activity.push({ at: s.lastEventAt, kind: "message", summary: `New message in ${s.source}`, threadKey: s.threadKey, source: s.source });

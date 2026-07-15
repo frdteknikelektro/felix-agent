@@ -1,0 +1,84 @@
+import fs from "node:fs/promises";
+import YAML from "yaml";
+import { describe, expect, it } from "vitest";
+
+async function readYaml(file: string): Promise<Record<string, any>> {
+  return YAML.parse(await fs.readFile(file, "utf8")) as Record<string, any>;
+}
+
+describe("0.1.1 release contract", () => {
+  it("keeps both Compose runtimes private and least-privileged", async () => {
+    for (const file of ["docker-compose.yml", "docker-compose.image.yml"]) {
+      const compose = await readYaml(file);
+      const service = compose.services.felix;
+      expect(service.ports).toContain("127.0.0.1:53318:3000");
+      expect(service.read_only).toBe(true);
+      expect(service.cap_drop).toContain("ALL");
+      expect(service.cap_add).toBeUndefined();
+      expect(service.tmpfs).toContain("/tmp:rw,noexec,nosuid");
+      expect(service.volumes).toContain("./workspace:/home/node");
+      expect(service.secrets).toContain(".env");
+    }
+    const imageCompose = await readYaml("docker-compose.image.yml");
+    expect(imageCompose.services.felix.image).toBe("${FELIX_IMAGE:-frdinawan/felix-agent:0.1.1}");
+    expect(imageCompose.services.setup.image).toBe("${FELIX_IMAGE:-frdinawan/felix-agent:0.1.1}");
+    expect(imageCompose.services.setup.profiles).toContain("setup");
+    expect(imageCompose.services.setup.command).toEqual(["node", "scripts/setup.mjs"]);
+    expect(imageCompose.services.setup.volumes).toContain("./:/config");
+  });
+
+  it("builds and scans an immutable multi-architecture candidate", async () => {
+    const workflow = await readYaml(".github/workflows/release-candidate.yml");
+    const jobs = workflow.jobs;
+    expect(jobs.build.outputs.digest).toContain("steps.build.outputs.digest");
+    const buildWith = jobs.build.steps.find((step: any) => step.id === "build").with;
+    expect(buildWith.platforms).toBe("linux/amd64,linux/arm64");
+    expect(buildWith.sbom).toBe(true);
+    expect(buildWith.provenance).toBe("mode=max");
+    expect(buildWith.tags).toContain("candidate-");
+    expect(jobs.build.steps.some((step: any) => step.name === "Reject an existing immutable candidate tag")).toBe(true);
+
+    const scan = jobs.scan.steps.find((step: any) => step.name === "Install Trivy and create the unfiltered audit report");
+    expect(scan.with["image-ref"]).toContain("needs.build.outputs.digest");
+    expect(scan.with.severity).toContain("UNKNOWN");
+    const policy = jobs.scan.steps.find((step: any) => step.name === "Enforce release risk policy");
+    expect(policy.run).toContain("security/vex.openvex.json");
+    expect(policy.run).toContain("security/vex-review.json");
+    expect(policy["continue-on-error"]).toBe(true);
+    expect(jobs.scan.steps.find((step: any) => step.uses?.startsWith("actions/upload-artifact"))?.if).toBe("always()");
+    expect(jobs["code-scanning"].permissions["security-events"]).toBe("write");
+    expect(jobs.attest.permissions.attestations).toBe("write");
+  });
+
+  it("publishes only the exact verified candidate and promotes latest separately", async () => {
+    const publish = await readYaml(".github/workflows/release-publish.yml");
+    const download = publish.jobs.verify.steps.find((step: any) => step.name === "Download exact candidate evidence");
+    expect(download.run).toContain("gh run view");
+    expect(download.run).toContain(".conclusion");
+    expect(download.run).toContain(".workflowName");
+    const verify = publish.jobs.verify.steps.find((step: any) => step.name === "Verify candidate binding and complete evidence");
+    expect(verify.run).toContain("verify-release-candidate.mjs");
+    expect(verify.run).toContain("generate-release-evidence.mjs");
+    expect(verify.run).toContain("manual-acceptance.md");
+    expect(publish.on.workflow_dispatch.inputs.manual_evidence.required).toBe(true);
+    const publication = publish.jobs.publish.steps.find((step: any) => step.name === "Create immutable source and Docker tags");
+    expect(publication.run).toContain("git tag -a");
+    expect(publication.run).toContain("imagetools create");
+    expect(publication.run).toContain("imagetools inspect");
+
+    const promotionWorkflow = await readYaml(".github/workflows/release-promote-latest.yml");
+    const promotion = promotionWorkflow.jobs.promote.steps.find((step: any) => step.name === "Promote only the immutable 0.1.1 digest");
+    expect(promotion.run).toContain("${IMAGE}:0.1.1");
+    expect(promotion.run).toContain("imagetools create");
+    expect(Object.keys(promotionWorkflow.on.workflow_dispatch.inputs)).toEqual(["digest"]);
+  });
+
+  it("pins every third-party action to a full commit SHA", async () => {
+    for (const file of ["ci.yml", "release-candidate.yml", "release-publish.yml", "release-promote-latest.yml"]) {
+      const text = await fs.readFile(`.github/workflows/${file}`, "utf8");
+      for (const match of text.matchAll(/uses:\s+([^\s#]+)/g)) {
+        expect(match[1], `${file}: ${match[1]}`).toMatch(/@[0-9a-f]{40}$/);
+      }
+    }
+  });
+});

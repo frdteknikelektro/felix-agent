@@ -162,6 +162,21 @@ describe("9router harness settings", () => {
     expect(codexSettings(withV1).env.OPENAI_BASE_URL).toBe("https://9router.jala.tech/v1");
     expect(claudeCodeSettings(withV1).env.ANTHROPIC_BASE_URL).toBe("https://9router.jala.tech");
   });
+
+  it("passes persistent Google Workspace state to every harness", async () => {
+    const google = await makeTestConfig("felix-google-state-", {
+      GOOGLE_CLIENT_ID: "client-id",
+      GOOGLE_CLIENT_SECRET: "client-secret",
+      GOG_HOME: "/home/node/.config/gogcli",
+      GOG_KEYRING_BACKEND: "file",
+      GOG_KEYRING_PASSWORD: "keyring-password",
+    });
+    for (const settings of [codexSettings(google), opencodeSettings(google), claudeCodeSettings(google)]) {
+      expect(settings.env.GOG_HOME).toBe("/home/node/.config/gogcli");
+      expect(settings.env.GOG_KEYRING_BACKEND).toBe("file");
+      expect(settings.env.GOG_KEYRING_PASSWORD).toBe("keyring-password");
+    }
+  });
 });
 
 describe("9router Codex auth", () => {

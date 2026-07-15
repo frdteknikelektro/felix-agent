@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync, chmodSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, randomBytes } from "node:crypto";
 import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
+import { isSecretKey, writeFileAtomic } from "./setup-support.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
 
 const ROOT = IN_CONTAINER ? "/app" : join(__dirname, "..");
 const EXAMPLE_PATH = IN_CONTAINER ? "/app/.env.example" : join(ROOT, ".env.example");
-const ENV_PATH = IN_CONTAINER ? "/app/.env" : join(ROOT, ".env");
+const ENV_PATH = process.env.FELIX_SETUP_ENV_FILE || (IN_CONTAINER ? "/config/.env" : join(ROOT, ".env"));
 const WORKSPACE_PATH = IN_CONTAINER ? "/home/node" : join(ROOT, "workspace");
 
 // ── ANSI colors ────────────────────────────────────────────────────────────
@@ -82,35 +83,14 @@ function reqTag(required) {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const SECRET_KEYS = new Set([
-  "OWNER_UI_SECRET",
-  "OPENAI_API_KEY",
-  "OPENAI_CODEX_AUTH_JSON",
-  "DEEPSEEK_API_KEY",
-  "OPENCODE_API_KEY",
-  "OPENROUTER_API_KEY",
-  "NINEROUTER_KEY",
-  "ANTHROPIC_API_KEY",
-  "MATTERMOST_TOKEN",
-  "DISCORD_TOKEN",
-  "SLACK_TOKEN",
-  "SLACK_APP_TOKEN",
-  "DB_ENCRYPTION_KEY",
-  "TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_WEBHOOK_SECRET",
-]);
-
 const SOURCE_DEFS = {
   mattermost: {
     label: "Mattermost",
     required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
-    optional: {
-      MATTERMOST_BOT_USERNAME: "",
-      MATTERMOST_BOT_DISPLAY: "Felix",
-    },
+    optional: {},
     ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_USERNAME", "MATTERMOST_OWNER_DISPLAY"],
-    ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Enter your Mattermost username — the script will look up your User ID automatically.",
+    ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "" },
+    ownerHint: "Enter your Mattermost User ID. Felix will resolve its username and display name through the API.",
   },
   discord: {
     label: "Discord",
@@ -130,7 +110,7 @@ const SOURCE_DEFS = {
   },
   whatsapp: {
     label: "WhatsApp (via wacli)",
-    required: ["WHATSAPP_BOT_NAME"],
+    required: [],
     optional: {},
     ownerKeys: ["WHATSAPP_OWNER_DISPLAY"],
     ownerDefaults: { WHATSAPP_OWNER_DISPLAY: "Owner" },
@@ -248,7 +228,7 @@ function writeEnv(templatePath, outputPath, answers, existing) {
     }
   }
 
-  writeFileSync(outputPath, lines.join("\n") + "\n");
+  writeFileAtomic(outputPath, lines.join("\n") + "\n", 0o600);
 }
 
 
@@ -275,6 +255,15 @@ function secretTransformer(value, { isFinal }) {
   if (isFinal) return "*".repeat(value.length);
   if (value.length === 0) return `${c.dim}(empty)${c.reset}`;
   return "*".repeat(value.length - 1) + value[value.length - 1];
+}
+
+function isStrongNewSecret(value) {
+  return value.length >= 24 && !["change-me", "password", "secret", "felix"].includes(value.toLowerCase());
+}
+
+function validateSetupSecret(value, existing) {
+  if (existing && value === existing) return true;
+  return isStrongNewSecret(value) ? true : "Use at least 24 characters (or press Enter to generate one)";
 }
 
 function existingHint(existing, key) {
@@ -359,6 +348,7 @@ async function scanSkillEnv(dirs) {
           key: entry.key,
           description: entry.description || "",
           required: entry.required === true,
+          secret: entry.secret === true,
           default: entry.default || "",
           skill: d.name,
         });
@@ -461,9 +451,20 @@ async function main() {
       info("Press Enter to keep, type to change.");
     }
 
-    // ═══ Step 1: Harness ═══════════════════════════════════════════════════
+    // ═══ Step 1: Agent Identity ═════════════════════════════════════════════
 
-    step(1, 7, "Harness");
+    step(1, 8, "Agent Identity");
+
+    const agentName = await input({
+      message: `FELIX_NAME  ${reqTag(true)}:`,
+      default: existing.FELIX_NAME || "Felix",
+      validate: (v) => v.trim().length > 0 ? true : "FELIX_NAME is required",
+    });
+    wizard.FELIX_NAME = agentName.trim();
+
+    // ═══ Step 2: Harness ═══════════════════════════════════════════════════
+
+    step(2, 8, "Harness");
 
     const harness = await select({
       message: "Select LLM backend:",
@@ -526,9 +527,9 @@ async function main() {
       if (existing.NINEROUTER_MODEL_FOR_MEMORIZING) wizard.NINEROUTER_MODEL_FOR_MEMORIZING = existing.NINEROUTER_MODEL_FOR_MEMORIZING;
     }
 
-    // ═══ Step 2: API Keys ═══════════════════════════════════════════════════
+    // ═══ Step 3: API Keys ═══════════════════════════════════════════════════
 
-    step(2, 7, "API Keys");
+    step(3, 8, "API Keys");
 
     if (harness === "codex") {
       const codexModel = await input({
@@ -656,9 +657,9 @@ async function main() {
       wizard.CLAUDE_CODE_MODEL_FOR_MEMORIZING = ccMemModel;
     }
 
-    // ═══ Step 3: Owner Console ══════════════════════════════════════════════
+    // ═══ Step 4: Owner Console ══════════════════════════════════════════════
 
-    step(3, 7, "Owner Console");
+    step(4, 8, "Owner Console");
 
     info("Enter a secret for the owner web console.");
     info("Press Enter to auto-generate one.");
@@ -667,12 +668,17 @@ async function main() {
     const secret = await input({
       message: `OWNER_UI_SECRET  ${reqTag(false)}:`,
       default: existing.OWNER_UI_SECRET || randomUUID(),
+      transformer: secretTransformer,
+      validate: (value) => validateSetupSecret(value, existing.OWNER_UI_SECRET),
     });
+    if (existing.OWNER_UI_SECRET && !isStrongNewSecret(existing.OWNER_UI_SECRET)) {
+      warn("SECURITY WARNING: existing OWNER_UI_SECRET is weaker than the 24-character policy; preserving it only for upgrade compatibility. Rotate it promptly.");
+    }
     wizard.OWNER_UI_SECRET = secret;
 
-    // ═══ Step 4: Database Encryption ═══════════════════════════════════════
+    // ═══ Step 5: Database Encryption ═══════════════════════════════════════
 
-    step(4, 7, "Database Encryption");
+    step(5, 8, "Database Encryption");
 
     info("A key is needed to encrypt database connection credentials.");
     info("Press Enter to auto-generate one.");
@@ -684,9 +690,9 @@ async function main() {
     });
     wizard.DB_ENCRYPTION_KEY = dbKey;
 
-    // ═══ Step 5: Sources ════════════════════════════════════════════════════
+    // ═══ Step 6: Sources ════════════════════════════════════════════════════
 
-    step(5, 7, "Sources");
+    step(6, 8, "Sources");
 
     info("Select chat sources Felix will listen to.");
     console.log();
@@ -697,7 +703,7 @@ async function main() {
         { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
         { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
         { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
-        { value: "whatsapp", name: "WhatsApp (via wacli)", checked: !!existing.WHATSAPP_BOT_NAME },
+        { value: "whatsapp", name: "WhatsApp (via wacli)", checked: !!(existing.WHATSAPP_BOT_NAME || existing.WHATSAPP_OWNER_JID) },
         { value: "telegram", name: "Telegram", checked: !!existing.TELEGRAM_BOT_TOKEN },
       ],
     });
@@ -726,6 +732,9 @@ async function main() {
         for (const key of [...def.required, ...Object.keys(def.optional), ...def.ownerKeys]) {
           wizard[key] = "";
         }
+        if (src === "telegram") {
+          for (const key of ["TELEGRAM_MODE", "TELEGRAM_WEBHOOK_URL", "TELEGRAM_WEBHOOK_SECRET"]) wizard[key] = "";
+        }
       }
     }
 
@@ -745,7 +754,7 @@ async function main() {
       for (const [optKey, fallback] of Object.entries(def.optional)) {
         const val = await input({
           message: `${optKey}  ${reqTag(false)}:`,
-          default: existing[optKey] || fallback,
+          default: existing[optKey] || fallback || "",
         });
         wizard[optKey] = val;
       }
@@ -756,51 +765,36 @@ async function main() {
           const existingUsername = existing.MATTERMOST_OWNER_USERNAME || wizard.MATTERMOST_OWNER_USERNAME || "";
           const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
 
-          const username = await input({
-            message: `MATTERMOST_OWNER_USERNAME  ${reqTag(false)}:`,
-            default: existingUsername,
+          const ownerUserId = await input({
+            message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
+            default: existing.MATTERMOST_OWNER_USER_ID || "",
           });
-          wizard.MATTERMOST_OWNER_USERNAME = username;
+          wizard.MATTERMOST_OWNER_USER_ID = ownerUserId;
 
-          if (mmUrl && mmToken && username) {
-            info("Looking up your User ID and display name via Mattermost API...");
+          if (mmUrl && mmToken && ownerUserId) {
+            info("Looking up your Mattermost username and display name via API...");
             try {
-              const res = await fetch(`${mmUrl}/api/v4/users/username/${encodeURIComponent(username)}`, {
+              const res = await fetch(`${mmUrl}/api/v4/users/${encodeURIComponent(ownerUserId)}`, {
                 headers: { Authorization: `Bearer ${mmToken}` },
               });
               if (res.ok) {
                 const user = await res.json();
-                wizard.MATTERMOST_OWNER_USER_ID = user.id;
-                succeed(`Found User ID: ${user.id}`);
+                wizard.MATTERMOST_OWNER_USERNAME = user.username || existingUsername;
+                succeed(`Found username: ${user.username || existingUsername || "(not provided)"}`);
                 if (user.nickname || user.first_name || user.last_name) {
                   const fetchedDisplay = user.nickname || [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
                   info(`Fetched display name: ${fetchedDisplay}`);
-                  if (!existingDisplay || existingDisplay === def.ownerDefaults.MATTERMOST_OWNER_DISPLAY) {
-                    wizard.MATTERMOST_OWNER_DISPLAY = fetchedDisplay;
-                  }
                 }
               } else {
-                warn(`API lookup failed (${res.status}). Please enter manually.`);
-                const val = await input({
-                  message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
-                  default: existing.MATTERMOST_OWNER_USER_ID || ""
-                });
-                wizard.MATTERMOST_OWNER_USER_ID = val;
+                warn(`API lookup failed (${res.status}); preserving the configured owner ID.`);
+                wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
               }
             } catch (err) {
-              warn(`API lookup failed: ${err.message}. Please enter manually.`);
-              const val = await input({
-                message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
-                default: existing.MATTERMOST_OWNER_USER_ID || ""
-              });
-              wizard.MATTERMOST_OWNER_USER_ID = val;
+              warn(`API lookup failed: ${err.message}; preserving the configured owner ID.`);
+              wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
             }
           } else {
-            const val = await input({
-              message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
-              default: existing.MATTERMOST_OWNER_USER_ID || ""
-            });
-            wizard.MATTERMOST_OWNER_USER_ID = val;
+            wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
           }
 
           const display = await input({
@@ -811,9 +805,9 @@ async function main() {
         } else if (src === "whatsapp") {
           // WHATSAPP_BOT_NAME — plain input, no masking
           const botName = await input({
-            message: `WHATSAPP_BOT_NAME  ${reqTag(true)}:`,
+            message: `WHATSAPP_BOT_NAME  ${reqTag(false)} (blank uses FELIX_NAME):`,
             default: existing.WHATSAPP_BOT_NAME || "",
-            validate: (v) => v.trim().length > 0 ? true : "WHATSAPP_BOT_NAME is required for WhatsApp",
+            validate: (v) => /^[A-Za-z0-9_]*$/.test(v) ? true : "Only letters, digits, and underscores allowed",
           });
           wizard.WHATSAPP_BOT_NAME = botName;
 
@@ -847,7 +841,7 @@ async function main() {
           const wacliBin = existing.WHATSAPP_WACLI_BIN || "wacli";
           const authStatus = checkSetupWacliAuth(wacliBin);
           if (authStatus.status === "authenticated") {
-            succeed(`wacli is already paired${authStatus.jid ? ` as ${authStatus.jid}` : ""}.`);
+            succeed("wacli is already paired.");
           } else if (authStatus.status === "locked") {
             warn("wacli store is locked, likely by the running Felix container. Skipping pairing.");
             info("Stop the container before re-pairing, or keep the existing logged-in session.");
@@ -858,12 +852,56 @@ async function main() {
             info("WhatsApp → Settings → Linked Devices → Link a Device");
             console.log();
 
-            const { exitCode, error } = await runWacliAuth(wacliBin);
+            const { exitCode } = await runWacliAuth(wacliBin);
             if (exitCode !== 0) {
-              warn(`wacli auth failed${error ? `: ${error}` : ""}. Run \`${wacliBin} auth\` manually.`);
+              warn(`wacli auth failed. Run \`${wacliBin} auth\` manually.`);
             } else {
               succeed("WhatsApp paired successfully.");
             }
+          }
+        } else if (src === "telegram") {
+          const mode = await select({
+            message: "Telegram transport mode:",
+            choices: [
+              { value: "polling", name: "Polling (no public URL required)" },
+              { value: "webhook", name: "Webhook (requires HTTPS reverse proxy)" },
+            ],
+            default: existing.TELEGRAM_MODE === "webhook" ? "webhook" : "polling",
+          });
+          wizard.TELEGRAM_MODE = mode;
+          if (mode === "webhook") {
+            const webhookUrl = await input({
+              message: `TELEGRAM_WEBHOOK_URL  ${reqTag(true)}:`,
+              default: existing.TELEGRAM_WEBHOOK_URL || "",
+              validate: (v) => {
+                try {
+                  const url = new URL(v);
+                  return url.protocol === "https:" ? true : "Use an HTTPS URL";
+                } catch {
+                  return "Enter a valid HTTPS URL";
+                }
+              },
+            });
+            wizard.TELEGRAM_WEBHOOK_URL = webhookUrl;
+            const webhookSecret = await input({
+              message: `TELEGRAM_WEBHOOK_SECRET  ${reqTag(true)}:`,
+              default: existing.TELEGRAM_WEBHOOK_SECRET || randomBytes(32).toString("hex"),
+              transformer: secretTransformer,
+              validate: (value) => value.length >= 16 || "Use at least 16 characters",
+            });
+            wizard.TELEGRAM_WEBHOOK_SECRET = webhookSecret;
+          } else {
+            wizard.TELEGRAM_WEBHOOK_URL = "";
+            wizard.TELEGRAM_WEBHOOK_SECRET = "";
+          }
+          console.log();
+          info(def.ownerHint);
+          for (const ownerKey of def.ownerKeys) {
+            const val = await input({
+              message: `${ownerKey}  ${reqTag(false)}:`,
+              default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
+            });
+            wizard[ownerKey] = val;
           }
         } else {
           console.log();
@@ -889,9 +927,9 @@ async function main() {
       warn("No sources selected. You can re-run setup later.");
     }
 
-    // ═══ Step 6: Skill Environment ══════════════════════════════════════════
+    // ═══ Step 7: Skill Environment ══════════════════════════════════════════
 
-    step(6, 7, "Skill Environment");
+    step(7, 8, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
     const agentsDir = join(WORKSPACE_PATH, ".agents", "skills");
@@ -923,6 +961,9 @@ async function main() {
             if (existing && existing[v.key] && !(v.key in wizard)) {
               wizard[v.key] = existing[v.key];
             }
+            if (v.key === "GOG_KEYRING_PASSWORD" && !existing?.[v.key] && !(v.key in wizard)) {
+              wizard[v.key] = randomBytes(32).toString("hex");
+            }
           }
           continue;
         }
@@ -934,7 +975,10 @@ async function main() {
             : "";
           const val = await input({
             message: `${v.key}  ${reqTag(v.required)}:${hint}`,
-            default: hasExisting ? existing[v.key] : (v.default || ""),
+            default: hasExisting
+              ? existing[v.key]
+              : (v.default || (v.key === "GOG_KEYRING_PASSWORD" ? randomBytes(32).toString("hex") : "")),
+            transformer: v.secret ? secretTransformer : undefined,
           });
           if (val) {
             wizard[v.key] = val;
@@ -946,9 +990,9 @@ async function main() {
       }
     }
 
-    // ═══ Step 7: Review ═════════════════════════════════════════════════════
+    // ═══ Step 8: Review ═════════════════════════════════════════════════════
 
-    step(7, 7, "Review");
+    step(8, 8, "Review");
 
     if (wizard.NINEROUTER_ENABLED === "true") {
       console.log();
@@ -987,12 +1031,12 @@ async function main() {
       if (entry.type === "comment" && /^# ──/.test(entry.raw)) {
         console.log(`  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
       } else if (entry.type === "setting" && entry.key in final) {
-        const display = SECRET_KEYS.has(entry.key)
+        const display = isSecretKey(entry.key)
           ? c.dim + mask(final[entry.key]) + c.reset
           : final[entry.key] || `${c.dim}<not set>${c.reset}`;
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
       } else if (entry.type === "optional" && entry.key in final && final[entry.key]) {
-        const display = SECRET_KEYS.has(entry.key)
+        const display = isSecretKey(entry.key)
           ? c.dim + mask(final[entry.key]) + c.reset
           : final[entry.key];
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
@@ -1002,7 +1046,10 @@ async function main() {
     if (skillExtras.length > 0) {
       console.log(`  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
       for (const key of skillExtras.sort()) {
-        console.log(`  ${c.bold}${pad(key, maxKey)}${c.reset}  ${final[key]}`);
+        const display = isSecretKey(key)
+          ? c.dim + mask(final[key]) + c.reset
+          : final[key];
+        console.log(`  ${c.bold}${pad(key, maxKey)}${c.reset}  ${display}`);
       }
     }
 
@@ -1014,12 +1061,7 @@ async function main() {
     }
 
     writeEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
-    if (IN_CONTAINER) {
-      // Enforce restrictive permissions on .env (Unix only)
-      if (process.platform !== "win32") {
-        try { chmodSync(ENV_PATH, 0o600); } catch {}
-      }
-    } else if (!existsSync(WORKSPACE_PATH)) {
+    if (!IN_CONTAINER && !existsSync(WORKSPACE_PATH)) {
       mkdirSync(WORKSPACE_PATH);
     }
     if (IN_CONTAINER) {
@@ -1035,7 +1077,8 @@ async function main() {
       console.log(`\n${c.yellow}Setup cancelled.${c.reset}`);
       process.exit(0);
     }
-    throw err;
+    console.error(`${c.red}ERROR:${c.reset} setup failed; no configuration was replaced. Re-run setup after checking prerequisites.`);
+    process.exitCode = 1;
   }
 }
 

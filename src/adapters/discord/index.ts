@@ -17,11 +17,26 @@ import {
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
+import { preferDiscoveredIdentity, type PlatformIdentity } from "../../core/platform-identity.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
 export function createDiscordAdapter(cfg: AppConfig): SourceAdapter {
   return new DiscordAdapter(cfg);
+}
+
+function platformIdentityFromDiscordUser(user: { id: string; username?: string; displayName?: string; globalName?: string | null; tag?: string }): PlatformIdentity {
+  return {
+    userId: user.id,
+    username: user.username,
+    displayName: user.displayName || user.globalName || user.tag,
+    source: "api",
+    discovered: true,
+  };
+}
+
+function discoverDiscordBotIdentity(client: { user?: Parameters<typeof platformIdentityFromDiscordUser>[0] | null }): PlatformIdentity | undefined {
+  return client.user?.id ? platformIdentityFromDiscordUser(client.user) : undefined;
 }
 
 export function startDiscordSource(
@@ -37,11 +52,20 @@ export function startDiscordSource(
 
 class DiscordAdapter implements SourceAdapter {
   source = "discord";
+  get botIdentity(): PlatformIdentity | undefined {
+    return preferDiscoveredIdentity(
+      discoverDiscordBotIdentity(this.client ?? {}),
+      this.cfg.DISCORD_BOT_USER_ID,
+    );
+  }
   get botUserId(): string | undefined {
-    return this.cfg.DISCORD_BOT_USER_ID;
+    return this.botIdentity?.userId;
   }
   get ownerUserId(): string | undefined {
     return this.cfg.DISCORD_OWNER_USER_ID;
+  }
+  get ownerDisplay(): string {
+    return this.cfg.DISCORD_OWNER_DISPLAY || "Owner";
   }
   private client?: Client;
   private guildIdCache = new Map<string, string | undefined>();
@@ -95,7 +119,6 @@ class DiscordAdapter implements SourceAdapter {
 
         await client.login(this.cfg.DISCORD_BOT_TOKEN);
         this.client = client;
-
         return { disconnect: () => client.destroy() };
       },
     });
@@ -112,7 +135,7 @@ class DiscordAdapter implements SourceAdapter {
   }
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
-    const botId = this.cfg.DISCORD_BOT_USER_ID ?? "unknown";
+    const botId = this.botUserId ?? "unknown";
     const botMention = `<@${botId}>`;
     const rootMessageId =
       input.event.source_thread_ref.root_message_id ??
@@ -277,7 +300,7 @@ class DiscordAdapter implements SourceAdapter {
       await reaction.fetch().catch(() => null);
     }
     const message = reaction.message;
-    if (!message?.author?.id || this.cfg.DISCORD_BOT_USER_ID && message.author.id !== this.cfg.DISCORD_BOT_USER_ID) {
+    if (!message?.author?.id || this.botUserId && message.author.id !== this.botUserId) {
       return;
     }
     await handleSourceReactionIntake(this.cfg, {
@@ -397,7 +420,7 @@ class DiscordAdapter implements SourceAdapter {
     }
 
     // Bot mention detection
-    const botId = this.cfg.DISCORD_BOT_USER_ID ?? this.client?.user?.id;
+    const botId = this.botUserId ?? this.client?.user?.id;
     const mentionsBot = botId ? message.mentions.users.has(botId) : false;
 
     return normalizeSourceEvent({

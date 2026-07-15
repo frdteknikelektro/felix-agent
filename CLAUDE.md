@@ -1,6 +1,6 @@
 # Felix Agent — Agent Guide
 
-Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, or WhatsApp) through skill-gated LLM turns.
+Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp, or Telegram) through skill-gated LLM turns.
 
 ## Project layout
 
@@ -167,9 +167,9 @@ Login with `OWNER_UI_SECRET`. Sessions, approvals, contacts, skills, audit log.
 
 ## Architecture notes
 
-- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. Concrete implementations: `CodexHarness` / `OpencodeHarness` / `ClaudeCodeHarness` (harnesses); `MattermostAdapter` / `DiscordAdapter` / `SlackAdapter` / `WhatsAppAdapter` (sources).
+- **Ports & adapters**: `Harness` and `SourceAdapter` interfaces in `src/core/ports.ts`. Concrete implementations: `CodexHarness` / `OpencodeHarness` / `ClaudeCodeHarness` (harnesses); `MattermostAdapter` / `DiscordAdapter` / `SlackAdapter` / `WhatsAppAdapter` / `TelegramAdapter` (sources).
 - **Pure core**: `decideTurnResult()` and routing predicates have zero IO — fully unit-testable.
-- **Supervised source**: Each `startXxxSource` returns `{ stop(), done }`. The supervisor in `index.ts` awaits `done`. Transient connection drops are handled per adapter: Mattermost uses exponential backoff (1 s → 30 s); Discord and Slack use library-managed reconnection; WhatsApp reconnects via wacli's internal `--max-reconnect 0` (indefinite).
+- **Supervised source**: Each `startXxxSource` returns `{ stop(), done }`. The supervisor in `index.ts` awaits `done`. Transient connection drops are handled per adapter: Mattermost uses exponential backoff (1 s → 30 s); Discord and Slack use library-managed reconnection; WhatsApp reconnects via wacli's internal `--max-reconnect 0` (indefinite); Telegram uses polling or authenticated webhook mode.
 - **Graceful shutdown**: SIGTERM → stop all sources → `engine.drain(15 s)` → close HTTP server → hard exit after 10 s.
 - **Schemas**: Zod schemas in `src/core/schemas.ts` are the single source of truth for all persisted JSON records. `readJsonParsed()` validates on read.
 - **Route table**: `src/server/routes.ts` owns all API routes. Adding a route = one entry in `API_ROUTES`, not a new if-branch.

@@ -6,10 +6,20 @@ async function read(path: string): Promise<string> {
 }
 
 describe("agent runtime image contract", () => {
-  it("keeps the Node Bookworm runtime base and provider-neutral batteries", async () => {
+  it("makes the default Docker target the production server", async () => {
+    const dockerfile = await read("Dockerfile");
+    expect(dockerfile.trimEnd()).toMatch(/FROM runtime AS production$/);
+  });
+
+  it("keeps a digest-pinned Node Trixie runtime base and provider-neutral batteries", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
+    expect(dockerfile).toMatch(/ARG NODE_IMAGE=node:24-trixie-slim@sha256:[0-9a-f]{64}/);
+    expect(dockerfile).toMatch(/ARG GO_IMAGE=golang:1\.26\.5-bookworm@sha256:[0-9a-f]{64}/);
+    expect(dockerfile).toContain("FROM ${NODE_IMAGE} AS runtime");
+    expect(dockerfile).toContain("go build -trimpath");
+    expect(dockerfile).toContain("-o /out/wacli ./cmd/wacli");
+    expect(dockerfile).toContain("-o /out/gog ./cmd/gog");
     for (const aptPackage of [
       "ffmpeg",
       "git",
@@ -20,7 +30,6 @@ describe("agent runtime image contract", () => {
       "imagemagick",
       "python3",
       "python3-pip",
-      "python3-venv",
       "unzip",
       "zip",
     ]) {
@@ -30,12 +39,15 @@ describe("agent runtime image contract", () => {
     // (sqlite uses the node:sqlite built-in), and runtime pip installs are wheels-only.
     expect(dockerfile).not.toContain("build-essential");
     expect(dockerfile).not.toContain("python3-dev");
+    expect(dockerfile).not.toContain("python3-venv");
   });
 
   it("installs and verifies the core data stack at build time", async () => {
     const dockerfile = await read("Dockerfile");
+    const requirements = await read("requirements-runtime.txt");
 
-    expect(dockerfile).toContain("python3 -m pip install --no-cache-dir --break-system-packages --only-binary=:all:");
+    expect(dockerfile).toContain("python3 -m pip install --no-cache-dir --break-system-packages --ignore-installed --only-binary=:all:");
+    expect(dockerfile).toContain("--require-hashes");
     for (const pipPackage of [
       "lxml",
       "markitdown",
@@ -52,8 +64,9 @@ describe("agent runtime image contract", () => {
       "seaborn",
       "xlsxwriter",
     ]) {
-      expect(dockerfile).toContain(pipPackage);
+      expect(requirements).toMatch(new RegExp(`^${pipPackage.replace("-", "\\-")}==`, "m"));
     }
+    expect(requirements).toContain("--hash=sha256:");
     expect(dockerfile).toContain("python core data + office stack ok");
   });
 

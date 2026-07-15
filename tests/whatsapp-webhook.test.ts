@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { createServer } from "node:http";
+import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -28,7 +29,7 @@ async function sendWebhook(
   cfg: AppConfig,
   engine: FelixEngine,
   body: string,
-  opts: { headers?: Record<string, string> } = {},
+  opts: { headers?: Record<string, string>; signed?: boolean } = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   if (cfg.WHATSAPP_WACLI_BIN === "wacli") {
     await installFakeWacli(cfg);
@@ -46,6 +47,9 @@ async function sendWebhook(
     server.listen(0, "127.0.0.1", () => {
       const port = (server.address() as AddressInfo).port;
       const http = require("node:http");
+      const secret = cfg.WHATSAPP_WEBHOOK_SECRET || "test-whatsapp-webhook-secret";
+      cfg.WHATSAPP_WEBHOOK_SECRET = secret;
+      const signature = `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
       const options = {
         hostname: "127.0.0.1",
         port,
@@ -53,6 +57,7 @@ async function sendWebhook(
         method: "POST",
         headers: {
           "content-type": "application/json",
+          ...(opts.signed === false ? {} : { "x-wacli-signature": signature }),
           ...opts.headers,
         },
       };
@@ -104,6 +109,45 @@ describe("handleWhatsAppWebhook", () => {
 
   beforeEach(async () => {
     ({ engine } = makeMockEngine());
+  });
+
+  it("rejects missing signatures even when WhatsApp is disabled", async () => {
+    cfg = await makeTestConfig("wa-wh-unsigned-", {
+      WHATSAPP_WEBHOOK_SECRET: "stable-disabled-secret",
+      WHATSAPP_WACLI_BIN: "/missing/wacli",
+    });
+    const result = await sendWebhook(cfg, engine, JSON.stringify({ Chat: "1@s.whatsapp.net", ID: "1" }), {
+      signed: false,
+    });
+    expect(result.status).toBe(401);
+    expect(result.body).toEqual({ error: "invalid_signature" });
+  });
+
+  it.each([
+    "sha256=00",
+    "sha256=not-hex",
+    `sha256=${"0".repeat(64)}`,
+    "md5=0011",
+  ])("rejects malformed or incorrect signature %s without throwing", async (signature) => {
+    cfg = await makeTestConfig("wa-wh-badsig-", { WHATSAPP_WEBHOOK_SECRET: "stable-test-secret" });
+    const result = await sendWebhook(cfg, engine, JSON.stringify({ Chat: "1@s.whatsapp.net", ID: "1" }), {
+      signed: false,
+      headers: { "x-wacli-signature": signature },
+    });
+    expect(result.status).toBe(401);
+    expect(result.body).toEqual({ error: "invalid_signature" });
+  });
+
+  it("keeps the first webhook secret stable for the AppConfig lifetime", async () => {
+    cfg = await makeTestConfig("wa-wh-stable-", { WHATSAPP_WEBHOOK_SECRET: "original-process-secret" });
+    expect((await sendWebhook(cfg, engine, "not json")).status).toBe(400);
+    cfg.WHATSAPP_WEBHOOK_SECRET = "replacement-must-not-take-effect";
+    const originalSignature = `sha256=${crypto.createHmac("sha256", "original-process-secret").update("not json").digest("hex")}`;
+    const result = await sendWebhook(cfg, engine, "not json", {
+      signed: false,
+      headers: { "x-wacli-signature": originalSignature },
+    });
+    expect(result.status).toBe(400);
   });
 
   it("returns 400 for invalid JSON body", async () => {

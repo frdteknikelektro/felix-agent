@@ -1,6 +1,6 @@
 # 🦊 Felix Agent
 
-A persistent AI agent that wraps an LLM backend (Codex, OpenCode, or Claude Code) and routes messages from Mattermost, Discord, Slack, or WhatsApp through skill-gated turns.
+A persistent AI agent that wraps an LLM backend (Codex, OpenCode, or Claude Code) and routes messages from Mattermost, Discord, Slack, WhatsApp, or Telegram through skill-gated turns.
 
 > 🦊 Felix runs as a Docker container with a live owner console for monitoring sessions, approving skills, and managing contacts.
 
@@ -20,7 +20,7 @@ cd felix-agent
 # Step 2 — First-time setup: builds the image, then runs the interactive config wizard
 docker compose run --rm --build setup
 
-# Step 3 — Start Felix in the background
+# Step 3 — Start Felix in the background (loopback-only by default)
 docker compose up -d
 
 # Step 4 — Verify it's running
@@ -42,9 +42,12 @@ Without `--build` you'll silently get the old setup script. Same applies to `doc
 ## ⚙️ Configure
 
 Run `docker compose run --rm --build setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
+The first setup prompt asks for the agent name; it is stored as `FELIX_NAME` and defaults to `Felix`.
+Platform bot identities are discovered from authenticated APIs or paired-account state and are never written back to `.env`. Legacy Mattermost, Discord, and Slack bot identity variables remain accepted only as migration fallbacks; Telegram requires `getMe` and treats its legacy identity variable as parse-only. Human owner IDs remain configured manually.
 
 | Variable | Purpose |
 |---|---|
+| 🪪 `FELIX_NAME` | Default agent name shown to users |
 | 🔑 `OWNER_UI_SECRET` | Owner console login |
 | 🔒 `OWNER_UI_SECURE_COOKIE` | Set `true` when the owner console is served through an HTTPS reverse proxy |
 | 🤖 `HARNESS` | `codex`, `opencode`, or `claude-code` |
@@ -52,10 +55,15 @@ Run `docker compose run --rm --build setup` to configure your `.env` interactive
 | 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |
 | 🧠 `ANTHROPIC_API_KEY` | Required when `HARNESS=claude-code` |
 | 🔀 `NINEROUTER_ENABLED` | Optional override that routes the active harness through 9router |
-| 💬 `MATTERMOST_TOKEN` | Enables Mattermost |
-| 🎮 `DISCORD_TOKEN` | Enables Discord |
-| 💼 `SLACK_TOKEN` | Enables Slack |
-| 📱 `WHATSAPP_BOT_NAME` | Enables WhatsApp |
+| 💬 `MATTERMOST_BOT_TOKEN` | Enables Mattermost; identity comes from `/api/v4/users/me` |
+| 🎮 `DISCORD_BOT_TOKEN` | Enables Discord; identity comes from the logged-in client |
+| 💼 `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Enables Slack; identity comes from `auth.test` |
+| 📱 `WHATSAPP_BOT_NAME` | Optional WhatsApp display override; blank uses `FELIX_NAME` |
+| ✈️ `TELEGRAM_BOT_TOKEN` | Enables Telegram; identity comes from `getMe` |
+| 🔁 `TELEGRAM_MODE` | `polling` (default) or `webhook` |
+| 🌐 `TELEGRAM_WEBHOOK_URL` | Required for webhook mode; customer-managed HTTPS only |
+| 🔐 `TELEGRAM_WEBHOOK_SECRET` | Required for externally reachable Telegram webhooks |
+| 🟦 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client for the bundled Google Workspace skill |
 
 > 💡 See `.env.example` for all defaults.
 
@@ -111,16 +119,29 @@ docker compose up -d --build            # restart with fresh code
 
 > 🔒 **Security:** Secrets are injected via Docker secrets (not bind mounts). Container runs with `cap_drop: ALL` and read-only rootfs.
 
+The setup container mounts the host configuration directory at `/config` and atomically creates `/config/.env`. Set `FELIX_SETUP_ENV_FILE` to override that destination; local setup defaults to the repository `.env`.
+
 > 📦 Prefer a pre-built image? Swap in the published image:
 > ```bash
-> cp docker-compose.image.yml docker-compose.yml   # uses frdinawan/felix-agent:latest from Docker Hub
+> cp docker-compose.image.yml docker-compose.yml   # defaults to frdinawan/felix-agent:0.1.1
+> docker compose --profile setup run --rm setup      # first-time setup from that same image
 > docker compose up -d
 > ```
+
+Production deployments should pin the published image by digest after verifying
+the `0.1.1` manifest. Set `FELIX_IMAGE=frdinawan/felix-agent@sha256:<digest>` to test or deploy an accepted candidate. The `latest` alias is not a production deployment target;
+it is promoted manually only after release evidence is complete.
+
+Replace the image reference with the verified immutable value:
+
+```yaml
+image: frdinawan/felix-agent@sha256:<verified-release-digest>
+```
 
 ## 🖥️ Owner Console
 
 ```
-http://localhost:53318/
+http://127.0.0.1:53318/
 ```
 
 A live React monitoring dashboard — 🌙 dark by default with a 🌞 light toggle:
@@ -135,9 +156,70 @@ A live React monitoring dashboard — 🌙 dark by default with a 🌞 light tog
 
 Log in with `OWNER_UI_SECRET`.
 
+Compose binds port `53318` to loopback. Remote console access and any public
+Telegram or WhatsApp webhook require a customer-managed HTTPS reverse proxy,
+firewall policy, and webhook secret. Set `OWNER_UI_SECURE_COOKIE=true` when the
+console is served over HTTPS. Local WhatsApp operation remains backward
+compatible by generating an internal webhook secret when no override is set.
+
+## Supported integrations and data flows
+
+Felix 0.1.1 supports five message sources (Mattermost, Discord, Slack,
+WhatsApp, and Telegram), three harnesses (Codex, OpenCode, and Claude Code),
+and the bundled Google Workspace skill through the pinned `gog` CLI. Messages,
+attachments, and prompts are sent to the configured source and model providers;
+Workspace state stays on the customer-managed filesystem volume. Felix owns no
+telemetry service and sends no Felix-owned analytics.
+
+Google authorized accounts and the file keyring persist under `GOG_HOME` in the
+Workspace volume. OAuth credential templates are generated only in `/tmp`,
+imported, and deleted. Restore requires the Workspace volume, `.env`,
+`DB_ENCRYPTION_KEY`, `GOG_KEYRING_PASSWORD`, and Google keyring state.
+
+## Backup, restore, upgrade, and rollback
+
+Stop Felix before copying the complete `workspace/` directory and `.env` to a
+protected backup. Include `DB_ENCRYPTION_KEY` and `GOG_KEYRING_PASSWORD` in a
+separate protected secret backup:
+
+```bash
+docker compose stop felix
+mkdir -p backups
+tar --xattrs --acls -czf felix-workspace-$(date +%Y%m%d%H%M%S).tar.gz workspace
+cp .env backups/felix.env
+docker compose start felix
+```
+
+To restore on a fresh host:
+
+```bash
+docker compose down
+tar --xattrs --acls -xzf felix-workspace-YYYYMMDDHHMMSS.tar.gz
+cp backups/felix.env .env
+UID=$(id -u) GID=$(id -g) docker compose up -d
+```
+
+Upgrade by backing up first, changing only the image tag or immutable digest,
+and running `docker compose up -d`. Roll back by restoring the previous image
+tag or digest with the same Workspace and environment. Never rotate
+`DB_ENCRYPTION_KEY` or `GOG_KEYRING_PASSWORD` during an incident unless you
+have a deliberate re-encryption plan.
+
+Back up immediately before every upgrade and after material configuration or credential changes; choose an additional schedule that meets your recovery-point needs. Felix does not automatically expire Workspace records, messages, attachments, audit records, backups, or logs. Customers own retention, backup encryption, access controls, and secure deletion.
+
+## Operations, logs, and support
+
+Collect only the shortest log window needed to diagnose an issue. Redact tokens, OAuth URLs, authorization headers, cookies, prompts, customer messages, phone numbers, email addresses, attachment contents, and local paths before sharing. Never attach raw `.env`, Workspace data, or raw sensitive logs to a public issue. Felix has no Felix-owned telemetry.
+
+Support is best effort through the project issue tracker and private vulnerability reporting described in `SECURITY.md`. There is no uptime, response-time, restoration-time, or resolution-time SLA.
+
+The owner console remains loopback-only by default. Exposing Telegram or WhatsApp webhook routes requires a customer-managed HTTPS reverse proxy, firewall restrictions, rate controls, and configured webhook authentication. WhatsApp rejects every unsigned request, including when its source process is disabled or reconnecting.
+
+Release vulnerability decisions are committed under `security/`. OpenVEX `not_affected` statements require exact package PURLs and matching, reviewed, unexpired evidence metadata; suppressions stay represented in the audit policy report.
+
 ## 📦 Runtime Image
 
-The agent image (`node:24-bookworm-slim`) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
+The agent image (`node:24-trixie-slim`, pinned by digest) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. The base image receives a monthly dependency review and every update must pass the full audit, build, architecture, and clean-start smoke gate. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
 
 ## 🧩 Skills
 
@@ -161,7 +243,7 @@ npm run build        # 📦 build SPA + server → dist/ + web/dist
 ```
 src/
 ├── core/        # ⚙️  ports · routing · decide-turn · schemas
-├── adapters/    # 🔌 codex · opencode · claude-code · mattermost · discord · slack · whatsapp
+├── adapters/    # 🔌 codex · opencode · claude-code · mattermost · discord · slack · whatsapp · telegram
 ├── slices/      # 🧱 sessions · events · approvals · contacts · skills · audit · usage
 ├── server/      # 🌐 HTTP API + static SPA + SSE
 ├── engine.ts    # 🧠 main dispatch loop

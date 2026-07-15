@@ -100,7 +100,7 @@ function Bubble({ message }: { message: ChatMessage }) {
         <div className="mb-0.5 flex items-center gap-2 text-xs text-muted-foreground" title={fullTime(message.at)}>
           {!outbound && <span className="font-medium text-foreground">{name}</span>}
           <span>{clockTime(message.at)}</span>
-          {outbound && <span className="font-medium text-foreground">Felix</span>}
+          {outbound && <span className="font-medium text-foreground">{name}</span>}
         </div>
         <div
           className={cn(

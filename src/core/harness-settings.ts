@@ -49,6 +49,7 @@ export function codexSettings(cfg: AppConfig): HarnessSettings {
         OPENAI_ORGANIZATION: "",
         OPENAI_PROJECT: "",
         PATH: buildSpawnPath(cfg),
+        ...googleWorkspaceEnv(cfg),
       },
       codexConfigArgs: [
         "-c", `openai_base_url=${tomlString(baseUrl)}`,
@@ -70,12 +71,23 @@ export function codexSettings(cfg: AppConfig): HarnessSettings {
       OPENAI_ORGANIZATION: cfg.OPENAI_ORGANIZATION ?? process.env.OPENAI_ORGANIZATION,
       OPENAI_PROJECT: cfg.OPENAI_PROJECT ?? process.env.OPENAI_PROJECT,
       PATH: buildSpawnPath(cfg),
+      ...googleWorkspaceEnv(cfg),
     },
   };
 }
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
+}
+
+function googleWorkspaceEnv(cfg: AppConfig): Record<string, string | undefined> {
+  return {
+    ...(cfg.GOOGLE_CLIENT_ID ? { GOOGLE_CLIENT_ID: cfg.GOOGLE_CLIENT_ID } : {}),
+    ...(cfg.GOOGLE_CLIENT_SECRET ? { GOOGLE_CLIENT_SECRET: cfg.GOOGLE_CLIENT_SECRET } : {}),
+    ...(cfg.GOG_HOME ? { GOG_HOME: cfg.GOG_HOME } : {}),
+    ...(cfg.GOG_KEYRING_BACKEND ? { GOG_KEYRING_BACKEND: cfg.GOG_KEYRING_BACKEND } : {}),
+    ...(cfg.GOG_KEYRING_PASSWORD ? { GOG_KEYRING_PASSWORD: cfg.GOG_KEYRING_PASSWORD } : {}),
+  };
 }
 
 export function opencodeSettings(cfg: AppConfig): HarnessSettings {
@@ -106,6 +118,7 @@ export function opencodeSettings(cfg: AppConfig): HarnessSettings {
           },
         }),
         PATH: buildSpawnPath(cfg),
+        ...googleWorkspaceEnv(cfg),
       },
     };
   }
@@ -119,6 +132,7 @@ export function opencodeSettings(cfg: AppConfig): HarnessSettings {
       OPENROUTER_API_KEY: cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
       DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
       PATH: buildSpawnPath(cfg),
+      ...googleWorkspaceEnv(cfg),
     },
   };
 }
@@ -133,6 +147,7 @@ export function claudeCodeSettings(cfg: AppConfig): HarnessSettings {
         ANTHROPIC_AUTH_TOKEN: cfg.NINEROUTER_KEY,
         ANTHROPIC_BASE_URL: ninerouterAnthropicBaseUrl(cfg),
         PATH: buildSpawnPath(cfg),
+        ...googleWorkspaceEnv(cfg),
       },
     };
   }
@@ -143,6 +158,7 @@ export function claudeCodeSettings(cfg: AppConfig): HarnessSettings {
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
       ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
       PATH: buildSpawnPath(cfg),
+      ...googleWorkspaceEnv(cfg),
     },
   };
 }

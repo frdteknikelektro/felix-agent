@@ -4,6 +4,25 @@ import YAML from "yaml";
 import { describe, expect, it } from "vitest";
 
 describe("bundled skill quality", () => {
+  it("declares Google Workspace setup variables for the setup wizard", async () => {
+    const raw = await fs.readFile(path.join("skills", "google-workspace", "SKILL.md"), "utf8");
+    const frontmatter = parseFrontmatter(raw);
+    const env = frontmatter.env as Array<{ key: string; secret?: boolean }> | undefined;
+
+    expect(env?.map((entry) => entry.key)).toEqual([
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOG_HOME",
+      "GOG_KEYRING_BACKEND",
+      "GOG_KEYRING_PASSWORD",
+    ]);
+    expect(env?.filter((entry) => entry.secret).map((entry) => entry.key)).toEqual([
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOG_KEYRING_PASSWORD",
+    ]);
+  });
+
   it("keeps every SKILL.md lean, identified, and triggerable", async () => {
     for (const directory of await skillDirectories()) {
       const skillPath = path.join("skills", directory, "SKILL.md");

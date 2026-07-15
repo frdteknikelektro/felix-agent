@@ -1,0 +1,205 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semver without v prefix
+        required: true
+        default: 0.1.1
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: frdinawan/felix-agent
+  ATTESTATION_SUBJECT: docker.io/frdinawan/felix-agent
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - name: Validate version metadata
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$(node -p "require('./package.json').version")" = "$VERSION"
+          test "$(node -p "require('./web/package.json').version")" = "$VERSION"
+          test "$(node -p "require('./package-lock.json').version")" = "$VERSION"
+          test "$(node -p "require('./web/package-lock.json').version")" = "$VERSION"
+      - run: npm ci
+      - run: npm --prefix web ci
+      - name: Validate dependency trees
+        run: npm ls --all && npm --prefix web ls --all
+      - name: Audit dependencies
+        run: npm audit --audit-level=high && npm --prefix web audit --audit-level=high
+      - name: Test and enforce the established suite floor
+        run: |
+          npm test -- --reporter=default --reporter=json --outputFile.json=/tmp/vitest-report.json
+          test "$(jq -r '.numTotalTests' /tmp/vitest-report.json)" -ge 517
+      - run: npm run lint
+      - run: npm run build
+      - name: Validate Compose and release contracts
+        run: |
+          docker compose config --quiet
+          FELIX_IMAGE="${IMAGE}@sha256:0000000000000000000000000000000000000000000000000000000000000000" docker compose -f docker-compose.image.yml config --quiet
+          npx vitest run tests/image-scan-policy.test.ts tests/release-candidate.test.ts tests/release-evidence.test.ts
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+
+  build:
+    needs: checks
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Reject an existing immutable candidate tag
+        env:
+          CANDIDATE: ${{ env.IMAGE }}:candidate-${{ github.sha }}
+        run: '! docker buildx imagetools inspect "$CANDIDATE" >/dev/null 2>&1'
+      - name: Build and push multi-architecture candidate
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: production
+          push: true
+          tags: ${{ env.IMAGE }}:candidate-${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  scan:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Install Trivy and create the unfiltered audit report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          scanners: vuln,secret,misconfig
+          format: json
+          output: release-evidence/trivy-full.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 0
+      - name: Generate filtered report, SARIF, SBOMs, and focused reports
+        env:
+          CANDIDATE: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+        run: |
+          trivy image --vex security/vex.openvex.json --format json --output release-evidence/trivy-vex-filtered.json "$CANDIDATE"
+          trivy image --format sarif --output release-evidence/trivy.sarif "$CANDIDATE"
+          trivy image --format spdx-json --output release-evidence/sbom.spdx.json "$CANDIDATE"
+          trivy image --format cyclonedx --output release-evidence/sbom.cyclonedx.json "$CANDIDATE"
+          trivy image --scanners secret --format json --output release-evidence/secrets.json "$CANDIDATE"
+          trivy image --scanners misconfig --format json --output release-evidence/misconfigurations.json "$CANDIDATE"
+      - name: Fetch the authoritative CISA KEV catalog
+        run: |
+          curl --fail --location --retry 3 \
+            --output release-evidence/cisa-kev.json \
+            https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+          jq --exit-status '.vulnerabilities | type == "array" and length > 0' release-evidence/cisa-kev.json
+      - name: Enforce release risk policy
+        id: policy
+        continue-on-error: true
+        run: |
+          node scripts/evaluate-image-scan.mjs \
+            --report release-evidence/trivy-full.json \
+            --vex security/vex.openvex.json \
+            --review security/vex-review.json \
+            --kev release-evidence/cisa-kev.json \
+            --output release-evidence/policy-result.json
+      - name: Write immutable candidate manifest
+        env:
+          RUN_ID: ${{ github.run_id }}
+          VERSION: ${{ inputs.version }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+          COMMIT: ${{ github.sha }}
+        run: jq -n --arg runId "$RUN_ID" --arg version "$VERSION" --arg digest "$DIGEST" --arg commit "$COMMIT" '{runId:$runId,version:$version,digest:$digest,commit:$commit}' > release-evidence/candidate-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: felix-${{ inputs.version }}-candidate-evidence
+          path: release-evidence
+          if-no-files-found: error
+          retention-days: 90
+      - name: Fail a candidate that did not pass policy
+        if: steps.policy.outcome != 'success'
+        run: exit 1
+
+  code-scanning:
+    needs: scan
+    if: always() && needs.scan.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: felix-${{ inputs.version }}-candidate-evidence
+          path: release-evidence
+      - uses: github/codeql-action/upload-sarif@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
+        with:
+          sarif_file: release-evidence/trivy.sarif
+
+  attest:
+    needs: [build, scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: felix-${{ inputs.version }}-candidate-evidence
+          path: release-evidence
+      - name: Attest candidate provenance
+        id: provenance
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ${{ env.ATTESTATION_SUBJECT }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+      - name: Attest candidate SBOM
+        id: sbom
+        uses: actions/attest-sbom@10926c72720ffc3f7b666661c8e55b1344e2a365 # v2
+        with:
+          subject-name: ${{ env.ATTESTATION_SUBJECT }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          sbom-path: release-evidence/sbom.spdx.json
+      - name: Collect attestation bundles
+        run: |
+          cp "${{ steps.provenance.outputs.bundle-path }}" release-evidence/provenance-attestation.jsonl
+          cp "${{ steps.sbom.outputs.bundle-path }}" release-evidence/sbom-attestation.jsonl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: felix-${{ inputs.version }}-candidate-attestations
+          path: release-evidence/*attestation.jsonl
+          if-no-files-found: error
+          retention-days: 90

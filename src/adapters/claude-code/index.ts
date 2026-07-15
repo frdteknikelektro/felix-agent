@@ -287,7 +287,7 @@ export class ClaudeCodeHarness implements Harness {
     const promptPath = path.join(input.thread.turnsDir, `${baseName}.md`);
     const logPath = path.join(input.thread.turnsDir, `${baseName}.log`);
 
-    const prompt = buildDecisionNotificationPrompt(input);
+    const prompt = buildDecisionNotificationPrompt({ ...input, agentName: this.cfg.FELIX_NAME });
     await writeTextAtomic(promptPath, prompt);
     const settings = claudeCodeSettings(this.cfg);
 

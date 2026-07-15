@@ -16,6 +16,32 @@ describe("slackMentionToken", () => {
   });
 });
 
+describe("Slack API-derived identity", () => {
+  it("captures auth.test state on the real adapter", async () => {
+    const cfg = await makeTestConfig("slack-api-identity-", { SLACK_BOT_USER_ID: "ULEGACY" });
+    const adapter = createSlackAdapter(cfg);
+    Object.assign(adapter, {
+      discoveredBotUserId: "UAPI",
+      discoveredBotUsername: "felix",
+      discoveredBotDisplay: "Felix Agent",
+    });
+    expect(adapter.botIdentity).toEqual({
+      userId: "UAPI",
+      username: "felix",
+      displayName: "Felix Agent",
+      source: "api",
+      discovered: true,
+    });
+  });
+
+  it("falls back to the legacy identity before auth.test succeeds", async () => {
+    const cfg = await makeTestConfig("slack-legacy-identity-", { SLACK_BOT_USER_ID: "ULEGACY" });
+    expect(createSlackAdapter(cfg).botIdentity).toMatchObject({
+      userId: "ULEGACY", source: "legacy", discovered: false,
+    });
+  });
+});
+
 describe("slackThreadKey", () => {
   it("formats as slack:channelId:rootId", () => {
     expect(slackThreadKey("C123", "1234567890.123456")).toBe("slack:C123:1234567890.123456");

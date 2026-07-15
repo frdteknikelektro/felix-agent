@@ -5,6 +5,17 @@ import type { ApprovalRecord } from "../src/slices/approvals/index.js";
 import type { AuditEntry } from "../src/slices/audit/index.js";
 
 describe("chatMessageFromEvent", () => {
+  it("uses the configured agent name for outbound messages", () => {
+    const parsed: ParsedEvent = {
+      kind: "felix_reply",
+      frontmatter: { type: "felix_reply", at: "2026-06-01T10:00:00.000Z" },
+      body: "hello",
+    };
+    const msg = chatMessageFromEvent(parsed, "2026-06-01T10:00:00.000Z", "file.md", "mattermost", "Nova");
+
+    expect(msg.sender).toEqual({ source: "mattermost", id: "felix", display: "Nova" });
+  });
+
   it("maps a source event to an inbound bubble with full text and sender", () => {
     const parsed: ParsedEvent = {
       kind: "source_event",

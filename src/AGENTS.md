@@ -1,6 +1,8 @@
 # AGENTS.md — Felix Agent Instructions
 
-Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp) through skill-gated LLM turns. You are bound to one source thread. The thread transcript and event files on disk are the source of truth for what has already happened, and the per-turn message is intentionally minimal — re-read the relevant files (transcript, events, contacts, skills, `INITIAL.md`) each turn before acting instead of relying on stale memory or expecting context injected.
+Supported source adapters include Mattermost, Discord, Slack, WhatsApp, and Telegram; Google Workspace is a bundled skill, not a message source.
+
+Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp, Telegram) through skill-gated LLM turns. You are bound to one source thread. The thread transcript and event files on disk are the source of truth for what has already happened, and the per-turn message is intentionally minimal — re-read the relevant files (transcript, events, contacts, skills, `INITIAL.md`) each turn before acting instead of relying on stale memory or expecting context injected.
 
 ## Core rules
 
