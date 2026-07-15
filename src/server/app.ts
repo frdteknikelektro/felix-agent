@@ -10,9 +10,12 @@ import type { FelixEngine } from "../engine.js";
 import { API_ROUTES, matchRoute } from "./routes.js";
 import { handleWhatsAppWebhook } from "../adapters/whatsapp/index.js";
 import { handleTelegramWebhook } from "../adapters/telegram/index.js";
+import { readRequestBody, RequestBodyTooLargeError } from "./request-body.js";
 
 const COOKIE_NAME = "felix_owner_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const LOGIN_FAILURE_LIMIT = 10;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Where the built React app lives. In Docker (WORKDIR /app, `node dist/index.js`)
@@ -51,18 +54,30 @@ interface OwnerSession {
   expiresAt: number;
 }
 
+interface LoginAttempt {
+  windowStartedAt: number;
+  failures: number;
+}
+
 export async function startAppServer(
   cfg: AppConfig,
   engine: FelixEngine,
   preferredPort: number = 3000,
 ): Promise<{ server: http.Server; port: number }> {
   const sessions = new Map<string, OwnerSession>();
+  const loginAttempts = new Map<string, LoginAttempt>();
   cleanupExpiredSessions(sessions);
   for (let port = preferredPort; port < preferredPort + 20; port += 1) {
     const server = http.createServer(async (req, res) => {
       try {
-        await routeRequest(cfg, engine, sessions, req, res);
+        await routeRequest(cfg, engine, sessions, loginAttempts, req, res);
       } catch (error: any) {
+        if (error instanceof RequestBodyTooLargeError) {
+          if (!res.writableEnded) {
+            sendJson(res, 413, { error: "request_body_too_large", max_bytes: error.maxBytes });
+          }
+          return;
+        }
         log.error("owner.server_error", {
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -99,6 +114,7 @@ async function routeRequest(
   cfg: AppConfig,
   engine: FelixEngine,
   sessions: Map<string, OwnerSession>,
+  loginAttempts: Map<string, LoginAttempt>,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
@@ -111,12 +127,12 @@ async function routeRequest(
   }
 
   if (pathname === "/api/login" && req.method === "POST") {
-    await handleLogin(cfg, sessions, req, res);
+    await handleLogin(cfg, sessions, loginAttempts, req, res);
     return;
   }
 
   if (pathname === "/api/logout" && req.method === "POST") {
-    handleLogout(sessions, req, res);
+    handleLogout(cfg, sessions, req, res);
     return;
   }
 
@@ -194,6 +210,7 @@ async function routeApi(
 async function handleLogin(
   cfg: AppConfig,
   sessions: Map<string, OwnerSession>,
+  loginAttempts: Map<string, LoginAttempt>,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
@@ -201,29 +218,47 @@ async function handleLogin(
     sendJson(res, 500, { error: "owner_login_not_configured" });
     return;
   }
+  const client = req.socket.remoteAddress ?? "unknown";
+  const now = Date.now();
+  cleanupLoginAttempts(loginAttempts, now);
+  const attempt = loginAttempts.get(client);
+  if (attempt && now - attempt.windowStartedAt < LOGIN_WINDOW_MS && attempt.failures >= LOGIN_FAILURE_LIMIT) {
+    const retryAfter = Math.max(1, Math.ceil((attempt.windowStartedAt + LOGIN_WINDOW_MS - now) / 1000));
+    res.setHeader("retry-after", String(retryAfter));
+    sendJson(res, 429, { error: "too_many_login_attempts", retry_after_seconds: retryAfter });
+    return;
+  }
   const body = await readJsonBody(req);
   const payload = parseCredential(body);
   if (!payload.secret || !constantTimeEqual(payload.secret, cfg.OWNER_UI_SECRET)) {
+    const current = loginAttempts.get(client);
+    if (current && now - current.windowStartedAt < LOGIN_WINDOW_MS) {
+      current.failures += 1;
+    } else {
+      loginAttempts.set(client, { windowStartedAt: now, failures: 1 });
+    }
     sendJson(res, 401, { error: "invalid_secret" });
     return;
   }
+  loginAttempts.delete(client);
   const sessionId = crypto.randomUUID();
   sessions.set(sessionId, {
     id: sessionId,
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
-  setCookie(res, COOKIE_NAME, sessionId, SESSION_TTL_MS);
+  setCookie(res, COOKIE_NAME, sessionId, SESSION_TTL_MS, cfg.OWNER_UI_SECURE_COOKIE);
   sendRedirect(res, 303, "/");
 }
 
 function handleLogout(
+  cfg: AppConfig,
   sessions: Map<string, OwnerSession>,
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): void {
   const session = authenticate(sessions, req);
   if (session) sessions.delete(session.id);
-  clearCookie(res, COOKIE_NAME);
+  clearCookie(res, COOKIE_NAME, cfg.OWNER_UI_SECURE_COOKIE);
   sendRedirect(res, 303, "/");
 }
 
@@ -250,6 +285,12 @@ function cleanupExpiredSessions(sessions: Map<string, OwnerSession>): void {
     if (session.expiresAt <= now) {
       sessions.delete(id);
     }
+  }
+}
+
+function cleanupLoginAttempts(attempts: Map<string, LoginAttempt>, now: number): void {
+  for (const [client, attempt] of attempts.entries()) {
+    if (now - attempt.windowStartedAt >= LOGIN_WINDOW_MS) attempts.delete(client);
   }
 }
 
@@ -333,12 +374,21 @@ function sendRedirect(res: http.ServerResponse, status: number, location: string
   res.end();
 }
 
-function setCookie(res: http.ServerResponse, name: string, value: string, maxAgeMs: number): void {
-  res.setHeader("set-cookie", `${name}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
+function setCookie(
+  res: http.ServerResponse,
+  name: string,
+  value: string,
+  maxAgeMs: number,
+  secure: boolean,
+): void {
+  res.setHeader(
+    "set-cookie",
+    `${name}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(maxAgeMs / 1000)}${secure ? "; Secure" : ""}`,
+  );
 }
 
-function clearCookie(res: http.ServerResponse, name: string): void {
-  res.setHeader("set-cookie", `${name}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+function clearCookie(res: http.ServerResponse, name: string, secure: boolean): void {
+  res.setHeader("set-cookie", `${name}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? "; Secure" : ""}`);
 }
 
 function parseCookies(raw: string | undefined): Record<string, string> {
@@ -354,16 +404,8 @@ function parseCookies(raw: string | undefined): Record<string, string> {
   return out;
 }
 
-async function readBody(req: http.IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, any>> {
-  const raw = await readBody(req);
+  const raw = await readRequestBody(req);
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw) as Record<string, any>;

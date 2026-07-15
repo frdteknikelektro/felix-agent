@@ -46,6 +46,7 @@ Run `docker compose run --rm --build setup` to configure your `.env` interactive
 | Variable | Purpose |
 |---|---|
 | 🔑 `OWNER_UI_SECRET` | Owner console login |
+| 🔒 `OWNER_UI_SECURE_COOKIE` | Set `true` when the owner console is served through an HTTPS reverse proxy |
 | 🤖 `HARNESS` | `codex`, `opencode`, or `claude-code` |
 | 🧠 `OPENAI_API_KEY` | Required when `HARNESS=codex` (or use OAuth) |
 | 🧠 `OPENCODE_API_KEY` | Required when `HARNESS=opencode` |

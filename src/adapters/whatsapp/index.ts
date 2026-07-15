@@ -14,6 +14,7 @@ import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { decisionEmoji, decisionLabel } from "../../core/decision.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import { createSourceHost } from "../../core/source-host.js";
+import { readRequestBody } from "../../server/request-body.js";
 import {
   AttachmentRejectedError,
   formatBytes,
@@ -542,7 +543,7 @@ export async function handleWhatsAppWebhook(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
-  const body = await readBody(req);
+  const body = await readRequestBody(req);
 
   const nowMs = Date.now();
   if (nowMs - lastBotMessageCleanupAt >= BOT_MSG_CLEANUP_INTERVAL_MS) {
@@ -1497,14 +1498,6 @@ function verifyWebhookSignature(body: string, secret: string, signature: string)
 }
 
 // ─── HTTP utils (for webhook handler, avoid coupling to app.ts) ───────────────
-
-async function readBody(req: http.IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   res.statusCode = status;

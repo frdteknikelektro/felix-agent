@@ -2,6 +2,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FelixEngine } from "../src/engine.js";
 import { startAppServer } from "../src/server/app.js";
+import { MAX_REQUEST_BODY_BYTES } from "../src/server/request-body.js";
 import { requestApproval } from "../src/slices/approvals/index.js";
 import { createOrLoadThread } from "../src/slices/sessions/index.js";
 import { buildOwnerPermissionNotification } from "../src/core/harness-common.js";
@@ -36,6 +37,7 @@ describe("owner web ui", () => {
   it("serves the SPA unauthenticated and gates the api + sse endpoints", async () => {
     const cfg = await makeTestConfig("felix-owner-ui-", {
       OWNER_UI_SECRET: "owner-secret",
+      OWNER_UI_SECURE_COOKIE: true,
     });
 
     const engine = new FelixEngine(cfg, [], new FakeHarness());
@@ -66,6 +68,7 @@ describe("owner web ui", () => {
     expect(login.status).toBe(303);
     const setCookie = login.headers.get("set-cookie");
     expect(setCookie).toContain("felix_owner_session=");
+    expect(setCookie).toContain("Secure");
     const cookie = setCookie!.split(";")[0]!;
 
     const sessions = await fetch(`${base}/api/sessions`, {
@@ -73,6 +76,40 @@ describe("owner web ui", () => {
     });
     expect(sessions.status).toBe(200);
     await expect(sessions.json()).resolves.toEqual({ items: [] });
+  });
+
+  it("rejects oversized request bodies and rate-limits failed logins", async () => {
+    const cfg = await makeTestConfig("felix-owner-ui-limits-", {
+      OWNER_UI_SECRET: "owner-secret",
+    });
+    const engine = new FelixEngine(cfg, [], new FakeHarness());
+    await engine.boot();
+    server = await startAppServer(cfg, engine, 0);
+    const base = `http://localhost:${server.port}`;
+
+    const oversized = await fetch(`${base}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "x".repeat(MAX_REQUEST_BODY_BYTES) }),
+    });
+    expect(oversized.status).toBe(413);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await fetch(`${base}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: "wrong-secret" }),
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const rateLimited = await fetch(`${base}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ secret: "wrong-secret" }),
+    });
+    expect(rateLimited.status).toBe(429);
+    expect(rateLimited.headers.get("retry-after")).toBeTruthy();
   });
 
   it("returns conflict when an approval action is already stale", async () => {

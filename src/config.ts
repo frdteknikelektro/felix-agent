@@ -37,6 +37,8 @@ const Env = z.object({
   CLAUDE_CODE_MODEL_FOR_MEMORIZING: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   OWNER_UI_SECRET: z.string().min(8).optional(),
+  // Set this when the owner console is served through an HTTPS reverse proxy.
+  OWNER_UI_SECURE_COOKIE: BoolString.default(false),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_CODEX_AUTH_JSON: z.string().optional(),
   OPENAI_BASE_URL: z.string().url().optional().or(z.literal("")),

@@ -9,7 +9,7 @@ RUN npm ci
 
 # Build the React owner console first (its deps stay in the build stage only).
 COPY web/package.json web/package-lock.json* ./web/
-RUN npm --prefix web install
+RUN npm --prefix web ci
 COPY web ./web
 RUN npm --prefix web run build
 
@@ -49,13 +49,13 @@ RUN apt-get update \
 ARG WACLI_VERSION=0.12.0
 RUN arch="$(uname -m)" \
     && case "$arch" in \
-         aarch64) asset_arch=arm64 ;; \
-         armv7l)  asset_arch=arm ;; \
-         x86_64)  asset_arch=amd64 ;; \
+         aarch64) asset_arch=arm64; asset_sha256=32be461045c03701101310137bdbc7a48a342f2f7d5317e996fbc7111a2f6145 ;; \
+         x86_64)  asset_arch=amd64; asset_sha256=49baa180fa7f0f4a694f683b8f7386ea64023ed79c0307037f0680bd21c116e0 ;; \
          *)       echo "wacli: no prebuilt release for $arch" >&2; exit 1 ;; \
        esac \
     && curl -fsSL "https://github.com/openclaw/wacli/releases/download/v${WACLI_VERSION}/wacli_${WACLI_VERSION}_linux_${asset_arch}.tar.gz" \
          -o /tmp/wacli.tar.gz \
+    && echo "${asset_sha256}  /tmp/wacli.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/wacli.tar.gz -C /usr/local/bin wacli \
     && rm /tmp/wacli.tar.gz \
     && chmod +x /usr/local/bin/wacli \
@@ -70,12 +70,13 @@ RUN arch="$(uname -m)" \
 ARG WHISPER_CPP_VERSION=1.9.1
 RUN arch="$(uname -m)" \
     && case "$arch" in \
-         aarch64) asset_arch=arm64 ;; \
-         x86_64)  asset_arch=x64 ;; \
+         aarch64) asset_arch=arm64; asset_sha256=e0b66cd551ff6f2a28fabe3c6e89691eea037bb76833493abb9a71ca788994b3 ;; \
+         x86_64)  asset_arch=x64; asset_sha256=f3bf3b4369a99b54665b0f19b88483b30de27f25963b0414235dea03198515c5 ;; \
          *)       echo "whisper.cpp: no prebuilt release for $arch" >&2; exit 1 ;; \
        esac \
     && curl -fsSL "https://github.com/ggml-org/whisper.cpp/releases/download/v${WHISPER_CPP_VERSION}/whisper-bin-ubuntu-${asset_arch}.tar.gz" \
          -o /tmp/whisper.tar.gz \
+    && echo "${asset_sha256}  /tmp/whisper.tar.gz" | sha256sum -c - \
     && mkdir -p /opt/whisper.cpp \
     && tar -xzf /tmp/whisper.tar.gz -C /opt/whisper.cpp --strip-components=1 \
     && rm /tmp/whisper.tar.gz \
@@ -94,12 +95,13 @@ RUN arch="$(uname -m)" \
 ARG PIPER_VERSION=2023.11.14-2
 RUN arch="$(uname -m)" \
     && case "$arch" in \
-         aarch64) asset_arch=aarch64 ;; \
-         x86_64)  asset_arch=x86_64 ;; \
+         aarch64) asset_arch=aarch64; asset_sha256=fea0fd2d87c54dbc7078d0f878289f404bd4d6eea6e7444a77835d1537ab88eb ;; \
+         x86_64)  asset_arch=x86_64; asset_sha256=a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992 ;; \
          *)       echo "piper: no prebuilt release for $arch" >&2; exit 1 ;; \
        esac \
     && curl -fsSL "https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_${asset_arch}.tar.gz" \
          -o /tmp/piper.tar.gz \
+    && echo "${asset_sha256}  /tmp/piper.tar.gz" | sha256sum -c - \
     && mkdir -p /opt/piper \
     && tar -xzf /tmp/piper.tar.gz -C /opt/piper --strip-components=1 \
     && rm /tmp/piper.tar.gz \

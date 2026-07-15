@@ -18,6 +18,7 @@ import {
   sourceThreadRef,
 } from "../../core/source-event-normalization.js";
 import { createSourceHost } from "../../core/source-host.js";
+import { readRequestBody } from "../../server/request-body.js";
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ export async function handleTelegramWebhook(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
-  const body = await readBody(req);
+  const body = await readRequestBody(req);
 
   if (cfg.TELEGRAM_WEBHOOK_SECRET) {
     const secretToken = req.headers["x-telegram-bot-api-secret-token"] as string | undefined;
@@ -92,14 +93,6 @@ function sendJson(res: http.ServerResponse, status: number, data: unknown): void
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(data));
-}
-
-async function readBody(req: http.IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 // ─── Notification table → Telegram-friendly format ─────────────────────────────
