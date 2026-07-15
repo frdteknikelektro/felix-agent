@@ -377,7 +377,9 @@ export function isFelixMessage(
   botName: string,
 ): boolean {
   // Dedicated number mode: SenderJID matches the bot's own JID
-  if (botJid && target.senderJid === botJid) return true;
+  // In shared-number mode, the owner and bot deliberately have the same JID,
+  // so sender identity alone cannot prove that the quoted message was Felix's.
+  if (!ownerSharesNumber && botJid && target.senderJid === botJid) return true;
 
   // Shared number mode: text or caption starts with *[BotName]*
   const prefix = `*[${botName}]*`;
