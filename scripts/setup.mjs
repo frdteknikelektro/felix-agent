@@ -904,7 +904,6 @@ async function main() {
       info("No skill environment variables to configure.");
     } else {
       info("Bundled skills request these environment variables.");
-      console.log();
 
       // Group by skill
       const bySkill = new Map();
@@ -914,6 +913,7 @@ async function main() {
       }
 
       for (const [skill, vars] of bySkill) {
+        process.stdout.write("\n");
         const setupEnv = await confirm({
           message: `Configure ${skill} environment now?`,
           default: true,
