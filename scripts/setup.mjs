@@ -926,7 +926,6 @@ async function main() {
           }
           continue;
         }
-        console.log();
         section(skill);
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];
