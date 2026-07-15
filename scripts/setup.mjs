@@ -59,7 +59,7 @@ function step(n, total, label) {
 }
 
 function section(label) {
-  console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${label}${c.reset}`);
+  console.log(`\n${c.bold}${c.cyan}──${c.reset} ${c.bold}${label}${c.reset}\n`);
 }
 
 function succeed(msg) {
