@@ -219,7 +219,7 @@ Release vulnerability decisions are committed under `security/`. OpenVEX `not_af
 
 ## 📦 Runtime Image
 
-The agent image (`node:24-bookworm-slim`, pinned by digest) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. The base image receives a monthly dependency review and every update must pass the full audit, build, architecture, and clean-start smoke gate. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
+The agent image (`node:24-trixie-slim`, pinned by digest) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. The base image receives a monthly dependency review and every update must pass the full audit, build, architecture, and clean-start smoke gate. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
 
 ## 🧩 Skills
 

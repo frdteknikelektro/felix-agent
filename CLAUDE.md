@@ -87,7 +87,7 @@ docker run -d \
 
 ## Agent runtime image
 
-Felix uses a batteries-included Agent runtime image for provider-neutral skill work. Keep `node:24-bookworm-slim` as the base unless there is a new explicit architecture decision.
+Felix uses a batteries-included Agent runtime image for provider-neutral skill work. Keep `node:24-trixie-slim` as the base unless there is a new explicit architecture decision.
 
 Stable Runtime capabilities:
 

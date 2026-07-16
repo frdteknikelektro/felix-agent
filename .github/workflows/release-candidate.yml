@@ -216,9 +216,10 @@ jobs:
               )
             }
           ' "$private/trivy-vex-amd64.json" "$private/trivy-vex-arm64.json" > "$private/trivy-vex-combined.json"
-          jq --slurp '.[0] as $base | $base + {runs: (map(.runs // []) | add)}' \
-            "$private/trivy-amd64.sarif" "$private/trivy-arm64.sarif" > release-evidence/.trivy.sarif.tmp
-          mv release-evidence/.trivy.sarif.tmp release-evidence/trivy.sarif
+          node scripts/merge-sarif.mjs \
+            release-evidence/trivy.sarif \
+            trivy/linux-amd64 "$private/trivy-amd64.sarif" \
+            trivy/linux-arm64 "$private/trivy-arm64.sarif"
 
           node scripts/sanitize-trivy-report.mjs \
             "$private/trivy-combined.json" \
@@ -303,7 +304,7 @@ jobs:
         with:
           name: felix-${{ inputs.version }}-candidate-evidence
           path: release-evidence
-      - uses: github/codeql-action/upload-sarif@641a925cfafe92d0fdf8b239ba4053e3f8d99d6d # v3
+      - uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
         with:
           sarif_file: release-evidence/trivy.sarif
 

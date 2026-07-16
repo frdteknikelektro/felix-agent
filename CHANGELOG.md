@@ -8,7 +8,8 @@ First recommended production release. The published `0.1.0` tag and image remain
 - Shares one registered Mattermost adapter across discovery, sending, identity, and intake.
 - Masks credential-shaped setup values centrally and writes configuration/authentication artifacts atomically with restrictive permissions.
 - Supports clean container setup through `/config/.env` and immutable Compose image overrides through `FELIX_IMAGE`.
-- Pins the base image, hash-locks the Python runtime, and applies a reviewed OpenVEX risk gate.
+- Pins the Node and Go build images to current Debian Trixie digests, hash-locks the Python 3.13 runtime, and applies a reviewed OpenVEX risk gate.
+- Uploads AMD64 and ARM64 Trivy SARIF under distinct code-scanning categories.
 - Publishes only through immutable candidate, verified manual release, and separate `latest` promotion workflows.
 
 ## 0.1.0

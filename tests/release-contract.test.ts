@@ -77,6 +77,9 @@ describe("0.1.1 release contract", () => {
     expect(evidence.run).toContain("--scanners vuln,misconfig,secret");
     expect(evidence.run).toContain("--image-config-scanners misconfig,secret");
     expect(evidence.run).toContain("--scanners vuln,misconfig --image-config-scanners misconfig --format sarif");
+    expect(evidence.run).toContain("merge-sarif.mjs");
+    expect(evidence.run).toContain("trivy/linux-amd64");
+    expect(evidence.run).toContain("trivy/linux-arm64");
     expect(evidence.run).toContain("sanitize-trivy-report.mjs");
     expect(evidence.run).toContain("sbom-amd64.spdx.json");
     expect(evidence.run).toContain("sbom-arm64.spdx.json");

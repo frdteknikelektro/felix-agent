@@ -11,14 +11,14 @@ describe("agent runtime image contract", () => {
     expect(dockerfile.trimEnd()).toMatch(/FROM runtime AS production$/);
   });
 
-  it("keeps the documented digest-pinned Node Bookworm base and provider-neutral batteries", async () => {
+  it("keeps the documented digest-pinned Node Trixie base and provider-neutral batteries", async () => {
     const dockerfile = await read("Dockerfile");
     const readme = await read("README.md");
 
-    expect(dockerfile).toMatch(/ARG NODE_IMAGE=node:24-bookworm-slim@sha256:[0-9a-f]{64}/);
-    expect(readme).toContain("node:24-bookworm-slim");
-    expect(readme).not.toContain("node:24-trixie-slim");
-    expect(dockerfile).toMatch(/ARG GO_IMAGE=golang:1\.26\.5-bookworm@sha256:[0-9a-f]{64}/);
+    expect(dockerfile).toMatch(/ARG NODE_IMAGE=node:24-trixie-slim@sha256:[0-9a-f]{64}/);
+    expect(readme).toContain("node:24-trixie-slim");
+    expect(readme).not.toContain("node:24-bookworm-slim");
+    expect(dockerfile).toMatch(/ARG GO_IMAGE=golang:1\.26\.5-trixie@sha256:[0-9a-f]{64}/);
     expect(dockerfile).toContain("FROM ${NODE_IMAGE} AS runtime");
     expect(dockerfile).toContain("go build -trimpath");
     expect(dockerfile).toContain("-o /out/wacli ./cmd/wacli");
