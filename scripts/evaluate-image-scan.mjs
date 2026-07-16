@@ -109,6 +109,9 @@ export function validateOpenVexDocument(vex) {
       if (typeof statement.impact_statement !== "string" || statement.impact_statement.trim() === "") {
         errors.push(`${location}.impact_statement must provide the reviewed non-applicability rationale`);
       }
+    } else if (statement.status === "affected"
+      && (typeof statement.action_statement !== "string" || statement.action_statement.trim() === "")) {
+      errors.push(`${location}.action_statement must describe remediation, mitigation, or reachability evidence`);
     }
   });
   return errors;
@@ -227,11 +230,21 @@ export function evaluateImageReport(
   }
   const statements = Array.isArray(vex?.statements) ? vex.statements : [];
   const vexReviewKeys = new Set();
+  const affectedKeys = new Set();
   for (const statement of statements) {
-    if (statement?.status !== "not_affected") continue;
     for (const product of statement.products ?? []) {
       if (statement.vulnerability?.name && product?.["@id"]) {
-        vexReviewKeys.add(key(statement.vulnerability.name, product["@id"]));
+        const statementKey = key(statement.vulnerability.name, product["@id"]);
+        if (statement.status === "not_affected") vexReviewKeys.add(statementKey);
+        if (statement.status === "affected") {
+          if (findingKeys.has(statementKey)) {
+            affectedKeys.add(statementKey);
+          } else {
+            policyErrors.push(
+              `unmatched affected VEX statement for ${statement.vulnerability.name} and ${product["@id"]}`,
+            );
+          }
+        }
       }
     }
   }
@@ -288,13 +301,18 @@ export function evaluateImageReport(
   for (const finding of vulnerabilities) {
     const suppressionKey = key(finding.vulnerability, finding.product);
     const suppressedByVex = validSuppressions.has(suppressionKey);
+    const reachableByVex = affectedKeys.has(suppressionKey);
     const fixableHigh = ["HIGH", "CRITICAL"].includes(finding.severity) && Boolean(finding.fixedVersion);
     if (fixableHigh) {
       blockers.push({ ...finding, reason: "fixable_critical_or_high" });
-    } else if ((["HIGH", "CRITICAL"].includes(finding.severity) || finding.kev) && !suppressedByVex) {
-      blockers.push({ ...finding, reason: finding.kev ? "cisa_kev" : "critical_or_high" });
+    } else if (finding.kev && !suppressedByVex) {
+      blockers.push({ ...finding, reason: "cisa_kev" });
+    } else if (["HIGH", "CRITICAL"].includes(finding.severity) && reachableByVex && !suppressedByVex) {
+      blockers.push({ ...finding, reason: "reachable_critical_or_high" });
     } else if (suppressedByVex) {
       suppressed.push({ ...finding, reason: "reviewed_not_affected" });
+    } else if (["HIGH", "CRITICAL"].includes(finding.severity)) {
+      recorded.push({ ...finding, reason: "unfixable_reachability_unconfirmed" });
     } else {
       recorded.push(finding);
     }

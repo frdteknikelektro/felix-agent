@@ -10,6 +10,7 @@ First recommended production release. The published `0.1.0` tag and image remain
 - Supports clean container setup through `/config/.env` and immutable Compose image overrides through `FELIX_IMAGE`.
 - Pins the Node and Go build images to current Debian Trixie digests, hash-locks the Python 3.13 runtime, and applies a reviewed OpenVEX risk gate.
 - Uploads AMD64 and ARM64 Trivy SARIF under distinct code-scanning categories.
+- Separates unfixable vulnerability records from exact OpenVEX reachability decisions so the gate blocks confirmed reachable high/critical findings without hiding unresolved evidence.
 - Publishes only through immutable candidate, verified manual release, and separate `latest` promotion workflows.
 
 ## 0.1.0

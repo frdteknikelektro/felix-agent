@@ -17,7 +17,10 @@ resolved for Python 3.13 while Bookworm supplied Python 3.11.
 Felix uses digest-pinned `node:24-trixie-slim` and
 `golang:1.26.5-trixie` images for the `0.1.1` candidate. Debian packages remain
 limited to the documented runtime capability inventory, and the existing
-fixable/high, KEV, secret, and misconfiguration gates remain unchanged.
+fixable-high/critical, KEV, secret, and misconfiguration gates remain unchanged.
+Unfixable high/critical records remain auditable; an exact package/CVE OpenVEX
+`affected` statement records confirmed reachability and makes the record
+blocking.
 
 Multi-platform SARIF evidence assigns distinct `trivy/linux-amd64` and
 `trivy/linux-arm64` categories so GitHub code scanning retains both analyses

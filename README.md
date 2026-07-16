@@ -215,7 +215,7 @@ Support is best effort through the project issue tracker and private vulnerabili
 
 The owner console remains loopback-only by default. Exposing Telegram or WhatsApp webhook routes requires a customer-managed HTTPS reverse proxy, firewall restrictions, rate controls, and configured webhook authentication. WhatsApp rejects every unsigned request, including when its source process is disabled or reconnecting.
 
-Release vulnerability decisions are committed under `security/`. OpenVEX `not_affected` statements require exact package PURLs and matching, reviewed, unexpired evidence metadata; suppressions stay represented in the audit policy report.
+Release vulnerability decisions are committed under `security/`. OpenVEX `not_affected` statements require exact package PURLs and matching, reviewed, unexpired evidence metadata; suppressions stay represented in the audit policy report. Exact `affected` statements record confirmed reachability and block high/critical findings; unresolved unfixable findings remain visible without being misclassified as proven reachable.
 
 ## 📦 Runtime Image
 

@@ -57,6 +57,15 @@ function suppression(expiresAt = "2026-08-01T00:00:00Z") {
   };
 }
 
+function affectedVex(product = purl) {
+  return validVex([{
+    vulnerability: { name: "CVE-2026-0001" },
+    products: [{ "@id": product }],
+    status: "affected",
+    action_statement: "Reachability is confirmed by tests/reachability/example.test.ts.",
+  }]);
+}
+
 describe("candidate image risk policy", () => {
   const now = new Date("2026-07-16T00:00:00Z");
 
@@ -69,17 +78,57 @@ describe("candidate image risk policy", () => {
     expect(result.policyErrors).toEqual([]);
   });
 
-  it("blocks high and critical findings and records lower severities", () => {
-    const high = evaluateImageReport(
-      report({}), validVex(), { reviews: [] }, now, { vulnerabilities: [] }, reviewSchema,
-    );
+  it.each(["HIGH", "CRITICAL"])(
+    "records unfixable %s findings until exact reachability is confirmed",
+    (severity) => {
+      const high = evaluateImageReport(
+        report({ Severity: severity }), validVex(), { reviews: [] }, now, { vulnerabilities: [] }, reviewSchema,
+      );
+      expect(high.blockers).toHaveLength(0);
+      expect(high.recorded).toContainEqual(expect.objectContaining({
+        severity,
+        reason: "unfixable_reachability_unconfirmed",
+      }));
+    },
+  );
+
+  it("records lower severities without blocking", () => {
     const medium = evaluateImageReport(
       report({ Severity: "MEDIUM" }), validVex(), { reviews: [] }, now, { vulnerabilities: [] }, reviewSchema,
     );
-    expect(high.blockers).toHaveLength(1);
     expect(medium.blockers).toHaveLength(0);
     expect(medium.recorded).toHaveLength(1);
     expect(medium.reportFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("blocks an unfixable high finding when exact OpenVEX marks it affected", () => {
+    const result = evaluateImageReport(
+      report({}), affectedVex(), { reviews: [] }, now, { vulnerabilities: [] }, reviewSchema,
+    );
+    expect(result.blockers).toContainEqual(expect.objectContaining({
+      reason: "reachable_critical_or_high",
+    }));
+  });
+
+  it("rejects affected reachability statements that do not match the scan", () => {
+    const result = evaluateImageReport(
+      report({}),
+      affectedVex("pkg:npm/other@1.0.0"),
+      { reviews: [] },
+      now,
+      { vulnerabilities: [] },
+      reviewSchema,
+    );
+    expect(result.policyErrors).toContainEqual(expect.stringContaining("unmatched affected VEX statement"));
+  });
+
+  it("requires an action statement for affected reachability decisions", () => {
+    const vex = affectedVex();
+    delete vex.statements[0].action_statement;
+    const result = evaluateImageReport(
+      report({}), vex, { reviews: [] }, now, { vulnerabilities: [] }, reviewSchema,
+    );
+    expect(result.policyErrors).toContainEqual(expect.stringContaining("action_statement"));
   });
 
   it("accepts an exact, reviewed, unexpired not_affected statement", () => {
@@ -98,7 +147,6 @@ describe("candidate image risk policy", () => {
     );
     expect(result.policyErrors).toContainEqual(expect.stringContaining("author"));
     expect(result.policyErrors).toContainEqual(expect.stringContaining("justification"));
-    expect(result.blockers).toHaveLength(1);
     expect(result.suppressed).toHaveLength(0);
   });
 
@@ -109,7 +157,7 @@ describe("candidate image risk policy", () => {
       report({}), malformed.vex, malformed.review, now, { vulnerabilities: [] }, reviewSchema,
     );
     expect(result.policyErrors).toContainEqual(expect.stringContaining("unreviewed_override"));
-    expect(result.blockers).toHaveLength(1);
+    expect(result.suppressed).toHaveLength(0);
   });
 
   it("rejects review records that do not match an exact VEX statement", () => {
@@ -118,7 +166,7 @@ describe("candidate image risk policy", () => {
       report({}), validVex(), review, now, { vulnerabilities: [] }, reviewSchema,
     );
     expect(result.policyErrors).toContainEqual(expect.stringContaining("unmatched VEX review"));
-    expect(result.blockers).toHaveLength(1);
+    expect(result.suppressed).toHaveLength(0);
   });
 
   it("rejects expired and unmatched VEX statements", () => {
@@ -149,7 +197,7 @@ describe("candidate image risk policy", () => {
       missingProduct, vex, review, now, { vulnerabilities: [] }, reviewSchema,
     );
     expect(result.policyErrors).toContainEqual(expect.stringContaining("missing product"));
-    expect(result.blockers).toHaveLength(1);
+    expect(result.suppressed).toHaveLength(0);
   });
 
   it("never suppresses a fixable high finding", () => {
