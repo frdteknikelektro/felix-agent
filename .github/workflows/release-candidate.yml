@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-candidate-${{ github.sha }}
+  cancel-in-progress: false
+
 env:
   IMAGE: frdinawan/felix-agent
   ATTESTATION_SUBJECT: docker.io/frdinawan/felix-agent
@@ -54,7 +58,7 @@ jobs:
           FELIX_IMAGE="${IMAGE}@sha256:0000000000000000000000000000000000000000000000000000000000000000" docker compose -f docker-compose.image.yml config --quiet
           npx vitest run tests/image-scan-policy.test.ts tests/release-candidate.test.ts tests/release-evidence.test.ts
       - name: Validate workflow syntax
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
   build:
     needs: checks
@@ -122,6 +126,8 @@ jobs:
           echo "arm64=$arm64" >> "$GITHUB_OUTPUT"
       - name: Install Trivy and scan the AMD64 image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_CONFIG_SCANNERS: misconfig,secret
         with:
           image-ref: ${{ env.IMAGE }}@${{ steps.platforms.outputs.amd64 }}
           version: v0.70.0
@@ -141,11 +147,11 @@ jobs:
           ARM64_DIGEST: ${{ steps.platforms.outputs.arm64 }}
         run: |
           private=/tmp/felix-private-evidence
-          trivy image --scanners vuln,misconfig,secret --format json --output "$private/trivy-arm64.json" "$ARM64_IMAGE"
-          trivy image --scanners vuln,secret --vex security/vex.openvex.json --format json --output "$private/trivy-vex-amd64.json" "$AMD64_IMAGE"
-          trivy image --scanners vuln,secret --vex security/vex.openvex.json --format json --output "$private/trivy-vex-arm64.json" "$ARM64_IMAGE"
-          trivy image --scanners vuln,misconfig --format sarif --output "$private/trivy-amd64.sarif" "$AMD64_IMAGE"
-          trivy image --scanners vuln,misconfig --format sarif --output "$private/trivy-arm64.sarif" "$ARM64_IMAGE"
+          trivy image --scanners vuln,misconfig,secret --image-config-scanners misconfig,secret --format json --output "$private/trivy-arm64.json" "$ARM64_IMAGE"
+          trivy image --scanners vuln,secret --image-config-scanners misconfig,secret --vex security/vex.openvex.json --format json --output "$private/trivy-vex-amd64.json" "$AMD64_IMAGE"
+          trivy image --scanners vuln,secret --image-config-scanners misconfig,secret --vex security/vex.openvex.json --format json --output "$private/trivy-vex-arm64.json" "$ARM64_IMAGE"
+          trivy image --scanners vuln,misconfig --image-config-scanners misconfig --format sarif --output "$private/trivy-amd64.sarif" "$AMD64_IMAGE"
+          trivy image --scanners vuln,misconfig --image-config-scanners misconfig --format sarif --output "$private/trivy-arm64.sarif" "$ARM64_IMAGE"
           trivy image --format spdx-json --output release-evidence/sbom-amd64.spdx.json "$AMD64_IMAGE"
           trivy image --format spdx-json --output release-evidence/sbom-arm64.spdx.json "$ARM64_IMAGE"
           trivy image --format cyclonedx --output release-evidence/sbom-amd64.cyclonedx.json "$AMD64_IMAGE"
@@ -232,6 +238,7 @@ jobs:
             version: process.env.VERSION,
             digest: process.env.DIGEST,
             commit: process.env.COMMIT,
+            image: process.env.IMAGE,
             platforms: {
               "linux/amd64": process.env.AMD64_DIGEST,
               "linux/arm64": process.env.ARM64_DIGEST,
@@ -273,6 +280,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -280,20 +288,20 @@ jobs:
           path: release-evidence
       - name: Attest candidate provenance
         id: provenance
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.ATTESTATION_SUBJECT }}
           subject-digest: ${{ needs.build.outputs.digest }}
       - name: Attest AMD64 candidate SBOM
         id: sbom_amd64
-        uses: actions/attest-sbom@10926c72720ffc3f7b666661c8e55b1344e2a365 # v2
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.ATTESTATION_SUBJECT }}
           subject-digest: ${{ needs.scan.outputs.amd64-digest }}
           sbom-path: release-evidence/sbom-amd64.spdx.json
       - name: Attest ARM64 candidate SBOM
         id: sbom_arm64
-        uses: actions/attest-sbom@10926c72720ffc3f7b666661c8e55b1344e2a365 # v2
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-name: ${{ env.ATTESTATION_SUBJECT }}
           subject-digest: ${{ needs.scan.outputs.arm64-digest }}

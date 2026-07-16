@@ -53,6 +53,7 @@ describe("candidate image risk policy", () => {
     expect(high.blockers).toHaveLength(1);
     expect(medium.blockers).toHaveLength(0);
     expect(medium.recorded).toHaveLength(1);
+    expect(medium.reportFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
   it("accepts an exact, reviewed, unexpired not_affected statement", () => {

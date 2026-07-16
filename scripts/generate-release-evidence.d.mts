@@ -7,6 +7,7 @@ export interface ReleaseEvidenceInput {
   sbom: string;
   provenance: string;
   manual: string;
+  artifactDir: string;
   output: string;
 }
 export function generateReleaseEvidence(input: ReleaseEvidenceInput): Promise<void>;

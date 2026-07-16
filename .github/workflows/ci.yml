@@ -36,4 +36,4 @@ jobs:
       - name: Validate Compose contracts
         run: docker compose config --quiet && docker compose -f docker-compose.image.yml config --quiet
       - name: Validate workflow syntax
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

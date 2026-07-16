@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseNamedArgs } from "./cli-args.mjs";
 import { writeFileAtomic } from "./setup-support.mjs";
@@ -41,7 +42,7 @@ function parseArgs(argv) {
 export async function generateReleaseEvidence(input) {
   const required = [
     "version", "candidateRunId", "candidateCommit", "imageDigest",
-    "scan", "sbom", "provenance", "manual", "output",
+    "scan", "sbom", "provenance", "manual", "artifactDir", "output",
   ];
   for (const field of required) {
     if (!input[field]) throw new Error(`${field} is required`);
@@ -59,6 +60,22 @@ export async function generateReleaseEvidence(input) {
     return { file, content, sha256: digest(content) };
   }));
   const [scan, sbom, provenance, manual] = artifacts;
+  const outputPath = path.resolve(input.output);
+  const directoryEntries = await readdir(input.artifactDir, { withFileTypes: true });
+  const unsupported = directoryEntries.filter((entry) => !entry.isFile());
+  if (unsupported.length > 0) {
+    throw new Error(`release artifact directory contains a non-file entry: ${unsupported[0].name}`);
+  }
+  const releaseAssets = await Promise.all(directoryEntries
+    .map((entry) => path.join(input.artifactDir, entry.name))
+    .filter((file) => path.resolve(file) !== outputPath)
+    .sort()
+    .map(async (file) => {
+      const content = await readFile(file);
+      if (content.length === 0) throw new Error(`release artifact is empty: ${file}`);
+      return { name: path.basename(file), sha256: digest(content) };
+    }));
+  if (releaseAssets.length === 0) throw new Error("release artifact directory is empty");
   if (/^- \[ \]/m.test(manual.content)) throw new Error("manual evidence is incomplete");
   const manualLines = manual.content.split(/\r?\n/).map((line) => line.replaceAll("`", "").trim());
   for (const check of REQUIRED_MANUAL_CHECKS) {
@@ -96,6 +113,12 @@ export async function generateReleaseEvidence(input) {
     `| SBOM | ${sbom.sha256} |`,
     `| Provenance | ${provenance.sha256} |`,
     `| Manual acceptance | ${manual.sha256} |`,
+    "",
+    "## Release assets",
+    "",
+    "| Asset | SHA-256 |",
+    "|---|---|",
+    ...releaseAssets.map((artifact) => `| ${artifact.name} | ${artifact.sha256} |`),
     "",
   ].join("\n");
   if (PLACEHOLDER_PATTERN.test(evidence)) throw new Error("generated evidence contains a placeholder");

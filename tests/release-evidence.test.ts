@@ -37,6 +37,7 @@ function completedManual(digest: string, result = "accepted") {
 async function fixture(manual: string) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-evidence-"));
   const files = {
+    artifactDir: dir,
     scan: path.join(dir, "scan.json"),
     sbom: path.join(dir, "sbom.spdx.json"),
     provenance: path.join(dir, "provenance.json"),
@@ -62,6 +63,11 @@ describe("release evidence generation", () => {
     const output = await fs.readFile(files.output, "utf8");
     expect(output).toContain("Felix 0.1.1 release evidence");
     expect(output).toContain(digest);
+    expect(output).toContain("## Release assets");
+    expect(output).toContain("| scan.json |");
+    expect(output).toContain("| sbom.spdx.json |");
+    expect(output).toContain("| provenance.json |");
+    expect(output).toContain("| manual.md |");
     expect(output).not.toContain("TBD");
     expect((await fs.stat(files.output)).mode & 0o777).toBe(0o600);
   });
@@ -104,6 +110,19 @@ describe("release evidence generation", () => {
       version: "0.1.1", candidateRunId: runId, candidateCommit: commit, imageDigest: "latest", ...files,
     }))
       .rejects.toThrow(/digest/i);
+  });
+
+  it("requires the complete release artifact directory", async () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    const files = await fixture(completedManual(digest));
+    const { artifactDir: _artifactDir, ...withoutArtifactDir } = files;
+    await expect(generateReleaseEvidence({
+      version: "0.1.1",
+      candidateRunId: runId,
+      candidateCommit: commit,
+      imageDigest: digest,
+      ...withoutArtifactDir,
+    } as any)).rejects.toThrow(/artifactDir is required/i);
   });
 
   it("rejects manual evidence bound to a different candidate", async () => {

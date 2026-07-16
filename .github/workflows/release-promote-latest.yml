@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-promote-latest
+  cancel-in-progress: false
+
 env:
   IMAGE: frdinawan/felix-agent
 

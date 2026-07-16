@@ -29,8 +29,13 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: release-publish-${{ inputs.version }}
+  cancel-in-progress: false
+
 env:
   IMAGE: frdinawan/felix-agent
+  ATTESTATION_SUBJECT: docker.io/frdinawan/felix-agent
 
 jobs:
   verify:
@@ -42,6 +47,7 @@ jobs:
         with:
           ref: ${{ inputs.commit }}
           fetch-depth: 0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Download exact candidate evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,30 +56,80 @@ jobs:
           COMMIT: ${{ inputs.commit }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          gh run view "$RUN_ID" --repo "$REPOSITORY" \
-            --json conclusion,headSha,url,workflowName > /tmp/candidate-run.json
+          gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}" > /tmp/candidate-run.json
           test "$(jq -r '.conclusion' /tmp/candidate-run.json)" = success
-          test "$(jq -r '.headSha' /tmp/candidate-run.json)" = "$COMMIT"
-          test "$(jq -r '.workflowName' /tmp/candidate-run.json)" = "Release candidate"
-          test "$(jq -r '.url' /tmp/candidate-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
+          test "$(jq -r '.head_sha' /tmp/candidate-run.json)" = "$COMMIT"
+          test "$(jq -r '.path' /tmp/candidate-run.json)" = ".github/workflows/release-candidate.yml"
+          test "$(jq -r '.event' /tmp/candidate-run.json)" = workflow_dispatch
+          test "$(jq -r '.html_url' /tmp/candidate-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-evidence" --dir release-evidence
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-attestations" --dir release-evidence
       - name: Verify candidate binding and complete evidence
         env:
+          GH_TOKEN: ${{ github.token }}
           MANUAL_EVIDENCE: ${{ inputs.manual_evidence }}
+          COMMIT: ${{ inputs.commit }}
+          DIGEST: ${{ inputs.digest }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           node --input-type=module <<'NODE'
           import { writeFileAtomic } from "./scripts/setup-support.mjs";
           writeFileAtomic("release-evidence/manual-acceptance.md", process.env.MANUAL_EVIDENCE, 0o600);
           NODE
+          docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}" > /tmp/registry-manifest.json
           node scripts/verify-release-candidate.mjs \
             --manifest release-evidence/candidate-manifest.json \
             --run-id "${{ inputs.candidate_run_id }}" \
             --digest "${{ inputs.digest }}" \
             --commit "${{ inputs.commit }}" \
-            --version "${{ inputs.version }}"
+            --version "${{ inputs.version }}" \
+            --image "${IMAGE}" \
+            --evidence-dir release-evidence \
+            --registry-manifest /tmp/registry-manifest.json
+          node scripts/evaluate-image-scan.mjs \
+            --report release-evidence/trivy-full.json \
+            --vex security/vex.openvex.json \
+            --review security/vex-review.json \
+            --kev release-evidence/cisa-kev.json \
+            --output /tmp/recomputed-policy.json
+          jq --sort-keys . release-evidence/policy-result.json > /tmp/candidate-policy.sorted.json
+          jq --sort-keys . /tmp/recomputed-policy.json > /tmp/recomputed-policy.sorted.json
+          cmp /tmp/candidate-policy.sorted.json /tmp/recomputed-policy.sorted.json
           test "$(jq '.blockers | length' release-evidence/policy-result.json)" = 0
           test "$(jq '.policyErrors | length' release-evidence/policy-result.json)" = 0
+          signer="${REPOSITORY}/.github/workflows/release-candidate.yml"
+          gh attestation verify "oci://${ATTESTATION_SUBJECT}@${DIGEST}" \
+            --repo "$REPOSITORY" \
+            --bundle release-evidence/provenance-attestation.jsonl \
+            --signer-workflow "$signer" \
+            --source-digest "$COMMIT" \
+            --format json > /tmp/provenance-verification.json
+          test "$(jq 'length' /tmp/provenance-verification.json)" = 1
+
+          amd64_digest="$(jq -er '.platforms["linux/amd64"]' release-evidence/candidate-manifest.json)"
+          arm64_digest="$(jq -er '.platforms["linux/arm64"]' release-evidence/candidate-manifest.json)"
+          gh attestation verify "oci://${ATTESTATION_SUBJECT}@${amd64_digest}" \
+            --repo "$REPOSITORY" \
+            --bundle release-evidence/sbom-amd64-attestation.jsonl \
+            --predicate-type https://spdx.dev/Document/v2.3 \
+            --signer-workflow "$signer" \
+            --source-digest "$COMMIT" \
+            --format json > /tmp/sbom-amd64-verification.json
+          gh attestation verify "oci://${ATTESTATION_SUBJECT}@${arm64_digest}" \
+            --repo "$REPOSITORY" \
+            --bundle release-evidence/sbom-arm64-attestation.jsonl \
+            --predicate-type https://spdx.dev/Document/v2.3 \
+            --signer-workflow "$signer" \
+            --source-digest "$COMMIT" \
+            --format json > /tmp/sbom-arm64-verification.json
+          for architecture in amd64 arm64; do
+            test "$(jq 'length' "/tmp/sbom-${architecture}-verification.json")" = 1
+            jq --sort-keys '.[0].verificationResult.statement.predicate' \
+              "/tmp/sbom-${architecture}-verification.json" > "/tmp/verified-sbom-${architecture}.json"
+            jq --sort-keys . "release-evidence/sbom-${architecture}.spdx.json" \
+              > "/tmp/candidate-sbom-${architecture}.json"
+            cmp "/tmp/verified-sbom-${architecture}.json" "/tmp/candidate-sbom-${architecture}.json"
+          done
           node scripts/generate-release-evidence.mjs \
             --version "${{ inputs.version }}" \
             --candidate-run-id "${{ inputs.candidate_run_id }}" \
@@ -83,6 +139,7 @@ jobs:
             --sbom release-evidence/sbom-manifest.json \
             --provenance release-evidence/provenance-attestation.jsonl \
             --manual release-evidence/manual-acceptance.md \
+            --artifact-dir release-evidence \
             --output release-evidence/release-evidence.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -117,25 +174,102 @@ jobs:
           DIGEST: ${{ inputs.digest }}
           COMMIT: ${{ inputs.commit }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null; then
-            echo "immutable source tag already exists: v${VERSION}" >&2
-            exit 1
+          resolve_remote_commit() {
+            awk '
+              $2 ~ /\^\{\}$/ { peeled=$1 }
+              $2 !~ /\^\{\}$/ { direct=$1 }
+              END { print peeled ? peeled : direct }
+            '
+          }
+          if remote_tag="$(git ls-remote --exit-code --tags origin \
+            "refs/tags/v${VERSION}" "refs/tags/v${VERSION}^{}")"; then
+            resolved_commit="$(printf '%s\n' "$remote_tag" | resolve_remote_commit)"
+            if [ "$resolved_commit" != "$COMMIT" ]; then
+              echo "existing source tag points to a different commit: v${VERSION}" >&2
+              exit 1
+            fi
+            source_state=present
           else
             rc=$?
             if [ "$rc" -ne 2 ]; then
               echo "unable to verify immutable source tag absence" >&2
               exit "$rc"
             fi
+            source_state=absent
           fi
-          node scripts/assert-image-tag-absent.mjs "${IMAGE}:${VERSION}"
+
+          image_state="$(node scripts/check-image-tag-compatible.mjs "${IMAGE}:${VERSION}" "$DIGEST")"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git tag -a "v${VERSION}" "$COMMIT" -m "Felix ${VERSION}"
-          git push origin "v${VERSION}"
-          docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${IMAGE}@${DIGEST}"
+          if [ "$source_state" = absent ]; then
+            git tag -a "v${VERSION}" "$COMMIT" -m "Felix ${VERSION}"
+            git push origin "v${VERSION}"
+          fi
+          if [ "$image_state" = absent ]; then
+            docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${IMAGE}@${DIGEST}"
+          fi
+
+          verified_tag="$(git ls-remote --exit-code --tags origin \
+            "refs/tags/v${VERSION}" "refs/tags/v${VERSION}^{}")"
+          verified_source="$(printf '%s\n' "$verified_tag" | resolve_remote_commit)"
+          test "$verified_source" = "$COMMIT"
           test "$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" | sed -n 's/^Digest: //p' | head -1)" = "$DIGEST"
-      - name: Create GitHub Release with raw evidence
+      - name: Create GitHub Release with sanitized evidence
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-        run: gh release create "v${VERSION}" release-evidence/* --verify-tag --title "Felix ${VERSION}" --notes-file CHANGELOG.md
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          tag="v${VERSION}"
+          existing_dir=""
+          final_dir=""
+          trap 'rm -rf "$existing_dir" "$final_dir"' EXIT
+          set +e
+          release_lookup="$(gh api --include "repos/${REPOSITORY}/releases/tags/${tag}" 2>&1)"
+          lookup_status=$?
+          set -e
+          if [ "$lookup_status" -eq 0 ]; then
+            release_state=present
+          elif printf '%s\n' "$release_lookup" | grep -Eq '(^HTTP/[0-9.]+ 404|\(HTTP 404\))'; then
+            release_state=absent
+          else
+            printf '%s\n' "$release_lookup" >&2
+            echo "unable to verify GitHub Release state" >&2
+            exit "$lookup_status"
+          fi
+
+          if [ "$release_state" = absent ]; then
+            gh release create "$tag" release-evidence/* \
+              --verify-tag \
+              --title "Felix ${VERSION}" \
+              --notes-file CHANGELOG.md
+          else
+            gh release view "$tag" --json tagName,name,isDraft,isPrerelease > /tmp/release.json
+            jq --exit-status --arg tag "$tag" --arg title "Felix ${VERSION}" \
+              '.tagName == $tag and .name == $title and (.isDraft | not) and (.isPrerelease | not)' \
+              /tmp/release.json
+            existing_dir="$(mktemp -d)"
+            while IFS= read -r name; do
+              test -f "release-evidence/${name}" || {
+                echo "unexpected existing release asset: ${name}" >&2
+                exit 1
+              }
+              gh release download "$tag" --pattern "$name" --dir "$existing_dir"
+              cmp "release-evidence/${name}" "${existing_dir}/${name}"
+            done < <(gh release view "$tag" --json assets --jq '.assets[].name')
+            while IFS= read -r expected; do
+              name="${expected##*/}"
+              if [ ! -f "${existing_dir}/${name}" ]; then
+                gh release upload "$tag" "$expected"
+              fi
+            done < <(find release-evidence -maxdepth 1 -type f | sort)
+          fi
+
+          final_dir="$(mktemp -d)"
+          find release-evidence -maxdepth 1 -type f -exec basename {} \; | sort > /tmp/expected-assets.txt
+          gh release view "$tag" --json assets --jq '.assets[].name' | sort > /tmp/actual-assets.txt
+          diff --unified /tmp/expected-assets.txt /tmp/actual-assets.txt
+          while IFS= read -r name; do
+            gh release download "$tag" --pattern "$name" --dir "$final_dir"
+            cmp "release-evidence/${name}" "${final_dir}/${name}"
+          done < /tmp/expected-assets.txt

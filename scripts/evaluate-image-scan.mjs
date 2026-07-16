@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseNamedArgs, requireNamedArgs } from "./cli-args.mjs";
@@ -27,6 +28,34 @@ function vulnerabilityRecord(target, finding, kevIds) {
     severity: String(finding.Severity ?? "UNKNOWN").toUpperCase(),
     kev: isKev(finding) || kevIds.has(finding.VulnerabilityID),
   };
+}
+
+/** Fingerprint the non-sensitive finding fields consumed by the release policy. */
+export function policyReportFingerprint(report) {
+  const findings = [];
+  for (const result of report.Results ?? []) {
+    for (const finding of result.Vulnerabilities ?? []) {
+      findings.push(vulnerabilityRecord(result.Target, finding, new Set()));
+    }
+    for (const secret of result.Secrets ?? []) {
+      findings.push({
+        kind: "secret",
+        target: result.Target,
+        rule: secret.RuleID,
+        severity: String(secret.Severity ?? "UNKNOWN").toUpperCase(),
+      });
+    }
+    for (const misconfiguration of result.Misconfigurations ?? []) {
+      findings.push({
+        kind: "misconfiguration",
+        target: result.Target,
+        id: misconfiguration.ID,
+        severity: String(misconfiguration.Severity ?? "UNKNOWN").toUpperCase(),
+        status: String(misconfiguration.Status ?? "FAIL"),
+      });
+    }
+  }
+  return `sha256:${createHash("sha256").update(JSON.stringify(findings)).digest("hex")}`;
 }
 
 /** Apply Felix's candidate-image policy without copying sensitive scan matches to output. */
@@ -129,7 +158,17 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
     }
   }
 
-  return { blockers, recorded, suppressed, policyErrors };
+  return {
+    subject: {
+      artifactName: String(report.ArtifactName ?? ""),
+      artifactType: String(report.ArtifactType ?? ""),
+    },
+    reportFingerprint: policyReportFingerprint(report),
+    blockers,
+    recorded,
+    suppressed,
+    policyErrors,
+  };
 }
 
 function run() {
