@@ -117,7 +117,7 @@ class MattermostAdapter implements SourceAdapter {
     return this.cfg.MATTERMOST_OWNER_USER_ID;
   }
   get ownerDisplay(): string {
-    return this.cfg.MATTERMOST_OWNER_DISPLAY || this.ownerIdentity?.displayName || "Owner";
+    return this.ownerIdentity?.displayName || this.cfg.MATTERMOST_OWNER_DISPLAY || "Owner";
   }
   private socket?: WebSocket;
   private reconnectTimer?: NodeJS.Timeout;

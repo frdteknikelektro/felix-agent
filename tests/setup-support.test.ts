@@ -6,6 +6,7 @@ import {
   displayEnvValue,
   isSecretKey,
   maskSecretInput,
+  withoutLegacyOwnerPresentation,
   writeFileAtomic,
   writeSetupEnv,
 } from "../scripts/setup-support.mjs";
@@ -47,7 +48,18 @@ describe("setup secret classification", () => {
     expect(displayEnvValue(key, value)).not.toContain(value);
   });
 
-  it.each(["FELIX_NAME", "MATTERMOST_URL", "DISCORD_OWNER_USER_ID", "OPENAI_MODEL"])(
+  it.each([
+    "MATTERMOST_OWNER_USER_ID",
+    "DISCORD_OWNER_USER_ID",
+    "SLACK_OWNER_USER_ID",
+    "WHATSAPP_OWNER_JID",
+    "TELEGRAM_OWNER_USER_ID",
+  ])("redacts the stable owner identifier %s from setup review", (key) => {
+    expect(isSecretKey(key)).toBe(true);
+    expect(displayEnvValue(key, "stable-owner-id")).toBe("<redacted>");
+  });
+
+  it.each(["FELIX_NAME", "MATTERMOST_URL", "OPENAI_MODEL"])(
     "does not hide ordinary setting %s",
     (key) => expect(isSecretKey(key)).toBe(false),
   );
@@ -86,6 +98,37 @@ describe("atomic setup writes", () => {
     expect(contents).toContain("HARNESS=codex");
     expect((await fs.stat(target)).mode & 0o777).toBe(0o600);
     expect(await fs.readdir(path.dirname(target))).toEqual([".env"]);
+  });
+
+  it("rewrites setup output with stable owner identifiers and without legacy presentation fields", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-owner-rewrite-"));
+    const target = path.join(dir, ".env");
+    const existing = withoutLegacyOwnerPresentation({
+      MATTERMOST_OWNER_USERNAME: "legacy-name",
+      MATTERMOST_OWNER_DISPLAY: "Legacy Mattermost Owner",
+      DISCORD_OWNER_DISPLAY: "Legacy Discord Owner",
+      SLACK_OWNER_DISPLAY: "Legacy Slack Owner",
+      WHATSAPP_OWNER_DISPLAY: "Legacy WhatsApp Owner",
+      TELEGRAM_OWNER_DISPLAY: "Legacy Telegram Owner",
+      CUSTOM_SETTING: "preserved",
+    });
+
+    writeSetupEnv(".env.example", target, {
+      MATTERMOST_OWNER_USER_ID: "abcdefghijklmnopqrstuvwxyz",
+      DISCORD_OWNER_USER_ID: "111111111111111111",
+      SLACK_OWNER_USER_ID: "UOWNER123",
+      WHATSAPP_OWNER_JID: "6285878175157@s.whatsapp.net",
+      TELEGRAM_OWNER_USER_ID: "42",
+    }, existing);
+
+    const contents = await fs.readFile(target, "utf8");
+    expect(contents).toContain("MATTERMOST_OWNER_USER_ID=abcdefghijklmnopqrstuvwxyz");
+    expect(contents).toContain("DISCORD_OWNER_USER_ID=111111111111111111");
+    expect(contents).toContain("SLACK_OWNER_USER_ID=UOWNER123");
+    expect(contents).toContain("WHATSAPP_OWNER_JID=6285878175157@s.whatsapp.net");
+    expect(contents).toContain("TELEGRAM_OWNER_USER_ID=42");
+    expect(contents).toContain("CUSTOM_SETTING=preserved");
+    expect(contents).not.toMatch(/OWNER_(?:USERNAME|DISPLAY)=/);
   });
 
   it("creates a new environment file with owner-only permissions and no temp residue", async () => {

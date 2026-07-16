@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { slackMentionToken } from "../src/adapters/slack/mentions.js";
-import { createSlackAdapter } from "../src/adapters/slack/index.js";
+import { createSlackAdapter, startSlackSource } from "../src/adapters/slack/index.js";
 import { slackThreadKey, slackSourceThreadRef } from "../src/adapters/slack/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
+import type { FelixEngine } from "../src/engine.js";
 
 describe("slackMentionToken", () => {
   it("produces <@id> format", () => {
@@ -39,6 +40,84 @@ describe("Slack API-derived identity", () => {
     expect(createSlackAdapter(cfg).botIdentity).toMatchObject({
       userId: "ULEGACY", source: "legacy", discovered: false,
     });
+  });
+
+  it("prefers the API-derived owner display over the legacy setting", async () => {
+    const cfg = await makeTestConfig("slack-owner-display-", {
+      SLACK_BOT_TOKEN: "xoxb-secret",
+      SLACK_APP_TOKEN: "xapp-secret",
+      SLACK_OWNER_USER_ID: "UOWNER123",
+      SLACK_OWNER_DISPLAY: "Legacy Owner",
+    });
+    const fetchOwner = vi.fn(async () => ({
+      user: {
+        id: "UOWNER123",
+        name: "owner",
+        real_name: "Owner Name",
+        profile: { display_name: "API Owner" },
+      },
+    }));
+    const app = {
+      client: {
+        auth: {
+          test: vi.fn(async () => ({
+            user_id: "UFELIX",
+            user: "felix",
+            real_name: "Felix",
+            url: "https://workspace.slack.com/",
+          })),
+        },
+        users: { info: fetchOwner },
+      },
+      event: vi.fn(),
+      error: vi.fn(),
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+    };
+    const adapter = createSlackAdapter(cfg, {
+      createApp: () => app as never,
+    });
+    const lifecycle = await startSlackSource(cfg, {} as FelixEngine, adapter);
+
+    expect(fetchOwner).toHaveBeenCalledWith({ user: "UOWNER123" });
+    expect(adapter.ownerDisplay).toBe("API Owner");
+    lifecycle.stop();
+    await lifecycle.done;
+    expect(app.stop).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the legacy owner display when API discovery fails", async () => {
+    const cfg = await makeTestConfig("slack-owner-display-fallback-", {
+      SLACK_BOT_TOKEN: "xoxb-secret",
+      SLACK_APP_TOKEN: "xapp-secret",
+      SLACK_OWNER_USER_ID: "UOWNER123",
+      SLACK_OWNER_DISPLAY: "Legacy Owner",
+    });
+    const app = {
+      client: {
+        auth: {
+          test: vi.fn(async () => ({
+            user_id: "UFELIX",
+            user: "felix",
+            real_name: "Felix",
+            url: "https://workspace.slack.com/",
+          })),
+        },
+        users: { info: vi.fn(async () => { throw new Error("unavailable"); }) },
+      },
+      event: vi.fn(),
+      error: vi.fn(),
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+    };
+    const adapter = createSlackAdapter(cfg, {
+      createApp: () => app as never,
+    });
+    const lifecycle = await startSlackSource(cfg, {} as FelixEngine, adapter);
+
+    expect(adapter.ownerDisplay).toBe("Legacy Owner");
+    lifecycle.stop();
+    await lifecycle.done;
   });
 });
 

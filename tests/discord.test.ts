@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
 import { discordMentionToken } from "../src/adapters/discord/mentions.js";
-import { createDiscordAdapter } from "../src/adapters/discord/index.js";
+import { createDiscordAdapter, startDiscordSource } from "../src/adapters/discord/index.js";
 import { discordThreadKey, discordSourceThreadRef } from "../src/adapters/discord/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
+import type { FelixEngine } from "../src/engine.js";
 
 describe("discordMentionToken", () => {
   it("produces <@id> format", () => {
@@ -37,6 +39,66 @@ describe("Discord API-derived identity", () => {
     expect(createDiscordAdapter(cfg).botIdentity).toMatchObject({
       userId: "legacy-id", source: "legacy", discovered: false,
     });
+  });
+
+  it("prefers the API-derived owner display over the legacy setting", async () => {
+    const cfg = await makeTestConfig("discord-owner-display-", {
+      DISCORD_BOT_TOKEN: "discord-secret",
+      DISCORD_OWNER_USER_ID: "999888777666555444",
+      DISCORD_OWNER_DISPLAY: "Legacy Owner",
+    });
+    const client = Object.assign(new EventEmitter(), {
+      user: { id: "BOT123", username: "felix", globalName: "Felix" },
+      login: vi.fn(async () => "token"),
+      destroy: vi.fn(),
+      users: {
+        fetch: vi.fn(async () => ({
+          id: "999888777666555444",
+          username: "owner",
+          globalName: "API Owner",
+        })),
+      },
+    });
+    const fetchOwner = vi.fn(async () => ({
+      id: "999888777666555444",
+      username: "owner",
+      globalName: "API Owner",
+    }));
+    client.users.fetch = fetchOwner;
+    const adapter = createDiscordAdapter(cfg, {
+      createClient: () => client as never,
+    });
+    const lifecycle = await startDiscordSource(cfg, {} as FelixEngine, adapter);
+
+    expect(fetchOwner).toHaveBeenCalledWith("999888777666555444");
+    expect(adapter.ownerDisplay).toBe("API Owner");
+    lifecycle.stop();
+    await lifecycle.done;
+    expect(client.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the legacy owner display when API discovery fails", async () => {
+    const cfg = await makeTestConfig("discord-owner-display-fallback-", {
+      DISCORD_BOT_TOKEN: "discord-secret",
+      DISCORD_OWNER_USER_ID: "999888777666555444",
+      DISCORD_OWNER_DISPLAY: "Legacy Owner",
+    });
+    const client = Object.assign(new EventEmitter(), {
+      user: { id: "BOT123", username: "felix", globalName: "Felix" },
+      login: vi.fn(async () => "token"),
+      destroy: vi.fn(),
+      users: {
+        fetch: vi.fn(async () => { throw new Error("unavailable"); }),
+      },
+    });
+    const adapter = createDiscordAdapter(cfg, {
+      createClient: () => client as never,
+    });
+    const lifecycle = await startDiscordSource(cfg, {} as FelixEngine, adapter);
+
+    expect(adapter.ownerDisplay).toBe("Legacy Owner");
+    lifecycle.stop();
+    await lifecycle.done;
   });
 });
 

@@ -21,8 +21,19 @@ import { preferDiscoveredIdentity, type PlatformIdentity } from "../../core/plat
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
-export function createSlackAdapter(cfg: AppConfig): SourceAdapter {
-  return new SlackAdapter(cfg);
+interface SlackAdapterDependencies {
+  createApp(options: ConstructorParameters<typeof App>[0]): App;
+}
+
+const DEFAULT_SLACK_ADAPTER_DEPENDENCIES: SlackAdapterDependencies = {
+  createApp: (options) => new App(options),
+};
+
+export function createSlackAdapter(
+  cfg: AppConfig,
+  dependencies: SlackAdapterDependencies = DEFAULT_SLACK_ADAPTER_DEPENDENCIES,
+): SourceAdapter {
+  return new SlackAdapter(cfg, dependencies);
 }
 
 export function startSlackSource(
@@ -79,17 +90,21 @@ class SlackAdapter implements SourceAdapter {
     return this.cfg.SLACK_OWNER_USER_ID;
   }
   get ownerDisplay(): string {
-    return this.cfg.SLACK_OWNER_DISPLAY || "Owner";
+    return this.ownerIdentity?.displayName || this.cfg.SLACK_OWNER_DISPLAY || "Owner";
   }
   private app?: App;
   private workspaceUrl?: string;
   private discoveredBotUserId?: string;
   private discoveredBotUsername?: string;
   private discoveredBotDisplay?: string;
+  private ownerIdentity?: PlatformIdentity;
   private userDisplayCache = new Map<string, { display: string; username: string }>();
   private readonly host = createSourceHost({ source: "slack" });
 
-  constructor(private readonly cfg: AppConfig) {}
+  constructor(
+    private readonly cfg: AppConfig,
+    private readonly dependencies: SlackAdapterDependencies,
+  ) {}
 
   // ── start (supervisor contract) ──────────────────────────────────────────
 
@@ -101,7 +116,7 @@ class SlackAdapter implements SourceAdapter {
       source: "slack",
       disabled: !this.cfg.SLACK_BOT_TOKEN || !this.cfg.SLACK_APP_TOKEN,
       connect: async () => {
-        const app = new App({
+        const app = this.dependencies.createApp({
           token: this.cfg.SLACK_BOT_TOKEN,
           socketMode: true,
           appToken: this.cfg.SLACK_APP_TOKEN,
@@ -141,6 +156,7 @@ class SlackAdapter implements SourceAdapter {
             user_id: this.discoveredBotUserId,
             workspace: this.workspaceUrl,
           });
+          await this.discoverOwnerIdentity(app.client);
         } catch (error) {
           log.warn("slack.auth_test_failed", { error: (error as Error).message });
         }
@@ -156,6 +172,36 @@ class SlackAdapter implements SourceAdapter {
         };
       },
     });
+  }
+
+  private async discoverOwnerIdentity(client: {
+    users: {
+      info(args: { user: string }): Promise<{
+        user?: {
+          id?: string;
+          name?: string;
+          real_name?: string;
+          profile?: { display_name?: string };
+        };
+      }>;
+    };
+  }): Promise<void> {
+    const ownerId = this.cfg.SLACK_OWNER_USER_ID;
+    if (!ownerId) return;
+    try {
+      const response = await client.users.info({ user: ownerId });
+      const user = response.user;
+      if (!user?.id) return;
+      this.ownerIdentity = {
+        userId: user.id,
+        username: user.name,
+        displayName: user.profile?.display_name || user.real_name || user.name,
+        source: "api",
+        discovered: true,
+      };
+    } catch {
+      this.ownerIdentity = undefined;
+    }
   }
 
   // ── SourceAdapter implementation ─────────────────────────────────────────

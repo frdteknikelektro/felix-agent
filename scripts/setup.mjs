@@ -3,17 +3,18 @@ import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, randomBytes } from "node:crypto";
 import os from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
 import {
   displayEnvValue,
   maskSecretInput,
   parseSetupTemplate,
+  withoutLegacyOwnerPresentation,
   writeFileAtomic,
   writeSetupEnv,
 } from "./setup-support.mjs";
-import { claimTelegramOwner } from "./setup-source-discovery.mjs";
+import { resolveSetupOwner } from "./setup-owner-discovery.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
@@ -96,39 +97,34 @@ const SOURCE_DEFS = {
     required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
     optional: {},
     ownerKeys: ["MATTERMOST_OWNER_USER_ID"],
-    ownerDefaults: {},
-    ownerHint: "Enter your Mattermost User ID. Felix resolves your username and display name through the API at runtime.",
+    ownerHint: "Enter your Mattermost username with or without @. Felix stores only the resolved user ID.",
   },
   discord: {
     label: "Discord",
     required: ["DISCORD_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["DISCORD_OWNER_USER_ID", "DISCORD_OWNER_DISPLAY"],
-    ownerDefaults: { DISCORD_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: Enable Developer Mode (Settings → Advanced → Developer Mode), then right-click your name → Copy User ID",
+    ownerKeys: ["DISCORD_OWNER_USER_ID"],
+    ownerHint: "Felix securely discovers the owner from a one-time direct message.",
   },
   slack: {
     label: "Slack",
     required: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"],
     optional: {},
-    ownerKeys: ["SLACK_OWNER_USER_ID", "SLACK_OWNER_DISPLAY"],
-    ownerDefaults: { SLACK_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: Click your name → View profile → ⋯ → Copy member ID",
+    ownerKeys: ["SLACK_OWNER_USER_ID"],
+    ownerHint: "Felix securely discovers the owner from a one-time direct message.",
   },
   whatsapp: {
     label: "WhatsApp (via wacli)",
     required: [],
     optional: {},
-    ownerKeys: ["WHATSAPP_OWNER_DISPLAY"],
-    ownerDefaults: { WHATSAPP_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Enter your WhatsApp phone number (with country code, no +). The JID will be derived automatically.",
+    ownerKeys: ["WHATSAPP_OWNER_JID"],
+    ownerHint: "Enter your WhatsApp phone number with country code. Felix derives the JID automatically.",
   },
   telegram: {
     label: "Telegram",
     required: ["TELEGRAM_BOT_TOKEN"],
     optional: {},
     ownerKeys: ["TELEGRAM_OWNER_USER_ID"],
-    ownerDefaults: {},
     ownerHint: "Felix securely discovers the owner from a one-time private claim message.",
   },
 };
@@ -186,6 +182,25 @@ function existingHint(existing, key) {
     return `  ${c.dim}(current: ${displayEnvValue(key, existing[key])} — Enter to keep)${c.reset}`;
   }
   return "";
+}
+
+function ownerDiscoveryPrompts() {
+  return {
+    input: (options) => input(options),
+    select: (options) => select(options),
+    confirmExisting: ({ source }) => confirm({
+      message: `Keep the existing ${SOURCE_DEFS[source].label} owner?`,
+      default: true,
+    }),
+    showClaim: async ({ source, claimCode }) => {
+      info(`Send this exact one-time message to the ${SOURCE_DEFS[source].label} bot in a private chat:`);
+      console.log(`\n  ${c.bold}${c.yellow}${claimCode}${c.reset}\n`);
+      info("Waiting up to two minutes for the matching private message...");
+    },
+    showConfirmation: ({ source }) => {
+      succeed(`${SOURCE_DEFS[source].label} account found and verified.`);
+    },
+  };
 }
 
 async function promptRequired(key, src, existing) {
@@ -328,7 +343,7 @@ async function runWacliAuth(bin) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-async function main() {
+export async function main() {
   try {
     await ensureDeps();
 
@@ -678,125 +693,137 @@ async function main() {
       }
 
       if (src === "mattermost") {
-          info(def.ownerHint);
-          const ownerUserId = await input({
-            message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
-            default: existing.MATTERMOST_OWNER_USER_ID || "",
-          });
-          wizard.MATTERMOST_OWNER_USER_ID = ownerUserId;
-        } else if (src === "whatsapp") {
-          // WHATSAPP_BOT_ALIASES — plain input, optional
-          const aliases = await input({
-            message: `WHATSAPP_BOT_ALIASES  ${reqTag(false)}:`,
-            default: existing.WHATSAPP_BOT_ALIASES || "",
-            validate: (v) => /^[A-Za-z0-9_,]*$/.test(v) ? true : "Only letters, digits, underscores, and commas allowed",
-          });
-          wizard.WHATSAPP_BOT_ALIASES = aliases;
+        info(def.ownerHint);
+        const owner = await resolveSetupOwner({
+          source: "mattermost",
+          credentials: {
+            baseUrl: wizard.MATTERMOST_URL || existing.MATTERMOST_URL,
+            botToken: wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN,
+          },
+          existingOwnerId: existing.MATTERMOST_OWNER_USER_ID,
+          prompts: ownerDiscoveryPrompts(),
+        });
+        wizard.MATTERMOST_OWNER_USER_ID = owner.userId;
+        succeed("Mattermost owner configured.");
+      } else if (src === "whatsapp") {
+        // WHATSAPP_BOT_ALIASES — plain input, optional
+        const aliases = await input({
+          message: `WHATSAPP_BOT_ALIASES  ${reqTag(false)}:`,
+          default: existing.WHATSAPP_BOT_ALIASES || "",
+          validate: (v) => /^[A-Za-z0-9_,]*$/.test(v) ? true : "Only letters, digits, underscores, and commas allowed",
+        });
+        wizard.WHATSAPP_BOT_ALIASES = aliases;
 
-          // WHATSAPP_OWNER_PHONE → derive WHATSAPP_OWNER_JID
-          console.log();
-          info(def.ownerHint);
-          const existingJid = existing.WHATSAPP_OWNER_JID || "";
-          const existingPhone = existingJid ? existingJid.split("@")[0] : "";
-          const phone = await input({
-            message: `WHATSAPP_OWNER_PHONE  ${reqTag(false)}:`,
-            default: existingPhone,
-          });
-          if (phone) {
-            wizard.WHATSAPP_OWNER_JID = phone + "@s.whatsapp.net";
-          }
+        console.log();
+        info(def.ownerHint);
+        const owner = await resolveSetupOwner({
+          source: "whatsapp",
+          credentials: {},
+          existingOwnerId: existing.WHATSAPP_OWNER_JID,
+          prompts: ownerDiscoveryPrompts(),
+        });
+        wizard.WHATSAPP_OWNER_JID = owner.userId;
+        succeed("WhatsApp owner configured.");
 
-          const display = await input({
-            message: `WHATSAPP_OWNER_DISPLAY  ${reqTag(false)}:`,
-            default: existing.WHATSAPP_OWNER_DISPLAY || def.ownerDefaults.WHATSAPP_OWNER_DISPLAY,
-          });
-          wizard.WHATSAPP_OWNER_DISPLAY = display;
-
-          const wacliBin = existing.WHATSAPP_WACLI_BIN || "wacli";
-          const authStatus = checkSetupWacliAuth(wacliBin);
-          if (authStatus.status === "authenticated") {
-            succeed("wacli is already paired.");
-          } else if (authStatus.status === "locked") {
-            warn("wacli store is locked, likely by the running Felix container. Skipping pairing.");
-            info("Stop the container before re-pairing, or keep the existing logged-in session.");
-          } else {
-            console.log();
-            info("Pairing wacli with WhatsApp...");
-            info("A QR code will appear. Scan it with WhatsApp on your phone.");
-            info("WhatsApp → Settings → Linked Devices → Link a Device");
-            console.log();
-
-            const { exitCode } = await runWacliAuth(wacliBin);
-            if (exitCode !== 0) {
-              warn(`wacli auth failed. Run \`${wacliBin} auth\` manually.`);
-            } else {
-              succeed("WhatsApp paired successfully.");
-            }
-          }
-        } else if (src === "telegram") {
-          const mode = await select({
-            message: "Telegram transport mode:",
-            choices: [
-              { value: "polling", name: "Polling (no public URL required)" },
-              { value: "webhook", name: "Webhook (requires HTTPS reverse proxy)" },
-            ],
-            default: existing.TELEGRAM_MODE === "webhook" ? "webhook" : "polling",
-          });
-          wizard.TELEGRAM_MODE = mode;
-          if (mode === "webhook") {
-            const webhookUrl = await input({
-              message: `TELEGRAM_WEBHOOK_URL  ${reqTag(true)}:`,
-              default: existing.TELEGRAM_WEBHOOK_URL || "",
-              validate: (v) => {
-                try {
-                  const url = new URL(v);
-                  return url.protocol === "https:" ? true : "Use an HTTPS URL";
-                } catch {
-                  return "Enter a valid HTTPS URL";
-                }
-              },
-            });
-            wizard.TELEGRAM_WEBHOOK_URL = webhookUrl;
-            const webhookSecret = await input({
-              message: `TELEGRAM_WEBHOOK_SECRET  ${reqTag(true)}:`,
-              default: existing.TELEGRAM_WEBHOOK_SECRET || randomBytes(32).toString("hex"),
-              transformer: maskSecretInput,
-              validate: (value) => value.length >= 16 || "Use at least 16 characters",
-            });
-            wizard.TELEGRAM_WEBHOOK_SECRET = webhookSecret;
-          } else {
-            wizard.TELEGRAM_WEBHOOK_URL = "";
-            wizard.TELEGRAM_WEBHOOK_SECRET = "";
-          }
-          console.log();
-          info(def.ownerHint);
-          if (!existing.TELEGRAM_OWNER_USER_ID) {
-            const claimCode = `felix-claim-${randomBytes(12).toString("base64url")}`;
-            info("Use a new or inactive bot for this first-time claim; no Felix instance or webhook may be using it.");
-            info("Open a private chat with this Telegram bot and send this exact one-time message:");
-            console.log(`\n  ${c.bold}${c.yellow}${claimCode}${c.reset}\n`);
-            info("Waiting up to two minutes for the matching private message...");
-            const owner = await claimTelegramOwner({
-              botToken: wizard.TELEGRAM_BOT_TOKEN || existing.TELEGRAM_BOT_TOKEN,
-              claimCode,
-            });
-            wizard.TELEGRAM_OWNER_USER_ID = owner.userId;
-            succeed("Telegram owner claimed.");
-          } else {
-            wizard.TELEGRAM_OWNER_USER_ID = existing.TELEGRAM_OWNER_USER_ID;
-            succeed("Kept the existing Telegram owner claim.");
-          }
+        const wacliBin = existing.WHATSAPP_WACLI_BIN || "wacli";
+        const authStatus = checkSetupWacliAuth(wacliBin);
+        if (authStatus.status === "authenticated") {
+          succeed("wacli is already paired.");
+        } else if (authStatus.status === "locked") {
+          warn("wacli store is locked, likely by the running Felix container. Skipping pairing.");
+          info("Stop the container before re-pairing, or keep the existing logged-in session.");
         } else {
           console.log();
-          info(def.ownerHint);
-          for (const ownerKey of def.ownerKeys) {
-            const val = await input({
-              message: `${ownerKey}  ${reqTag(false)}:`,
-              default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
-            });
-            wizard[ownerKey] = val;
+          info("Pairing wacli with WhatsApp...");
+          info("A QR code will appear. Scan it with WhatsApp on your phone.");
+          info("WhatsApp → Settings → Linked Devices → Link a Device");
+          console.log();
+
+          const { exitCode } = await runWacliAuth(wacliBin);
+          if (exitCode !== 0) {
+            warn(`wacli auth failed. Run \`${wacliBin} auth\` manually.`);
+          } else {
+            succeed("WhatsApp paired successfully.");
           }
         }
+      } else if (src === "telegram") {
+        const mode = await select({
+          message: "Telegram transport mode:",
+          choices: [
+            { value: "polling", name: "Polling (no public URL required)" },
+            { value: "webhook", name: "Webhook (requires HTTPS reverse proxy)" },
+          ],
+          default: existing.TELEGRAM_MODE === "webhook" ? "webhook" : "polling",
+        });
+        wizard.TELEGRAM_MODE = mode;
+        if (mode === "webhook") {
+          const webhookUrl = await input({
+            message: `TELEGRAM_WEBHOOK_URL  ${reqTag(true)}:`,
+            default: existing.TELEGRAM_WEBHOOK_URL || "",
+            validate: (v) => {
+              try {
+                const url = new URL(v);
+                return url.protocol === "https:" ? true : "Use an HTTPS URL";
+              } catch {
+                return "Enter a valid HTTPS URL";
+              }
+            },
+          });
+          wizard.TELEGRAM_WEBHOOK_URL = webhookUrl;
+          const webhookSecret = await input({
+            message: `TELEGRAM_WEBHOOK_SECRET  ${reqTag(true)}:`,
+            default: existing.TELEGRAM_WEBHOOK_SECRET || randomBytes(32).toString("hex"),
+            transformer: maskSecretInput,
+            validate: (value) => value.length >= 16 || "Use at least 16 characters",
+          });
+          wizard.TELEGRAM_WEBHOOK_SECRET = webhookSecret;
+        } else {
+          wizard.TELEGRAM_WEBHOOK_URL = "";
+          wizard.TELEGRAM_WEBHOOK_SECRET = "";
+        }
+        console.log();
+        info(def.ownerHint);
+        info("First-time claims require a new or inactive bot with no registered webhook.");
+        const owner = await resolveSetupOwner({
+          source: "telegram",
+          credentials: {
+            botToken: wizard.TELEGRAM_BOT_TOKEN || existing.TELEGRAM_BOT_TOKEN,
+          },
+          existingOwnerId: existing.TELEGRAM_OWNER_USER_ID,
+          prompts: ownerDiscoveryPrompts(),
+        });
+        wizard.TELEGRAM_OWNER_USER_ID = owner.userId;
+        succeed("Telegram owner configured.");
+      } else if (src === "discord") {
+        console.log();
+        info(def.ownerHint);
+        info("The bot must allow Direct Messages. The claim uses only the Direct Messages intent.");
+        const owner = await resolveSetupOwner({
+          source: "discord",
+          credentials: {
+            botToken: wizard.DISCORD_BOT_TOKEN || existing.DISCORD_BOT_TOKEN,
+          },
+          existingOwnerId: existing.DISCORD_OWNER_USER_ID,
+          prompts: ownerDiscoveryPrompts(),
+        });
+        wizard.DISCORD_OWNER_USER_ID = owner.userId;
+        succeed("Discord owner configured.");
+      } else if (src === "slack") {
+        console.log();
+        info(def.ownerHint);
+        info("Socket Mode and the message.im event subscription must be enabled for the app.");
+        const owner = await resolveSetupOwner({
+          source: "slack",
+          credentials: {
+            botToken: wizard.SLACK_BOT_TOKEN || existing.SLACK_BOT_TOKEN,
+            appToken: wizard.SLACK_APP_TOKEN || existing.SLACK_APP_TOKEN,
+          },
+          existingOwnerId: existing.SLACK_OWNER_USER_ID,
+          prompts: ownerDiscoveryPrompts(),
+        });
+        wizard.SLACK_OWNER_USER_ID = owner.userId;
+        succeed("Slack owner configured.");
+      }
     }
 
     // ── Telegram privacy mode reminder ───────────────────────────────────────
@@ -940,15 +967,7 @@ async function main() {
       return;
     }
 
-    const retainedExisting = { ...existing };
-    for (const key of [
-      "MATTERMOST_OWNER_USERNAME",
-      "MATTERMOST_OWNER_DISPLAY",
-      "WHATSAPP_BOT_NAME",
-      "TELEGRAM_OWNER_DISPLAY",
-    ]) {
-      delete retainedExisting[key];
-    }
+    const retainedExisting = withoutLegacyOwnerPresentation(existing);
     writeSetupEnv(EXAMPLE_PATH, ENV_PATH, final, retainedExisting);
     if (!IN_CONTAINER && !existsSync(WORKSPACE_PATH)) {
       mkdirSync(WORKSPACE_PATH);
@@ -962,13 +981,15 @@ async function main() {
       succeed(`Done. Run \`${cmd}\` to start the agent.`);
     }
   } catch (err) {
-    if (err && err.name === "ExitPromptError") {
+    if (err && (err.name === "ExitPromptError" || err.name === "SetupOwnerDiscoveryCancelledError")) {
       console.log(`\n${c.yellow}Setup cancelled.${c.reset}`);
-      process.exit(0);
+      return;
     }
     console.error(`${c.red}ERROR:${c.reset} setup failed; no configuration was replaced. Re-run setup after checking prerequisites.`);
     process.exitCode = 1;
   }
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main();
+}

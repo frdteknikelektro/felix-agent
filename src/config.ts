@@ -52,28 +52,33 @@ const Env = z.object({
   MATTERMOST_BOT_USERNAME: z.string().optional(),
   MATTERMOST_BOT_DISPLAY: z.string().default(""),
   MATTERMOST_OWNER_USER_ID: z.string().optional(),
+  // Legacy owner presentation fallbacks; new setup resolves them at runtime.
   MATTERMOST_OWNER_USERNAME: z.string().optional(),
   MATTERMOST_OWNER_DISPLAY: z.string().default(""),
   DISCORD_BOT_TOKEN: z.string().optional(),
   DISCORD_BOT_USER_ID: z.string().optional(),
   DISCORD_OWNER_USER_ID: z.string().optional(),
+  // Legacy owner presentation override; new setup derives display at runtime.
   DISCORD_OWNER_DISPLAY: z.string().default("Owner"),
   SLACK_BOT_TOKEN: z.string().optional(),
   SLACK_APP_TOKEN: z.string().optional(),
   SLACK_BOT_USER_ID: z.string().optional(),
   SLACK_OWNER_USER_ID: z.string().optional(),
+  // Legacy owner presentation override; new setup derives display at runtime.
   SLACK_OWNER_DISPLAY: z.string().default("Owner"),
   WHATSAPP_BOT_ALIASES: z.string()
     .regex(/^[A-Za-z0-9_,]*$/, "WHATSAPP_BOT_ALIASES must be comma-separated letters, digits, and underscores")
     .optional()
     .transform((v) => v || undefined),
   WHATSAPP_OWNER_JID: z.string().optional(),
+  // Legacy owner presentation override; new setup uses the generic fallback.
   WHATSAPP_OWNER_DISPLAY: z.string().default("Owner"),
   WHATSAPP_WACLI_BIN: z.string().default("wacli"),
   WHATSAPP_WEBHOOK_SECRET: z.string().default(""),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USER_ID: z.string().optional(),
   TELEGRAM_OWNER_USER_ID: z.string().optional(),
+  // Legacy owner presentation override; new setup uses the generic fallback.
   TELEGRAM_OWNER_DISPLAY: z.string().default("Owner"),
   TELEGRAM_MODE: z.preprocess(
     (value) => (value === "" ? undefined : value),

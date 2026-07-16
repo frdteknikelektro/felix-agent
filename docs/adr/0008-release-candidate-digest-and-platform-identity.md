@@ -33,7 +33,7 @@ asset present before the manifest itself is generated.
 Each source exposes a runtime platform identity snapshot containing the bot ID
 or JID, optional username, optional display name, discovery source, and
 discovery status. Bot identity is discovered from the authenticated platform or
-paired account and is never written into `.env`; human owner IDs remain
-customer-configured. Telegram requires API discovery, while WhatsApp uses its
-paired JID and keeps display naming as an explicit override or `FELIX_NAME`
-fallback.
+paired account and is never written into `.env`; human owner authorization is
+stored as stable platform IDs or JIDs discovered during setup. Telegram requires
+API discovery, while WhatsApp uses its paired JID and `FELIX_NAME` for agent
+presentation.

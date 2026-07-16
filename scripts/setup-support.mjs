@@ -10,10 +10,21 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const SECRET_KEY_PATTERN = /(?:^|_)(?:TOKEN|SECRET|PASSWORD|KEY|AUTH|AUTH_JSON|CREDENTIALS?|CLIENT_ID)$/;
+const OWNER_IDENTIFIER_PATTERN = /(?:^|_)OWNER_(?:USER_ID|JID)$/;
+const LEGACY_OWNER_PRESENTATION_KEYS = new Set([
+  "MATTERMOST_OWNER_USERNAME",
+  "MATTERMOST_OWNER_DISPLAY",
+  "DISCORD_OWNER_DISPLAY",
+  "SLACK_OWNER_DISPLAY",
+  "WHATSAPP_BOT_NAME",
+  "WHATSAPP_OWNER_DISPLAY",
+  "TELEGRAM_OWNER_DISPLAY",
+]);
 
-/** Classify credentials by semantic field name so new integrations are masked by default. */
+/** Classify credentials and stable owner identifiers so setup review is safe by default. */
 export function isSecretKey(key) {
-  return SECRET_KEY_PATTERN.test(String(key).toUpperCase());
+  const normalized = String(key).toUpperCase();
+  return SECRET_KEY_PATTERN.test(normalized) || OWNER_IDENTIFIER_PATTERN.test(normalized);
 }
 
 /** Render environment values for setup hints and review without leaking credentials. */
@@ -25,6 +36,13 @@ export function displayEnvValue(key, value) {
 /** Mask every credential character; never reveal a trailing character while typing. */
 export function maskSecretInput(value) {
   return "*".repeat(String(value ?? "").length);
+}
+
+/** Keep upgrade-compatible inputs in config parsing, but omit them from setup rewrites. */
+export function withoutLegacyOwnerPresentation(existing) {
+  return Object.fromEntries(
+    Object.entries(existing).filter(([key]) => !LEGACY_OWNER_PRESENTATION_KEYS.has(key)),
+  );
 }
 
 /** Write a complete file through a same-directory temporary file and atomic rename. */

@@ -21,8 +21,19 @@ import { preferDiscoveredIdentity, type PlatformIdentity } from "../../core/plat
 
 // ─── Public constructors ──────────────────────────────────────────────────────
 
-export function createDiscordAdapter(cfg: AppConfig): SourceAdapter {
-  return new DiscordAdapter(cfg);
+interface DiscordAdapterDependencies {
+  createClient(options: ConstructorParameters<typeof Client>[0]): Client;
+}
+
+const DEFAULT_DISCORD_ADAPTER_DEPENDENCIES: DiscordAdapterDependencies = {
+  createClient: (options) => new Client(options),
+};
+
+export function createDiscordAdapter(
+  cfg: AppConfig,
+  dependencies: DiscordAdapterDependencies = DEFAULT_DISCORD_ADAPTER_DEPENDENCIES,
+): SourceAdapter {
+  return new DiscordAdapter(cfg, dependencies);
 }
 
 function platformIdentityFromDiscordUser(user: { id: string; username?: string; displayName?: string; globalName?: string | null; tag?: string }): PlatformIdentity {
@@ -65,15 +76,19 @@ class DiscordAdapter implements SourceAdapter {
     return this.cfg.DISCORD_OWNER_USER_ID;
   }
   get ownerDisplay(): string {
-    return this.cfg.DISCORD_OWNER_DISPLAY || "Owner";
+    return this.ownerIdentity?.displayName || this.cfg.DISCORD_OWNER_DISPLAY || "Owner";
   }
   private client?: Client;
+  private ownerIdentity?: PlatformIdentity;
   private guildIdCache = new Map<string, string | undefined>();
   private starterMessageCache = new Map<string, string | undefined>();
   private channelTypeCache = new Map<string, "dm" | "channel">();
   private readonly host = createSourceHost({ source: "discord" });
 
-  constructor(private readonly cfg: AppConfig) {}
+  constructor(
+    private readonly cfg: AppConfig,
+    private readonly dependencies: DiscordAdapterDependencies,
+  ) {}
 
   // ── start (supervisor contract) ──────────────────────────────────────────
 
@@ -85,7 +100,7 @@ class DiscordAdapter implements SourceAdapter {
       source: "discord",
       disabled: !this.cfg.DISCORD_BOT_TOKEN,
       connect: async () => {
-        const client = new Client({
+        const client = this.dependencies.createClient({
           intents: [
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
@@ -118,10 +133,22 @@ class DiscordAdapter implements SourceAdapter {
         });
 
         await client.login(this.cfg.DISCORD_BOT_TOKEN);
+        await this.discoverOwnerIdentity(client);
         this.client = client;
         return { disconnect: () => client.destroy() };
       },
     });
+  }
+
+  private async discoverOwnerIdentity(client: Client): Promise<void> {
+    const ownerId = this.cfg.DISCORD_OWNER_USER_ID;
+    if (!ownerId) return;
+    try {
+      const owner = await client.users.fetch(ownerId);
+      this.ownerIdentity = platformIdentityFromDiscordUser(owner);
+    } catch {
+      this.ownerIdentity = undefined;
+    }
   }
 
   // ── SourceAdapter implementation ─────────────────────────────────────────

@@ -184,7 +184,7 @@ describe("Mattermost source turn context", () => {
       MATTERMOST_URL: "https://mm.example.com",
       MATTERMOST_BOT_TOKEN: "token",
       MATTERMOST_OWNER_USER_ID: "owner-id",
-      MATTERMOST_OWNER_DISPLAY: "",
+      MATTERMOST_OWNER_DISPLAY: "Legacy Owner",
     });
     const adapter = createMattermostAdapter(cfg);
     const originalFetch = globalThis.fetch;
