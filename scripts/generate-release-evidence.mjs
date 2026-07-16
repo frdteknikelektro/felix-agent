@@ -4,6 +4,10 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseNamedArgs } from "./cli-args.mjs";
+import {
+  MANUAL_ACCEPTANCE_MARKDOWN,
+  verifyManualReleaseEvidence,
+} from "./manual-release-evidence.mjs";
 import { writeFileAtomic } from "./setup-support.mjs";
 
 function digest(content) {
@@ -11,26 +15,6 @@ function digest(content) {
 }
 
 const PLACEHOLDER_PATTERN = /\b(?:TBD|PENDING)\b/i;
-const REQUIRED_MANUAL_CHECKS = [
-  "AMD64 and ARM64 runtime/lifecycle matrix passed",
-  "Mattermost source matrix passed",
-  "Discord source matrix passed",
-  "Slack source matrix passed",
-  "WhatsApp source matrix passed",
-  "Telegram source matrix passed",
-  "Codex harness matrix passed",
-  "OpenCode harness matrix passed",
-  "Claude Code harness matrix passed",
-  "Dynamic bundled-skill and controlled Google Workspace matrix passed",
-  "Backup, fresh-host restore, 0.1.0 upgrade, failed-upgrade simulation, and rollback passed",
-  "Sensitive-log and evidence-redaction review passed",
-  "Documentation and final digest-consistency review passed",
-];
-
-function hasBindingLine(content, label, value) {
-  const expected = `- ${label}: ${value}`;
-  return content.split(/\r?\n/).some((line) => line.replaceAll("`", "").trim() === expected);
-}
 
 function parseArgs(argv) {
   return Object.fromEntries([...parseNamedArgs(argv)].map(([name, value]) => [
@@ -41,7 +25,7 @@ function parseArgs(argv) {
 
 export async function generateReleaseEvidence(input) {
   const required = [
-    "version", "candidateRunId", "candidateCommit", "imageDigest",
+    "version", "candidateRunId", "candidateCommit", "imageDigest", "acceptanceRunId",
     "scan", "sbom", "provenance", "manual", "artifactDir", "output",
   ];
   for (const field of required) {
@@ -50,8 +34,21 @@ export async function generateReleaseEvidence(input) {
   }
   if (!/^\d+\.\d+\.\d+$/.test(input.version)) throw new Error("version must be a semantic version without a v prefix");
   if (!/^\d+$/.test(input.candidateRunId)) throw new Error("candidate run ID must be numeric");
+  if (!/^\d+$/.test(input.acceptanceRunId)) throw new Error("acceptance run ID must be numeric");
   if (!/^[0-9a-f]{40}$/.test(input.candidateCommit)) throw new Error("candidate commit must be a full SHA-1");
   if (!/^sha256:[0-9a-f]{64}$/.test(input.imageDigest)) throw new Error("image digest must be sha256:<64 lowercase hex characters>");
+  if (path.resolve(input.manual) !== path.resolve(input.artifactDir, MANUAL_ACCEPTANCE_MARKDOWN)) {
+    throw new Error(`manual evidence must be ${MANUAL_ACCEPTANCE_MARKDOWN} in the release artifact directory`);
+  }
+  await verifyManualReleaseEvidence({
+    version: input.version,
+    candidateRunId: input.candidateRunId,
+    candidateCommit: input.candidateCommit,
+    imageDigest: input.imageDigest,
+    acceptanceRunId: input.acceptanceRunId,
+    evidenceDir: input.artifactDir,
+    allowAdditionalFiles: true,
+  });
 
   const artifacts = await Promise.all([input.scan, input.sbom, input.provenance, input.manual].map(async (file) => {
     const content = await readFile(file, "utf8");
@@ -76,27 +73,6 @@ export async function generateReleaseEvidence(input) {
       return { name: path.basename(file), sha256: digest(content) };
     }));
   if (releaseAssets.length === 0) throw new Error("release artifact directory is empty");
-  if (/^- \[ \]/m.test(manual.content)) throw new Error("manual evidence is incomplete");
-  const manualLines = manual.content.split(/\r?\n/).map((line) => line.replaceAll("`", "").trim());
-  for (const check of REQUIRED_MANUAL_CHECKS) {
-    const prefix = `- [x] ${check}:`;
-    if (!manualLines.some((line) => line.startsWith(prefix) && line.slice(prefix.length).trim().length > 0)) {
-      throw new Error(`manual evidence is missing completed check: ${check}`);
-    }
-  }
-  if (!manualLines.some((line) => line === `# Felix ${input.version} release evidence`)) {
-    throw new Error("manual evidence version does not match");
-  }
-  for (const [label, value] of [
-    ["Candidate run ID", input.candidateRunId],
-    ["Candidate commit", input.candidateCommit],
-    ["Candidate digest", input.imageDigest],
-  ]) {
-    if (!hasBindingLine(manual.content, label, value)) {
-      throw new Error(`manual evidence ${label.toLowerCase()} does not match`);
-    }
-  }
-
   const evidence = [
     `# Felix ${input.version} release evidence`,
     "",

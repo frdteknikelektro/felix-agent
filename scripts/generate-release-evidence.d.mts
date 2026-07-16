@@ -1,6 +1,7 @@
 export interface ReleaseEvidenceInput {
   version: string;
   candidateRunId: string;
+  acceptanceRunId: string;
   candidateCommit: string;
   imageDigest: string;
   scan: string;

@@ -99,6 +99,25 @@ describe("0.1.1 release contract", () => {
   });
 
   it("publishes only the exact verified candidate and promotes latest separately", async () => {
+    const acceptance = await readYaml(".github/workflows/release-acceptance.yml");
+    expect(acceptance.jobs.accept.environment).toBe("release-acceptance");
+    expect(acceptance.on.workflow_dispatch.inputs.confirmation.required).toBe(true);
+    expect(acceptance.on.workflow_dispatch.inputs.confirmation.description).toContain("ENVIRONMENT CONTROLS");
+    const bindAcceptance = acceptance.jobs.accept.steps.find(
+      (step: any) => step.name === "Bind acceptance to the exact successful candidate",
+    );
+    expect(bindAcceptance.run).toContain(".github/workflows/release-candidate.yml");
+    expect(bindAcceptance.run).toContain("candidate-manifest.json");
+    const prepareAcceptance = acceptance.jobs.accept.steps.find(
+      (step: any) => step.name === "Generate fixed-schema sanitized acceptance evidence",
+    );
+    expect(prepareAcceptance.run).toContain("manual-release-evidence.mjs");
+    expect(prepareAcceptance.run).toContain("--operation generate");
+    const checklist = await fs.readFile("docs/releases/0.1.1-release-checklist.md", "utf8");
+    expect(checklist).toContain("prevent self-review");
+    expect(checklist).toContain("disable administrator bypass");
+    expect(checklist).toContain("restrict deployment branches to `main`");
+
     const publish = await readYaml(".github/workflows/release-publish.yml");
     expect(publish.concurrency.group).toContain("release-publish-");
     expect(publish.concurrency["cancel-in-progress"]).toBe(false);
@@ -111,6 +130,8 @@ describe("0.1.1 release contract", () => {
     expect(download.run).toContain("workflow_dispatch");
     expect(download.run).toContain("candidate-runtime-smoke-amd64");
     expect(download.run).toContain("candidate-runtime-smoke-arm64");
+    expect(download.run).toContain(".github/workflows/release-acceptance.yml");
+    expect(download.run).toContain("manual-acceptance");
     const verify = publish.jobs.verify.steps.find((step: any) => step.name === "Verify candidate binding and complete evidence");
     expect(verify.run).toContain("verify-release-candidate.mjs");
     expect(verify.run).toContain("--evidence-dir release-evidence");
@@ -129,7 +150,10 @@ describe("0.1.1 release contract", () => {
     expect(verify.run).toContain("generate-release-evidence.mjs");
     expect(verify.run).toContain("--artifact-dir release-evidence");
     expect(verify.run).toContain("manual-acceptance.md");
-    expect(publish.on.workflow_dispatch.inputs.manual_evidence.required).toBe(true);
+    expect(verify.run).toContain("manual-release-evidence.mjs");
+    expect(verify.run).toContain("--operation verify");
+    expect(publish.on.workflow_dispatch.inputs.acceptance_run_id.required).toBe(true);
+    expect(publish.on.workflow_dispatch.inputs.manual_evidence).toBeUndefined();
     const publication = publish.jobs.publish.steps.find((step: any) => step.name === "Create immutable source and Docker tags");
     expect(publication.run).toContain("git tag -a");
     expect(publication.run).toContain("imagetools create");
@@ -155,7 +179,7 @@ describe("0.1.1 release contract", () => {
   });
 
   it("pins every third-party action to a full commit SHA", async () => {
-    for (const file of ["ci.yml", "release-candidate.yml", "release-publish.yml", "release-promote-latest.yml"]) {
+    for (const file of ["ci.yml", "release-candidate.yml", "release-acceptance.yml", "release-publish.yml", "release-promote-latest.yml"]) {
       const text = await fs.readFile(`.github/workflows/${file}`, "utf8");
       for (const match of text.matchAll(/uses:\s+([^\s#]+)/g)) {
         expect(match[1], `${file}: ${match[1]}`).toMatch(/@[0-9a-f]{40}$/);

@@ -1,0 +1,95 @@
+name: Record release acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful candidate workflow run ID
+        required: true
+        type: string
+      digest:
+        description: Accepted sha256 candidate digest
+        required: true
+        type: string
+      commit:
+        description: Accepted full source commit SHA
+        required: true
+        type: string
+      version:
+        description: Semver without v prefix
+        required: true
+        default: 0.1.1
+        type: string
+      confirmation:
+        description: Type I CONFIRM ALL RELEASE ACCEPTANCE GATES AND ENVIRONMENT CONTROLS PASSED
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-acceptance-${{ inputs.commit }}
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    environment: release-acceptance
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Bind acceptance to the exact successful candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.candidate_run_id }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+          DIGEST: ${{ inputs.digest }}
+          REPOSITORY: ${{ github.repository }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$CONFIRMATION" = "I CONFIRM ALL RELEASE ACCEPTANCE GATES AND ENVIRONMENT CONTROLS PASSED"
+          gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}" > /tmp/candidate-run.json
+          test "$(jq -r '.conclusion' /tmp/candidate-run.json)" = success
+          test "$(jq -r '.head_sha' /tmp/candidate-run.json)" = "$COMMIT"
+          test "$(jq -r '.path' /tmp/candidate-run.json)" = ".github/workflows/release-candidate.yml"
+          test "$(jq -r '.event' /tmp/candidate-run.json)" = workflow_dispatch
+          test "$(jq -r '.html_url' /tmp/candidate-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
+          gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-evidence" --dir candidate-evidence
+          jq --exit-status \
+            --arg run "$RUN_ID" \
+            --arg version "$VERSION" \
+            --arg commit "$COMMIT" \
+            --arg digest "$DIGEST" \
+            '.runId == $run and .version == $version and .commit == $commit and .digest == $digest' \
+            candidate-evidence/candidate-manifest.json
+      - name: Generate fixed-schema sanitized acceptance evidence
+        env:
+          VERSION: ${{ inputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_COMMIT: ${{ inputs.commit }}
+          IMAGE_DIGEST: ${{ inputs.digest }}
+          ACCEPTANCE_RUN_ID: ${{ github.run_id }}
+          ATTESTED_BY: ${{ github.actor }}
+        run: |
+          attested_at="$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')"
+          node scripts/manual-release-evidence.mjs \
+            --operation generate \
+            --version "$VERSION" \
+            --candidate-run-id "$CANDIDATE_RUN_ID" \
+            --candidate-commit "$CANDIDATE_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --acceptance-run-id "$ACCEPTANCE_RUN_ID" \
+            --attested-by "$ATTESTED_BY" \
+            --attested-at "$attested_at" \
+            --output-dir manual-evidence
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: felix-${{ inputs.version }}-manual-acceptance
+          path: manual-evidence
+          if-no-files-found: error
+          retention-days: 90

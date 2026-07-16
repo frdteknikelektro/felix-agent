@@ -20,8 +20,8 @@ on:
         required: true
         default: 0.1.1
         type: string
-      manual_evidence:
-        description: Sanitized completed 0.1.1 evidence markdown bound to this candidate
+      acceptance_run_id:
+        description: Successful release acceptance workflow run ID
         required: true
         type: string
 
@@ -54,6 +54,7 @@ jobs:
           RUN_ID: ${{ inputs.candidate_run_id }}
           VERSION: ${{ inputs.version }}
           COMMIT: ${{ inputs.commit }}
+          ACCEPTANCE_RUN_ID: ${{ inputs.acceptance_run_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
           gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}" > /tmp/candidate-run.json
@@ -66,25 +67,43 @@ jobs:
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-attestations" --dir release-evidence
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-runtime-smoke-amd64" --dir release-evidence
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-runtime-smoke-arm64" --dir release-evidence
+          gh api "repos/${REPOSITORY}/actions/runs/${ACCEPTANCE_RUN_ID}" > /tmp/acceptance-run.json
+          test "$(jq -r '.conclusion' /tmp/acceptance-run.json)" = success
+          test "$(jq -r '.head_sha' /tmp/acceptance-run.json)" = "$COMMIT"
+          test "$(jq -r '.path' /tmp/acceptance-run.json)" = ".github/workflows/release-acceptance.yml"
+          test "$(jq -r '.event' /tmp/acceptance-run.json)" = workflow_dispatch
+          test "$(jq -r '.html_url' /tmp/acceptance-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${ACCEPTANCE_RUN_ID}"
+          gh run download "$ACCEPTANCE_RUN_ID" --name "felix-${VERSION}-manual-acceptance" --dir manual-evidence
       - name: Verify candidate binding and complete evidence
         env:
           GH_TOKEN: ${{ github.token }}
-          MANUAL_EVIDENCE: ${{ inputs.manual_evidence }}
           COMMIT: ${{ inputs.commit }}
           DIGEST: ${{ inputs.digest }}
+          VERSION: ${{ inputs.version }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          ACCEPTANCE_RUN_ID: ${{ inputs.acceptance_run_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          node --input-type=module <<'NODE'
-          import { writeFileAtomic } from "./scripts/setup-support.mjs";
-          writeFileAtomic("release-evidence/manual-acceptance.md", process.env.MANUAL_EVIDENCE, 0o600);
-          NODE
+          node scripts/manual-release-evidence.mjs \
+            --operation verify \
+            --version "$VERSION" \
+            --candidate-run-id "$CANDIDATE_RUN_ID" \
+            --acceptance-run-id "$ACCEPTANCE_RUN_ID" \
+            --candidate-commit "$COMMIT" \
+            --image-digest "$DIGEST" \
+            --evidence-dir manual-evidence
+          for artifact in manual-evidence/*; do
+            name="${artifact##*/}"
+            test ! -e "release-evidence/${name}"
+            cp "$artifact" "release-evidence/${name}"
+          done
           docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}" > /tmp/registry-manifest.json
           node scripts/verify-release-candidate.mjs \
             --manifest release-evidence/candidate-manifest.json \
-            --run-id "${{ inputs.candidate_run_id }}" \
-            --digest "${{ inputs.digest }}" \
-            --commit "${{ inputs.commit }}" \
-            --version "${{ inputs.version }}" \
+            --run-id "$CANDIDATE_RUN_ID" \
+            --digest "$DIGEST" \
+            --commit "$COMMIT" \
+            --version "$VERSION" \
             --image "${IMAGE}" \
             --evidence-dir release-evidence \
             --registry-manifest /tmp/registry-manifest.json \
@@ -136,10 +155,11 @@ jobs:
             cmp "/tmp/verified-sbom-${architecture}.json" "/tmp/candidate-sbom-${architecture}.json"
           done
           node scripts/generate-release-evidence.mjs \
-            --version "${{ inputs.version }}" \
-            --candidate-run-id "${{ inputs.candidate_run_id }}" \
-            --candidate-commit "${{ inputs.commit }}" \
-            --image-digest "${{ inputs.digest }}" \
+            --version "$VERSION" \
+            --candidate-run-id "$CANDIDATE_RUN_ID" \
+            --acceptance-run-id "$ACCEPTANCE_RUN_ID" \
+            --candidate-commit "$COMMIT" \
+            --image-digest "$DIGEST" \
             --scan release-evidence/policy-result.json \
             --sbom release-evidence/sbom-manifest.json \
             --provenance release-evidence/provenance-attestation.jsonl \

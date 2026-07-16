@@ -6,7 +6,13 @@ customer-facing `0.1.1` tag only after scan policy, attestations, and manual
 acceptance pass. Manual `latest` promotion accepts only a digest that matches
 the verified `0.1.1` manifest. The `v0.1.0` source tag and image are never moved.
 Completed manual evidence is supplied separately from the immutable candidate
-commit and must repeat its run ID, commit, version, and digest exactly.
+commit by a protected release-acceptance workflow. That workflow emits only a
+fixed set of generic, fixed-schema pass records and a manifest containing their
+SHA-256 hashes, attesting dispatcher, attestation time, acceptance run ID, candidate run ID,
+commit, version, and digest. Publication downloads the exact successful
+acceptance run, rejects any missing, extra, renamed, non-file, or byte-mismatched
+asset, and revalidates every binding before retaining the bundle with the
+release.
 Before publication, both platform images must also boot from the accepted
 digest and produce sanitized runtime-smoke reports covering health, owner
 authentication, unauthorized API/SSE rejection, disabled sources, read-only

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildWorkspacePaths, ensureWorkspace } from "../src/workspace.js";
 import {
   createTask,
@@ -53,6 +53,7 @@ describe("tasks slice", () => {
   let cleanupDir: string;
 
   afterEach(async () => {
+    vi.useRealTimers();
     if (cleanupDir) {
       await fs.rm(cleanupDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -67,6 +68,8 @@ describe("tasks slice", () => {
   });
 
   it("generateTaskId uses the same timestamp prefix within a second", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-16T00:00:00.500Z"));
     const a = generateTaskId("Fix Login");
     const b = generateTaskId("Fix Login");
     const tsA = a.split("-")[0];
@@ -104,6 +107,8 @@ describe("tasks slice", () => {
   });
 
   it("createTask handles collision by appending suffix", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-16T00:00:00.500Z"));
     cfg = await makeTestCfg();
     cleanupDir = path.dirname(cfg.WORKSPACE_DIR);
     await ensureWorkspace(cfg.paths);
