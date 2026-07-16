@@ -14,6 +14,13 @@ services:
     volumes:
       - ./:/config
       - ./workspace:/home/node
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid
     profiles: ["setup"]
     stdin_open: true
     tty: true
@@ -35,6 +42,8 @@ services:
       - .env
     cap_drop:
       - ALL
+    security_opt:
+      - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid

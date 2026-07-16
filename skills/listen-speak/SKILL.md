@@ -15,6 +15,11 @@ metadata:
 
 Builtin skill for audio I/O — voice-note transcription (STT) and text-to-speech (TTS).
 
+## Permissions
+
+No permissions required. Audio processing and generated replies remain inside
+the active thread and its workspace-scoped runtime directories.
+
 ## STT — Voice-note transcription
 
 Attachments appear in the turn prompt as `<local_path> (<content_type>)`. Classify each audio attachment and handle it as described below.

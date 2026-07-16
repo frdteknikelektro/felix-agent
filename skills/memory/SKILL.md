@@ -6,6 +6,7 @@ metadata:
   kind: general
   version: "1.0.0"
   permissions: write
+  match: memory, remember, recall, persistent knowledge
 ---
 
 ## Permissions

@@ -91,6 +91,39 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  runtime-smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Exercise the exact candidate image
+        env:
+          CANDIDATE: ${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          mkdir -p release-evidence
+          bash scripts/smoke-candidate-image.sh \
+            "$CANDIDATE" \
+            "$ARCHITECTURE" \
+            "release-evidence/runtime-smoke-${ARCHITECTURE}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: felix-${{ inputs.version }}-candidate-runtime-smoke-${{ matrix.architecture }}
+          path: release-evidence/runtime-smoke-${{ matrix.architecture }}.json
+          if-no-files-found: error
+          retention-days: 90
+
   scan:
     needs: build
     runs-on: ubuntu-latest
@@ -220,6 +253,7 @@ jobs:
             --report /tmp/felix-private-evidence/trivy-combined.json \
             --vex security/vex.openvex.json \
             --review security/vex-review.json \
+            --review-schema security/vex-review.schema.json \
             --kev release-evidence/cisa-kev.json \
             --output release-evidence/policy-result.json
       - name: Write immutable candidate manifest
@@ -274,7 +308,7 @@ jobs:
           sarif_file: release-evidence/trivy.sarif
 
   attest:
-    needs: [build, scan]
+    needs: [build, scan, runtime-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read

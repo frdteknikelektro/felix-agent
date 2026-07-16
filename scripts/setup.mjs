@@ -6,7 +6,13 @@ import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
-import { displayEnvValue, writeFileAtomic } from "./setup-support.mjs";
+import {
+  displayEnvValue,
+  maskSecretInput,
+  parseSetupTemplate,
+  writeFileAtomic,
+  writeSetupEnv,
+} from "./setup-support.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
@@ -147,86 +153,6 @@ function readEnv(path) {
   return out;
 }
 
-function parseTemplate(path) {
-  const raw = readFileSync(path, "utf8");
-  return raw.split(/\r?\n/).map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return { type: "blank", raw: line };
-    if (trimmed.startsWith("#")) {
-      const inner = trimmed.slice(1).trim();
-      const eq = inner.indexOf("=");
-      if (eq > 0) {
-        return {
-          type: "optional",
-          raw: line,
-          key: inner.slice(0, eq).trim(),
-          value: inner.slice(eq + 1).trim(),
-        };
-      }
-      return { type: "comment", raw: line };
-    }
-    const eq = trimmed.indexOf("=");
-    if (eq < 1) return { type: "comment", raw: line };
-    return {
-      type: "setting",
-      raw: line,
-      key: trimmed.slice(0, eq).trim(),
-      value: trimmed.slice(eq + 1).trim(),
-    };
-  });
-}
-
-function writeEnv(templatePath, outputPath, answers, existing) {
-  const template = parseTemplate(templatePath);
-  const templateKeys = new Set();
-  const lines = template.map((entry) => {
-    if (entry.type === "setting") {
-      templateKeys.add(entry.key);
-      if (entry.key in answers) {
-        const eqIdx = entry.raw.indexOf("=");
-        let val = answers[entry.key] ?? "";
-        if (/[\s"'#]/.test(val) || val.includes("\n")) {
-          val = "'" + val.replace(/'/g, "'\\''") + "'";
-        }
-        return entry.raw.slice(0, eqIdx + 1) + val;
-      }
-      return entry.raw;
-    }
-    if (entry.type === "optional") {
-      templateKeys.add(entry.key);
-      if (entry.key in answers && answers[entry.key]) {
-        let val = answers[entry.key];
-        if (/[\s"'#]/.test(val) || val.includes("\n")) {
-          val = "'" + val.replace(/'/g, "'\\''") + "'";
-        }
-        return `${entry.key}=${val}`;
-      }
-      return entry.raw;
-    }
-    return entry.raw;
-  });
-
-  const extra = new Set([
-    ...Object.keys(answers).filter((k) => !templateKeys.has(k)),
-    ...Object.keys(existing || {}).filter((k) => !templateKeys.has(k) && !(k in answers) && existing[k]),
-  ]);
-  if (extra.size > 0) {
-    lines.push("");
-    lines.push("# ── Extra environment ──────────────────────────");
-    for (const key of [...extra].sort()) {
-      let val = key in answers ? (answers[key] ?? "") : existing[key];
-      if (/[\s"'#]/.test(val) || val.includes("\n")) {
-        val = "'" + val.replace(/'/g, "'\\''") + "'";
-      }
-      lines.push(`${key}=${val}`);
-    }
-  }
-
-  writeFileAtomic(outputPath, lines.join("\n") + "\n", 0o600);
-}
-
-
-
 async function ensureDeps() {
   // In container: dependencies are pre-installed
   if (IN_CONTAINER) return;
@@ -243,12 +169,6 @@ async function ensureDeps() {
       process.exit(1);
     }
   }
-}
-
-function secretTransformer(value, { isFinal }) {
-  if (isFinal) return "*".repeat(value.length);
-  if (value.length === 0) return `${c.dim}(empty)${c.reset}`;
-  return "*".repeat(value.length - 1) + value[value.length - 1];
 }
 
 function isStrongNewSecret(value) {
@@ -274,7 +194,7 @@ async function promptRequired(key, src, existing) {
     : "";
   const val = await input({
     message: `${key}  ${reqTag(true)}:${hint}`,
-    transformer: secretTransformer,
+    transformer: maskSecretInput,
     validate: (v) => {
       if (v.length > 0) return true;
       if (hasExisting) return true;
@@ -543,7 +463,7 @@ async function main() {
         console.log();
         const oaiKey = await input({
           message: `OPENAI_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENAI_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
-          transformer: secretTransformer,
+          transformer: maskSecretInput,
         });
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
       } else {
@@ -599,14 +519,14 @@ async function main() {
       const ocKey = ninerouterEnabled
         ? await input({
             message: `OPENCODE_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENCODE_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
-            transformer: secretTransformer,
+            transformer: maskSecretInput,
           })
         : await promptRequired("OPENCODE_API_KEY", "opencode", existing);
       if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
 
       const orKey = await input({
         message: `OPENROUTER_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENROUTER_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
-        transformer: secretTransformer,
+        transformer: maskSecretInput,
       });
       if (orKey) wizard.OPENROUTER_API_KEY = orKey;
 
@@ -633,7 +553,7 @@ async function main() {
       const ccKey = ninerouterEnabled
         ? await input({
             message: `ANTHROPIC_API_KEY  ${reqTag(false)}:${existingHint(existing, "ANTHROPIC_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
-            transformer: secretTransformer,
+            transformer: maskSecretInput,
           })
         : await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
       if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
@@ -662,7 +582,7 @@ async function main() {
     const secret = await input({
       message: `OWNER_UI_SECRET  ${reqTag(false)}:`,
       default: existing.OWNER_UI_SECRET || randomUUID(),
-      transformer: secretTransformer,
+      transformer: maskSecretInput,
       validate: (value) => validateSetupSecret(value, existing.OWNER_UI_SECRET),
     });
     if (existing.OWNER_UI_SECRET && !isStrongNewSecret(existing.OWNER_UI_SECRET)) {
@@ -681,6 +601,7 @@ async function main() {
     const dbKey = await input({
       message: `DB_ENCRYPTION_KEY  ${reqTag(false)}:`,
       default: existing.DB_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
+      transformer: maskSecretInput,
     });
     wizard.DB_ENCRYPTION_KEY = dbKey;
 
@@ -880,7 +801,7 @@ async function main() {
             const webhookSecret = await input({
               message: `TELEGRAM_WEBHOOK_SECRET  ${reqTag(true)}:`,
               default: existing.TELEGRAM_WEBHOOK_SECRET || randomBytes(32).toString("hex"),
-              transformer: secretTransformer,
+              transformer: maskSecretInput,
               validate: (value) => value.length >= 16 || "Use at least 16 characters",
             });
             wizard.TELEGRAM_WEBHOOK_SECRET = webhookSecret;
@@ -972,7 +893,7 @@ async function main() {
             default: hasExisting
               ? existing[v.key]
               : (v.default || (v.key === "GOG_KEYRING_PASSWORD" ? randomBytes(32).toString("hex") : "")),
-            transformer: v.secret ? secretTransformer : undefined,
+            transformer: v.secret ? maskSecretInput : undefined,
           });
           if (val) {
             wizard[v.key] = val;
@@ -993,7 +914,7 @@ async function main() {
       info("9router override is enabled — it will replace the selected harness key, base URL, and model at runtime.");
     }
 
-    const template = parseTemplate(EXAMPLE_PATH);
+    const template = parseSetupTemplate(EXAMPLE_PATH);
     const templateKeys = new Set();
     const final = {};
     for (const entry of template) {
@@ -1051,7 +972,7 @@ async function main() {
       return;
     }
 
-    writeEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
+    writeSetupEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
     if (!IN_CONTAINER && !existsSync(WORKSPACE_PATH)) {
       mkdirSync(WORKSPACE_PATH);
     }

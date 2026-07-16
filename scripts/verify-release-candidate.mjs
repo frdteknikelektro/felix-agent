@@ -16,6 +16,17 @@ const PLATFORM_FILES = {
     cyclonedx: "sbom-arm64.cyclonedx.json",
   },
 };
+const RUNTIME_SMOKE_CHECKS = [
+  "health",
+  "login",
+  "unauthenticated_api",
+  "unauthenticated_sse",
+  "disabled_sources",
+  "read_only_rootfs",
+  "restart_persistence",
+  "graceful_shutdown",
+  "crash_restart",
+];
 
 export function verifyCandidate(manifest, expected) {
   if (!/^\d+$/.test(String(manifest.runId))) throw new Error("candidate runId must be numeric");
@@ -68,6 +79,41 @@ export function verifyRegistryManifest(manifest, registryManifest) {
   };
 }
 
+/** Bind successful, exact-digest runtime acceptance to both supported architectures. */
+export function verifyRuntimeSmoke(manifest, reports) {
+  if (!Array.isArray(reports) || reports.length !== Object.keys(PLATFORM_FILES).length) {
+    throw new Error("runtime smoke evidence must contain exactly two platform reports");
+  }
+  const byPlatform = new Map(reports.map((report) => [report?.platform, report]));
+  if (byPlatform.size !== Object.keys(PLATFORM_FILES).length) {
+    throw new Error("runtime smoke evidence contains duplicate platforms");
+  }
+  const image = `${manifest.image}@${manifest.digest}`;
+  for (const platform of Object.keys(PLATFORM_FILES)) {
+    const report = byPlatform.get(platform);
+    if (!report || report.schemaVersion !== 1) {
+      throw new Error(`runtime smoke ${platform} report is missing or invalid`);
+    }
+    if (report.image !== image) {
+      throw new Error(`runtime smoke ${platform} is not bound to the candidate image`);
+    }
+    if (!Array.isArray(report.checks)) {
+      throw new Error(`runtime smoke ${platform} checks are missing`);
+    }
+    const checks = new Map(report.checks.map((check) => [check?.name, check]));
+    if (report.checks.length !== RUNTIME_SMOKE_CHECKS.length
+      || checks.size !== RUNTIME_SMOKE_CHECKS.length) {
+      throw new Error(`runtime smoke ${platform} must contain the complete check set`);
+    }
+    for (const name of RUNTIME_SMOKE_CHECKS) {
+      if (checks.get(name)?.passed !== true) {
+        throw new Error(`runtime smoke ${platform} check failed: ${name}`);
+      }
+    }
+  }
+  return { platforms: Object.keys(PLATFORM_FILES) };
+}
+
 export function verifyReleaseEvidence(manifest, { policy, scan, sbomManifest }) {
   verifyCandidate(manifest, manifest);
   const artifactName = `${manifest.image}@${manifest.digest}`;
@@ -115,7 +161,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const args = requireNamedArgs(
       parseNamedArgs(process.argv.slice(2)),
-      ["manifest", "run-id", "version", "commit", "digest", "image", "evidence-dir", "registry-manifest"],
+      [
+        "manifest",
+        "run-id",
+        "version",
+        "commit",
+        "digest",
+        "image",
+        "evidence-dir",
+        "registry-manifest",
+        "runtime-smoke-amd64",
+        "runtime-smoke-arm64",
+      ],
     );
     const manifest = JSON.parse(readFileSync(args.get("manifest"), "utf8"));
     verifyCandidate(manifest, {
@@ -131,6 +188,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       manifest,
       JSON.parse(readFileSync(args.get("registry-manifest"), "utf8")),
     );
+    verifyRuntimeSmoke(manifest, [
+      JSON.parse(readFileSync(args.get("runtime-smoke-amd64"), "utf8")),
+      JSON.parse(readFileSync(args.get("runtime-smoke-arm64"), "utf8")),
+    ]);
     verifyReleaseEvidence(manifest, {
       policy: JSON.parse(readFileSync(path.join(evidenceDir, "policy-result.json"), "utf8")),
       scan: JSON.parse(readFileSync(path.join(evidenceDir, "trivy-full.json"), "utf8")),

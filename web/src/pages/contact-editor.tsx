@@ -13,7 +13,7 @@ import { useUnsavedGuard } from "@/lib/use-unsaved";
 import { linesToList, listToText } from "@/lib/text";
 import type { ContactRecord } from "@/lib/types";
 
-const SOURCES = ["mattermost", "discord", "slack"];
+const SOURCES = ["mattermost", "discord", "slack", "whatsapp", "telegram"];
 
 export function ContactEditor({ mode }: { mode: "create" | "edit" }) {
   return mode === "create" ? <CreateContact /> : <EditContact />;

@@ -15,9 +15,16 @@ describe("0.1.1 release contract", () => {
       expect(service.read_only).toBe(true);
       expect(service.cap_drop).toContain("ALL");
       expect(service.cap_add).toBeUndefined();
+      expect(service.security_opt).toContain("no-new-privileges:true");
       expect(service.tmpfs).toContain("/tmp:rw,noexec,nosuid");
       expect(service.volumes).toContain("./workspace:/home/node");
       expect(service.secrets).toContain(".env");
+
+      const setup = compose.services.setup;
+      expect(setup.cap_drop).toContain("ALL");
+      expect(setup.security_opt).toContain("no-new-privileges:true");
+      expect(setup.read_only).toBe(true);
+      expect(setup.tmpfs).toContain("/tmp:rw,noexec,nosuid");
     }
     const imageCompose = await readYaml("docker-compose.image.yml");
     expect(imageCompose.services.felix.image).toBe("${FELIX_IMAGE:-frdinawan/felix-agent:0.1.1}");
@@ -41,6 +48,14 @@ describe("0.1.1 release contract", () => {
     expect(buildWith.provenance).toBe("mode=max");
     expect(buildWith.tags).toContain("candidate-");
     expect(jobs.build.steps.some((step: any) => step.name === "Reject an existing immutable candidate tag")).toBe(true);
+    expect(jobs["runtime-smoke"].needs).toBe("build");
+    expect(jobs["runtime-smoke"].strategy.matrix.architecture).toEqual(["amd64", "arm64"]);
+    const runtimeSmoke = jobs["runtime-smoke"].steps.find(
+      (step: any) => step.name === "Exercise the exact candidate image",
+    );
+    expect(runtimeSmoke.run).toContain("scripts/smoke-candidate-image.sh");
+    expect(runtimeSmoke.env.CANDIDATE).toContain("needs.build.outputs.digest");
+    expect(jobs.attest.needs).toContain("runtime-smoke");
 
     const rejectTag = jobs.build.steps.find((step: any) => step.name === "Reject an existing immutable candidate tag");
     expect(rejectTag.run).toContain("assert-image-tag-absent.mjs");
@@ -68,6 +83,7 @@ describe("0.1.1 release contract", () => {
     const policy = jobs.scan.steps.find((step: any) => step.name === "Enforce release risk policy");
     expect(policy.run).toContain("security/vex.openvex.json");
     expect(policy.run).toContain("security/vex-review.json");
+    expect(policy.run).toContain("--review-schema security/vex-review.schema.json");
     expect(policy["continue-on-error"]).toBe(true);
     expect(jobs.scan.steps.find((step: any) => step.uses?.startsWith("actions/upload-artifact"))?.if).toBe("always()");
     expect(jobs["code-scanning"].permissions["security-events"]).toBe("write");
@@ -93,13 +109,18 @@ describe("0.1.1 release contract", () => {
     expect(download.run).toContain(".github/workflows/release-candidate.yml");
     expect(download.run).toContain(".event");
     expect(download.run).toContain("workflow_dispatch");
+    expect(download.run).toContain("candidate-runtime-smoke-amd64");
+    expect(download.run).toContain("candidate-runtime-smoke-arm64");
     const verify = publish.jobs.verify.steps.find((step: any) => step.name === "Verify candidate binding and complete evidence");
     expect(verify.run).toContain("verify-release-candidate.mjs");
     expect(verify.run).toContain("--evidence-dir release-evidence");
     expect(verify.run).toContain("imagetools inspect --raw");
     expect(verify.run).toContain("--registry-manifest /tmp/registry-manifest.json");
+    expect(verify.run).toContain("runtime-smoke-amd64.json");
+    expect(verify.run).toContain("runtime-smoke-arm64.json");
     expect(verify.run).toContain("--image \"${IMAGE}\"");
     expect(verify.run).toContain("--report release-evidence/trivy-full.json");
+    expect(verify.run).toContain("--review-schema security/vex-review.schema.json");
     expect(verify.run).toContain("--output /tmp/recomputed-policy.json");
     expect(verify.run).toContain("recomputed-policy.sorted.json");
     expect(verify.run.match(/gh attestation verify/g)).toHaveLength(3);

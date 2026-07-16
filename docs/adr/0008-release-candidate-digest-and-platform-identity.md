@@ -7,6 +7,11 @@ acceptance pass. Manual `latest` promotion accepts only a digest that matches
 the verified `0.1.1` manifest. The `v0.1.0` source tag and image are never moved.
 Completed manual evidence is supplied separately from the immutable candidate
 commit and must repeat its run ID, commit, version, and digest exactly.
+Before publication, both platform images must also boot from the accepted
+digest and produce sanitized runtime-smoke reports covering health, owner
+authentication, unauthorized API/SSE rejection, disabled sources, read-only
+root operation, persistence across restart, graceful shutdown, and crash
+restart.
 Publication is serialized per version. Before creating or resuming a release,
 the publish workflow recomputes scan policy from the candidate's sanitized
 report, verifies the multi-architecture manifest and platform digests, verifies

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { writePrivateFileAtomic } from "./atomic-file.mjs";
 
 const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
@@ -23,8 +24,7 @@ const template = JSON.stringify({
 });
 
 try {
-  await writeFile(templatePath, `${template}\n`, { mode: 0o600 });
-  await chmod(templatePath, 0o600);
+  await writePrivateFileAtomic(templatePath, `${template}\n`);
   const command = process.env.GOG_BIN || "gog";
   const exitCode = await new Promise((resolve, reject) => {
     const child = spawn(command, ["auth", "credentials", "set", templatePath, "--expand-env"], {

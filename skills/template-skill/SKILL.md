@@ -1,53 +1,62 @@
 ---
 name: template-skill
-description: Replace with one leading-word description of the capability and one trigger for each distinct branch.
+description: Reference scaffold for a Felix skill definition. Use when the user asks to inspect or understand the bundled skill template.
 metadata:
   author: felix-agent
   kind: general
   version: "1.0.0"
-  permissions: template.read, template.write
-  match: replace with trigger phrase
-# env:
-#   - key: SERVICE_API_KEY
-#     description: Access token for the service
-#     required: true
+  match: skill template, skill definition scaffold, example SKILL.md
 ---
 
-# Template Skill
+# Skill Definition Template
 
-Replace this file; do not add sections merely because they appear here.
+No permissions required. This skill explains the scaffold only; creating or
+editing an installed skill belongs to the `skill-creator` skill and its
+`skill.write` permission boundary.
+
+## Execution
+
+1. Explain the relevant part of the scaffold below, or reproduce it when the
+   user explicitly asks for a template.
+2. Point out that `metadata.permissions` is omitted for reply-only behavior and
+   contains the narrowest permission names when a skill can mutate state.
+3. For an actual create or edit request, defer to `skill-creator`.
+
+## Scaffold
+
+```markdown
+---
+name: example-skill
+description: One leading capability phrase plus the triggers that should select it.
+metadata:
+  author: felix-agent
+  kind: general
+  version: "1.0.0"
+  permissions: example.read, example.write
+  match: example trigger, second trigger
+# env:
+#   - key: SERVICE_API_KEY
+#     description: Access token for the service.
+#     required: true
+#     secret: true
+---
+
+# Example Skill
 
 ## Permissions
 
-List every permission in frontmatter `permissions:` and explain what each gates below. When a skill needs no permissions, omit the frontmatter key and write:
-
-```
-No permissions required. <one-liner why>.
-```
-
-Otherwise, list each permission with a concrete boundary:
-
-- `template.read` — Read-only operations: listing, inspecting, querying state.
-- `template.write` — Mutations: creating, updating, deleting, or transitioning state.
-
-When a branch needs only read access, require only `template.read`. When any mutation is possible, require `template.write`. Emit `PERMISSION_REQUIRED` for the narrowest set the current operation actually needs.
+- `example.read` — Inspect the service without changing it.
+- `example.write` — Create, update, or delete service state.
 
 ## Execution
 
 1. Perform the first ordered action.
-   Completion: state the observable condition that proves this step finished.
+   Completion: state the observable condition proving the step finished.
 2. Perform the next action.
    Completion: account for every required output, mutation, or failure.
 3. Verify the result independently and report it.
+```
 
-## Branch reference
-
-Keep instructions needed by every run above. Put branch-specific schemas, commands, and examples in `references/<branch>.md`, then add a pointer that states exactly when to read it.
-
-## Constraints
-
-- Keep one source of truth for each rule.
-- Give fragile operations exact commands or a bundled script; leave variable work at higher freedom.
-- List bare permissions as `{domain}.{action}`. Felix namespaces them as `{skill-id}:{permission}`.
-- Keep output contracts only when another machine parses them.
-- End each step with a checkable, exhaustive completion criterion.
+Use branch-specific files under `references/` only when they reduce the common
+instruction path. Helper scripts belong under `scripts/` and must preserve the
+same permission boundary as the prose.

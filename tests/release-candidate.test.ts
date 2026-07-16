@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { evaluateImageReport } from "../scripts/evaluate-image-scan.mjs";
 import {
   verifyCandidate,
   verifyRegistryManifest,
   verifyReleaseEvidence,
+  verifyRuntimeSmoke,
 } from "../scripts/verify-release-candidate.mjs";
 
 const digest = `sha256:${"d".repeat(64)}`;
@@ -11,6 +13,9 @@ const amd64Digest = `sha256:${"a".repeat(64)}`;
 const arm64Digest = `sha256:${"b".repeat(64)}`;
 const commit = "1".repeat(40);
 const image = "frdinawan/felix-agent";
+const vex = JSON.parse(readFileSync("security/vex.openvex.json", "utf8"));
+const vexReview = JSON.parse(readFileSync("security/vex-review.json", "utf8"));
+const vexReviewSchema = JSON.parse(readFileSync("security/vex-review.schema.json", "utf8"));
 const manifest = {
   runId: "12345",
   version: "0.1.1",
@@ -62,7 +67,14 @@ describe("candidate-to-release binding", () => {
         }],
       }],
     };
-    const policy = evaluateImageReport(scan, { statements: [] }, { reviews: [] });
+    const policy = evaluateImageReport(
+      scan,
+      vex,
+      vexReview,
+      new Date("2026-07-16T00:00:00Z"),
+      { vulnerabilities: [] },
+      vexReviewSchema,
+    );
     const sbomManifest = {
       schemaVersion: 1,
       imageDigest: digest,
@@ -119,5 +131,44 @@ describe("candidate-to-release binding", () => {
           : entry
       )),
     })).toThrow(/linux\/arm64.*digest/i);
+  });
+
+  it("requires successful runtime smoke evidence for both candidate architectures", () => {
+    const checks = [
+      "health",
+      "login",
+      "unauthenticated_api",
+      "unauthenticated_sse",
+      "disabled_sources",
+      "read_only_rootfs",
+      "restart_persistence",
+      "graceful_shutdown",
+      "crash_restart",
+    ];
+    const reports = ["amd64", "arm64"].map((architecture) => ({
+      schemaVersion: 1,
+      image: `${image}@${digest}`,
+      platform: `linux/${architecture}`,
+      checks: checks.map((name) => ({ name, passed: true })),
+    }));
+
+    expect(verifyRuntimeSmoke(manifest, reports)).toEqual({
+      platforms: ["linux/amd64", "linux/arm64"],
+    });
+    expect(() => verifyRuntimeSmoke(manifest, reports.map((report) => (
+      report.platform === "linux/arm64"
+        ? { ...report, image: `${image}@sha256:${"e".repeat(64)}` }
+        : report
+    )))).toThrow(/runtime smoke.*candidate image/i);
+    expect(() => verifyRuntimeSmoke(manifest, reports.map((report) => (
+      report.platform === "linux/amd64"
+        ? {
+          ...report,
+          checks: report.checks.map((check) => (
+            check.name === "crash_restart" ? { ...check, passed: false } : check
+          )),
+        }
+        : report
+    )))).toThrow(/crash_restart/i);
   });
 });

@@ -117,7 +117,7 @@ docker compose run --rm --build setup   # re-run setup with fresh code
 docker compose up -d --build            # restart with fresh code
 ```
 
-> 🔒 **Security:** Secrets are injected via Docker secrets (not bind mounts). Container runs with `cap_drop: ALL` and read-only rootfs.
+> 🔒 **Security:** Secrets are injected via Docker secrets (not bind mounts). Runtime and setup containers drop all capabilities, prevent privilege escalation, and use a read-only root filesystem.
 
 The setup container mounts the host configuration directory at `/config` and atomically creates `/config/.env`. Set `FELIX_SETUP_ENV_FILE` to override that destination; local setup defaults to the repository `.env`.
 
@@ -219,7 +219,7 @@ Release vulnerability decisions are committed under `security/`. OpenVEX `not_af
 
 ## 📦 Runtime Image
 
-The agent image (`node:24-trixie-slim`, pinned by digest) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. The base image receives a monthly dependency review and every update must pass the full audit, build, architecture, and clean-start smoke gate. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
+The agent image (`node:24-bookworm-slim`, pinned by digest) bundles provider-neutral batteries: 🟢 Node, 🐍 Python with the core data stack, and common shell/file utilities. The base image receives a monthly dependency review and every update must pass the full audit, build, architecture, and clean-start smoke gate. Shared tooling lives under `workspace/runtime/` and persists across restarts — install extra CLIs on demand with the `install-tool` skill.
 
 ## 🧩 Skills
 

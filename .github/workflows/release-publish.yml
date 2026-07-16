@@ -64,6 +64,8 @@ jobs:
           test "$(jq -r '.html_url' /tmp/candidate-run.json)" = "https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-evidence" --dir release-evidence
           gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-attestations" --dir release-evidence
+          gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-runtime-smoke-amd64" --dir release-evidence
+          gh run download "$RUN_ID" --name "felix-${VERSION}-candidate-runtime-smoke-arm64" --dir release-evidence
       - name: Verify candidate binding and complete evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,11 +87,14 @@ jobs:
             --version "${{ inputs.version }}" \
             --image "${IMAGE}" \
             --evidence-dir release-evidence \
-            --registry-manifest /tmp/registry-manifest.json
+            --registry-manifest /tmp/registry-manifest.json \
+            --runtime-smoke-amd64 release-evidence/runtime-smoke-amd64.json \
+            --runtime-smoke-arm64 release-evidence/runtime-smoke-arm64.json
           node scripts/evaluate-image-scan.mjs \
             --report release-evidence/trivy-full.json \
             --vex security/vex.openvex.json \
             --review security/vex-review.json \
+            --review-schema security/vex-review.schema.json \
             --kev release-evidence/cisa-kev.json \
             --output /tmp/recomputed-policy.json
           jq --sort-keys . release-evidence/policy-result.json > /tmp/candidate-policy.sorted.json

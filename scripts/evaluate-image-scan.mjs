@@ -5,6 +5,115 @@ import { pathToFileURL } from "node:url";
 import { parseNamedArgs, requireNamedArgs } from "./cli-args.mjs";
 import { writeFileAtomic } from "./setup-support.mjs";
 
+const OPENVEX_STATUSES = new Set(["not_affected", "affected", "fixed", "under_investigation"]);
+const OPENVEX_JUSTIFICATIONS = new Set([
+  "component_not_present",
+  "vulnerable_code_not_present",
+  "vulnerable_code_not_in_execute_path",
+  "vulnerable_code_cannot_be_controlled_by_adversary",
+  "inline_mitigations_already_exist",
+]);
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDateTime(value) {
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && !Number.isNaN(new Date(value).valueOf());
+}
+
+/** Validate the JSON-Schema subset used by the committed VEX review contract. */
+export function validateJsonSchema(value, schema, path = "$review") {
+  const errors = [];
+  const type = schema?.type;
+  const validType = type === "object" ? isRecord(value)
+    : type === "array" ? Array.isArray(value)
+      : type === "string" ? typeof value === "string"
+        : true;
+  if (!validType) return [`${path} must be ${type}`];
+
+  if (type === "object") {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    for (const required of schema.required ?? []) {
+      if (!(required in value)) errors.push(`${path}.${required} is required`);
+    }
+    if (schema.additionalProperties === false) {
+      for (const property of Object.keys(value)) {
+        if (!(property in properties)) errors.push(`${path}.${property} is not allowed`);
+      }
+    }
+    for (const [property, childSchema] of Object.entries(properties)) {
+      if (property in value) errors.push(...validateJsonSchema(value[property], childSchema, `${path}.${property}`));
+    }
+  } else if (type === "array") {
+    value.forEach((item, index) => {
+      errors.push(...validateJsonSchema(item, schema.items ?? {}, `${path}[${index}]`));
+    });
+  } else if (type === "string") {
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      errors.push(`${path} must contain at least ${schema.minLength} character(s)`);
+    }
+    if (schema.pattern && !(new RegExp(schema.pattern).test(value))) {
+      errors.push(`${path} must match ${schema.pattern}`);
+    }
+    if (schema.format === "date-time" && !isDateTime(value)) {
+      errors.push(`${path} must be an RFC 3339 date-time`);
+    }
+  }
+  return errors;
+}
+
+/** Validate the standalone OpenVEX fields that can influence suppression. */
+export function validateOpenVexDocument(vex) {
+  const errors = [];
+  if (!isRecord(vex)) return ["$vex must be an object"];
+  if (vex["@context"] !== "https://openvex.dev/ns/v0.2.0") errors.push("$vex.@context must identify OpenVEX v0.2.0");
+  for (const field of ["@id", "author"]) {
+    if (typeof vex[field] !== "string" || vex[field].trim() === "") errors.push(`$vex.${field} must be a non-empty string`);
+  }
+  if (!isDateTime(vex.timestamp)) errors.push("$vex.timestamp must be an RFC 3339 date-time");
+  if (!Number.isInteger(vex.version) || vex.version < 1) errors.push("$vex.version must be a positive integer");
+  if (!Array.isArray(vex.statements)) return [...errors, "$vex.statements must be an array"];
+
+  const statementKeys = new Set();
+  vex.statements.forEach((statement, index) => {
+    const location = `$vex.statements[${index}]`;
+    if (!isRecord(statement)) {
+      errors.push(`${location} must be an object`);
+      return;
+    }
+    const vulnerability = statement.vulnerability?.name;
+    if (typeof vulnerability !== "string" || vulnerability.trim() === "") {
+      errors.push(`${location}.vulnerability.name must be a non-empty string`);
+    }
+    if (!OPENVEX_STATUSES.has(statement.status)) errors.push(`${location}.status is not a valid OpenVEX status`);
+    if (!Array.isArray(statement.products) || statement.products.length === 0) {
+      errors.push(`${location}.products must identify at least one package PURL`);
+    } else {
+      for (const [productIndex, product] of statement.products.entries()) {
+        const purl = product?.["@id"];
+        if (typeof purl !== "string" || !purl.startsWith("pkg:")) {
+          errors.push(`${location}.products[${productIndex}].@id must be a package PURL`);
+          continue;
+        }
+        const statementKey = key(vulnerability ?? "", purl);
+        if (statementKeys.has(statementKey)) errors.push(`${location} duplicates ${vulnerability} and ${purl}`);
+        statementKeys.add(statementKey);
+      }
+    }
+    if (statement.status === "not_affected") {
+      if (!OPENVEX_JUSTIFICATIONS.has(statement.justification)) {
+        errors.push(`${location}.justification is not a valid OpenVEX not_affected justification`);
+      }
+      if (typeof statement.impact_statement !== "string" || statement.impact_statement.trim() === "") {
+        errors.push(`${location}.impact_statement must provide the reviewed non-applicability rationale`);
+      }
+    }
+  });
+  return errors;
+}
+
 function key(vulnerability, product) {
   return `${vulnerability}\u0000${product}`;
 }
@@ -59,12 +168,22 @@ export function policyReportFingerprint(report) {
 }
 
 /** Apply Felix's candidate-image policy without copying sensitive scan matches to output. */
-export function evaluateImageReport(report, vex, review, now = new Date(), kevCatalog = { vulnerabilities: [] }) {
+export function evaluateImageReport(
+  report,
+  vex,
+  review,
+  now = new Date(),
+  kevCatalog = { vulnerabilities: [] },
+  reviewSchema,
+) {
   const vulnerabilities = [];
   const blockers = [];
   const recorded = [];
   const suppressed = [];
   const policyErrors = [];
+  if (!isRecord(reviewSchema)) throw new Error("committed VEX review schema is required");
+  policyErrors.push(...validateOpenVexDocument(vex));
+  policyErrors.push(...validateJsonSchema(review, reviewSchema));
   if (!Array.isArray(kevCatalog.vulnerabilities)) {
     throw new Error("CISA KEV catalog must contain a vulnerabilities array");
   }
@@ -98,10 +217,33 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
   }
 
   const findingKeys = new Set(vulnerabilities.map((item) => key(item.vulnerability, item.product)));
-  const reviews = new Map((review.reviews ?? []).map((item) => [key(item.vulnerability, item.product), item]));
+  const reviewItems = Array.isArray(review?.reviews) ? review.reviews : [];
+  const reviews = new Map();
+  for (const item of reviewItems) {
+    if (!isRecord(item)) continue;
+    const reviewKey = key(item.vulnerability, item.product);
+    if (reviews.has(reviewKey)) policyErrors.push(`duplicate VEX review for ${item.vulnerability} and ${item.product}`);
+    reviews.set(reviewKey, item);
+  }
+  const statements = Array.isArray(vex?.statements) ? vex.statements : [];
+  const vexReviewKeys = new Set();
+  for (const statement of statements) {
+    if (statement?.status !== "not_affected") continue;
+    for (const product of statement.products ?? []) {
+      if (statement.vulnerability?.name && product?.["@id"]) {
+        vexReviewKeys.add(key(statement.vulnerability.name, product["@id"]));
+      }
+    }
+  }
+  for (const item of reviewItems) {
+    if (isRecord(item) && !vexReviewKeys.has(key(item.vulnerability, item.product))) {
+      policyErrors.push(`unmatched VEX review for ${item.vulnerability} and ${item.product}`);
+    }
+  }
   const validSuppressions = new Set();
+  const suppressionContractValid = policyErrors.length === 0;
 
-  for (const statement of vex.statements ?? []) {
+  for (const statement of statements) {
     if (statement.status !== "not_affected") continue;
     const vulnerability = statement.vulnerability?.name ?? "";
     const products = statement.products ?? [];
@@ -139,7 +281,7 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
         policyErrors.push(`future-dated VEX review for ${vulnerability} and ${product}`);
         continue;
       }
-      validSuppressions.add(statementKey);
+      if (suppressionContractValid) validSuppressions.add(statementKey);
     }
   }
 
@@ -174,7 +316,7 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
 function run() {
   const args = requireNamedArgs(
     parseNamedArgs(process.argv.slice(2)),
-    ["report", "vex", "review", "kev", "output"],
+    ["report", "vex", "review", "review-schema", "kev", "output"],
   );
   const result = evaluateImageReport(
     JSON.parse(readFileSync(args.get("report"), "utf8")),
@@ -182,6 +324,7 @@ function run() {
     JSON.parse(readFileSync(args.get("review"), "utf8")),
     new Date(),
     JSON.parse(readFileSync(args.get("kev"), "utf8")),
+    JSON.parse(readFileSync(args.get("review-schema"), "utf8")),
   );
   writeFileAtomic(args.get("output"), `${JSON.stringify(result, null, 2)}\n`, 0o600);
   if (result.blockers.length > 0 || result.policyErrors.length > 0) process.exitCode = 1;

@@ -11,6 +11,10 @@ export function verifyRegistryManifest(
   manifest: CandidateManifest,
   registryManifest: any,
 ): { amd64Digest: string; arm64Digest: string };
+export function verifyRuntimeSmoke(
+  manifest: CandidateManifest,
+  reports: any[],
+): { platforms: string[] };
 export function verifyReleaseEvidence(
   manifest: CandidateManifest,
   evidence: { policy: any; scan: any; sbomManifest: any },

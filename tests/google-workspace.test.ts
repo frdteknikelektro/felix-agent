@@ -1,13 +1,39 @@
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runGoogleWorkspaceOperation } from "../skills/google-workspace/scripts/run-workflow.mjs";
+import { writePrivateFileAtomic } from "../skills/google-workspace/scripts/atomic-file.mjs";
 
 const helper = path.resolve("skills/google-workspace/scripts/import-credentials.mjs");
 
 describe("Google Workspace credential import", () => {
+  it("atomically writes generated authentication files with private permissions", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "felix-google-atomic-"));
+    const destination = path.join(root, "credentials.json");
+    try {
+      await writePrivateFileAtomic(destination, '{"client_id":"placeholder"}\n');
+      expect(await readFile(destination, "utf8")).toBe('{"client_id":"placeholder"}\n');
+      expect((await stat(destination)).mode & 0o777).toBe(0o600);
+      expect(await readdir(root)).toEqual(["credentials.json"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the private temporary file when atomic publication fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "felix-google-atomic-failure-"));
+    const destination = path.join(root, "credentials.json");
+    try {
+      await mkdir(destination);
+      await expect(writePrivateFileAtomic(destination, "sensitive\n")).rejects.toThrow();
+      expect(await readdir(root)).toEqual(["credentials.json"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("checks permission before auth, schema discovery, and execution", async () => {
     const calls: string[] = [];
     const result = await runGoogleWorkspaceOperation({

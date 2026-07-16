@@ -2,7 +2,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { displayEnvValue, isSecretKey, writeFileAtomic } from "../scripts/setup-support.mjs";
+import {
+  displayEnvValue,
+  isSecretKey,
+  maskSecretInput,
+  writeFileAtomic,
+  writeSetupEnv,
+} from "../scripts/setup-support.mjs";
 
 const knownCredentialKeys = [
   "OWNER_UI_SECRET",
@@ -53,9 +59,35 @@ describe("setup secret classification", () => {
     expect(displayEnvValue("FELIX_NAME", "Ada")).toBe("Ada");
     expect(displayEnvValue("OPENAI_API_KEY", "")).toBe("<not set>");
   });
+
+  it("masks every character while a credential is being entered", () => {
+    const value = "distinct-secret-value-1234";
+    expect(maskSecretInput(value, { isFinal: false })).toBe("*".repeat(value.length));
+    expect(maskSecretInput(value, { isFinal: true })).toBe("*".repeat(value.length));
+    expect(maskSecretInput(value, { isFinal: false })).not.toContain("1234");
+  });
 });
 
 describe("atomic setup writes", () => {
+  it("creates the configured .env from a clean configuration directory", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-clean-setup-"));
+    const target = path.join(root, "config", ".env");
+    const ownerSecret = "generated-owner-secret-1234567890";
+
+    writeSetupEnv(".env.example", target, {
+      FELIX_NAME: "Felix",
+      OWNER_UI_SECRET: ownerSecret,
+      HARNESS: "codex",
+    }, {});
+
+    const contents = await fs.readFile(target, "utf8");
+    expect(contents).toContain("FELIX_NAME=Felix");
+    expect(contents).toContain(`OWNER_UI_SECRET=${ownerSecret}`);
+    expect(contents).toContain("HARNESS=codex");
+    expect((await fs.stat(target)).mode & 0o777).toBe(0o600);
+    expect(await fs.readdir(path.dirname(target))).toEqual([".env"]);
+  });
+
   it("creates a new environment file with owner-only permissions and no temp residue", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-setup-write-"));
     const target = path.join(dir, ".env");
