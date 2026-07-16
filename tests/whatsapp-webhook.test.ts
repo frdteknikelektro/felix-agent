@@ -5,7 +5,9 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import {
+  createWhatsAppAdapter,
   handleWhatsAppWebhook,
+  startWhatsAppSource,
   whatsappSourceThreadRef,
   whatsappThreadKey,
 } from "../src/adapters/whatsapp/index.js";
@@ -148,6 +150,40 @@ describe("handleWhatsAppWebhook", () => {
       headers: { "x-wacli-signature": originalSignature },
     });
     expect(result.status).toBe(400);
+  });
+
+  it("reuses one generated webhook secret across source restarts and HTTP verification", async () => {
+    cfg = await makeTestConfig("wa-wh-generated-secret-", { WHATSAPP_WEBHOOK_SECRET: "" });
+    const capturedArgs = path.join(cfg.paths.runtime, "wacli-args.txt");
+    await installFakeWacli(cfg, `
+if [ "$1" = "doctor" ]; then
+  printf '%s\\n' '{"data":{"linked_jid":"bot@s.whatsapp.net","connected":true}}'
+  exit 0
+fi
+if [ "$1" = "sync" ]; then
+  printf '%s\\n' "$@" >> "${capturedArgs}"
+  exit 0
+fi
+exit 1
+`);
+    const adapter = createWhatsAppAdapter(cfg);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const source = await startWhatsAppSource(cfg, engine, adapter);
+      await source.done;
+    }
+    const args = (await fs.readFile(capturedArgs, "utf8")).trim().split("\n");
+    const secrets = args.flatMap((value, index) => value === "--webhook-secret" ? [args[index + 1]] : []);
+    expect(secrets).toHaveLength(2);
+    expect(secrets[0]).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets[1]).toBe(secrets[0]);
+
+    const body = "not json";
+    const signature = `sha256=${crypto.createHmac("sha256", secrets[0]).update(body).digest("hex")}`;
+    expect((await sendWebhook(cfg, engine, body, {
+      signed: false,
+      headers: { "x-wacli-signature": signature },
+    })).status).toBe(400);
+    expect((await sendWebhook(cfg, engine, body, { signed: false })).status).toBe(401);
   });
 
   it("returns 400 for invalid JSON body", async () => {

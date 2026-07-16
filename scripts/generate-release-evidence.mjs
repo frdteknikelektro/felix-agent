@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { parseNamedArgs } from "./cli-args.mjs";
 import { writeFileAtomic } from "./setup-support.mjs";
 
 function digest(content) {
@@ -31,15 +32,10 @@ function hasBindingLine(content, label, value) {
 }
 
 function parseArgs(argv) {
-  const args = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const name = argv[index];
-    if (!name.startsWith("--")) throw new Error(`unexpected argument: ${name}`);
-    const value = argv[++index];
-    if (!value || value.startsWith("--")) throw new Error(`missing value for ${name}`);
-    args[name.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = value;
-  }
-  return args;
+  return Object.fromEntries([...parseNamedArgs(argv)].map(([name, value]) => [
+    name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()),
+    value,
+  ]));
 }
 
 export async function generateReleaseEvidence(input) {

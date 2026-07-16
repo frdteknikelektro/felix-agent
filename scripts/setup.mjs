@@ -6,7 +6,7 @@ import os from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { input, select, checkbox, confirm } from "@inquirer/prompts";
-import { isSecretKey, writeFileAtomic } from "./setup-support.mjs";
+import { displayEnvValue, writeFileAtomic } from "./setup-support.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
@@ -127,12 +127,6 @@ const SOURCE_DEFS = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-function mask(value) {
-  if (!value) return "<not set>";
-  if (value.length <= 6) return "*".repeat(value.length);
-  return "****" + value.slice(-4);
-}
 
 function readEnv(path) {
   if (!existsSync(path)) return {};
@@ -268,7 +262,7 @@ function validateSetupSecret(value, existing) {
 
 function existingHint(existing, key) {
   if (existing && key in existing && existing[key]) {
-    return `  ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`;
+    return `  ${c.dim}(current: ${displayEnvValue(key, existing[key])} — Enter to keep)${c.reset}`;
   }
   return "";
 }
@@ -276,7 +270,7 @@ function existingHint(existing, key) {
 async function promptRequired(key, src, existing) {
   const hasExisting = existing && existing[key];
   const hint = hasExisting
-    ? `  ${c.dim}(current: ${mask(existing[key])} — Enter to keep)${c.reset}`
+    ? `  ${c.dim}(current: ${displayEnvValue(key, existing[key])} — Enter to keep)${c.reset}`
     : "";
   const val = await input({
     message: `${key}  ${reqTag(true)}:${hint}`,
@@ -971,7 +965,7 @@ async function main() {
         for (const v of vars) {
           const hasExisting = existing && existing[v.key];
           const hint = hasExisting
-            ? `  ${c.dim}(current: ${mask(existing[v.key])} — Enter to keep)${c.reset}`
+            ? `  ${c.dim}(current: ${displayEnvValue(v.key, existing[v.key])} — Enter to keep)${c.reset}`
             : "";
           const val = await input({
             message: `${v.key}  ${reqTag(v.required)}:${hint}`,
@@ -1031,14 +1025,12 @@ async function main() {
       if (entry.type === "comment" && /^# ──/.test(entry.raw)) {
         console.log(`  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
       } else if (entry.type === "setting" && entry.key in final) {
-        const display = isSecretKey(entry.key)
-          ? c.dim + mask(final[entry.key]) + c.reset
-          : final[entry.key] || `${c.dim}<not set>${c.reset}`;
+        const rendered = displayEnvValue(entry.key, final[entry.key]);
+        const display = rendered.startsWith("<") ? c.dim + rendered + c.reset : rendered;
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
       } else if (entry.type === "optional" && entry.key in final && final[entry.key]) {
-        const display = isSecretKey(entry.key)
-          ? c.dim + mask(final[entry.key]) + c.reset
-          : final[entry.key];
+        const rendered = displayEnvValue(entry.key, final[entry.key]);
+        const display = rendered.startsWith("<") ? c.dim + rendered + c.reset : rendered;
         console.log(`  ${c.bold}${pad(entry.key, maxKey)}${c.reset}  ${display}`);
       }
     }
@@ -1046,9 +1038,8 @@ async function main() {
     if (skillExtras.length > 0) {
       console.log(`  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
       for (const key of skillExtras.sort()) {
-        const display = isSecretKey(key)
-          ? c.dim + mask(final[key]) + c.reset
-          : final[key];
+        const rendered = displayEnvValue(key, final[key]);
+        const display = rendered.startsWith("<") ? c.dim + rendered + c.reset : rendered;
         console.log(`  ${c.bold}${pad(key, maxKey)}${c.reset}  ${display}`);
       }
     }

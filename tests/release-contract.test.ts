@@ -30,6 +30,8 @@ describe("0.1.1 release contract", () => {
   it("builds and scans an immutable multi-architecture candidate", async () => {
     const workflow = await readYaml(".github/workflows/release-candidate.yml");
     const jobs = workflow.jobs;
+    const dependencyValidation = jobs.checks.steps.find((step: any) => step.name === "Validate dependency trees");
+    expect(dependencyValidation.run).toBe("npm run validate:deps");
     expect(jobs.build.outputs.digest).toContain("steps.build.outputs.digest");
     const buildWith = jobs.build.steps.find((step: any) => step.id === "build").with;
     expect(buildWith.platforms).toBe("linux/amd64,linux/arm64");
@@ -38,9 +40,27 @@ describe("0.1.1 release contract", () => {
     expect(buildWith.tags).toContain("candidate-");
     expect(jobs.build.steps.some((step: any) => step.name === "Reject an existing immutable candidate tag")).toBe(true);
 
-    const scan = jobs.scan.steps.find((step: any) => step.name === "Install Trivy and create the unfiltered audit report");
-    expect(scan.with["image-ref"]).toContain("needs.build.outputs.digest");
+    const rejectTag = jobs.build.steps.find((step: any) => step.name === "Reject an existing immutable candidate tag");
+    expect(rejectTag.run).toContain("assert-image-tag-absent.mjs");
+    expect(rejectTag.run).not.toContain("! docker");
+
+    const prepare = jobs.scan.steps.find((step: any) => step.name === "Resolve platform digests and prepare evidence storage");
+    expect(prepare.run).toContain("mkdir -p release-evidence");
+    expect(prepare.run).toContain("linux/amd64");
+    expect(prepare.run).toContain("linux/arm64");
+
+    const scan = jobs.scan.steps.find((step: any) => step.name === "Install Trivy and scan the AMD64 image");
+    expect(scan.with["image-ref"]).toContain("steps.platforms.outputs.amd64");
+    expect(scan.with.scanners).toContain("misconfig");
     expect(scan.with.severity).toContain("UNKNOWN");
+    expect(scan.with.output).toContain("/tmp/");
+    const evidence = jobs.scan.steps.find((step: any) => step.name === "Generate sanitized multi-architecture evidence");
+    expect(evidence.env.ARM64_IMAGE).toContain("steps.platforms.outputs.arm64");
+    expect(evidence.run).toContain("--scanners vuln,misconfig,secret");
+    expect(evidence.run).toContain("--scanners vuln,misconfig --format sarif");
+    expect(evidence.run).toContain("sanitize-trivy-report.mjs");
+    expect(evidence.run).toContain("sbom-amd64.spdx.json");
+    expect(evidence.run).toContain("sbom-arm64.spdx.json");
     const policy = jobs.scan.steps.find((step: any) => step.name === "Enforce release risk policy");
     expect(policy.run).toContain("security/vex.openvex.json");
     expect(policy.run).toContain("security/vex-review.json");
@@ -65,6 +85,9 @@ describe("0.1.1 release contract", () => {
     expect(publication.run).toContain("git tag -a");
     expect(publication.run).toContain("imagetools create");
     expect(publication.run).toContain("imagetools inspect");
+    expect(publication.run).toContain("git ls-remote --exit-code");
+    expect(publication.run).toContain("assert-image-tag-absent.mjs");
+    expect(publication.run).not.toContain("test -z \"$(git ls-remote");
 
     const promotionWorkflow = await readYaml(".github/workflows/release-promote-latest.yml");
     const promotion = promotionWorkflow.jobs.promote.steps.find((step: any) => step.name === "Promote only the immutable 0.1.1 digest");

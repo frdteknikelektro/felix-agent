@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { parseNamedArgs, requireNamedArgs } from "./cli-args.mjs";
 import { writeFileAtomic } from "./setup-support.mjs";
 
 function key(vulnerability, product) {
@@ -81,6 +82,10 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
     }
     for (const productEntry of products) {
       const product = productEntry["@id"] ?? productEntry.component_identifier ?? "";
+      if (!product) {
+        policyErrors.push(`missing product PURL for ${vulnerability}`);
+        continue;
+      }
       const statementKey = key(vulnerability, product);
       if (!findingKeys.has(statementKey)) {
         policyErrors.push(`unmatched VEX statement for ${vulnerability} and ${product || "missing product"}`);
@@ -127,23 +132,11 @@ export function evaluateImageReport(report, vex, review, now = new Date(), kevCa
   return { blockers, recorded, suppressed, policyErrors };
 }
 
-function parseArgs(argv) {
-  const args = new Map();
-  for (let index = 0; index < argv.length; index += 1) {
-    const name = argv[index];
-    if (!name.startsWith("--")) throw new Error(`unexpected argument: ${name}`);
-    const value = argv[++index];
-    if (!value || value.startsWith("--")) throw new Error(`missing value for ${name}`);
-    args.set(name.slice(2), value);
-  }
-  return args;
-}
-
 function run() {
-  const args = parseArgs(process.argv.slice(2));
-  for (const required of ["report", "vex", "review", "kev", "output"]) {
-    if (!args.has(required)) throw new Error(`--${required} is required`);
-  }
+  const args = requireNamedArgs(
+    parseNamedArgs(process.argv.slice(2)),
+    ["report", "vex", "review", "kev", "output"],
+  );
   const result = evaluateImageReport(
     JSON.parse(readFileSync(args.get("report"), "utf8")),
     JSON.parse(readFileSync(args.get("vex"), "utf8")),

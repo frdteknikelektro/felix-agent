@@ -80,7 +80,7 @@ jobs:
             --candidate-commit "${{ inputs.commit }}" \
             --image-digest "${{ inputs.digest }}" \
             --scan release-evidence/policy-result.json \
-            --sbom release-evidence/sbom.spdx.json \
+            --sbom release-evidence/sbom-manifest.json \
             --provenance release-evidence/provenance-attestation.jsonl \
             --manual release-evidence/manual-acceptance.md \
             --output release-evidence/release-evidence.md
@@ -117,8 +117,17 @@ jobs:
           DIGEST: ${{ inputs.digest }}
           COMMIT: ${{ inputs.commit }}
         run: |
-          test -z "$(git ls-remote --tags origin "refs/tags/v${VERSION}")"
-          ! docker buildx imagetools inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null; then
+            echo "immutable source tag already exists: v${VERSION}" >&2
+            exit 1
+          else
+            rc=$?
+            if [ "$rc" -ne 2 ]; then
+              echo "unable to verify immutable source tag absence" >&2
+              exit "$rc"
+            fi
+          fi
+          node scripts/assert-image-tag-absent.mjs "${IMAGE}:${VERSION}"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git tag -a "v${VERSION}" "$COMMIT" -m "Felix ${VERSION}"

@@ -1,4 +1,4 @@
-ARG NODE_IMAGE=node:24-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG GO_IMAGE=golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
 
 FROM ${GO_IMAGE} AS go-tools-build
@@ -66,6 +66,7 @@ RUN apt-get update \
         poppler-utils \
         python3 \
         python3-pip \
+        python3-venv \
         rsync \
         unzip \
         zip \

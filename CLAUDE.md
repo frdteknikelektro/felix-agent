@@ -7,7 +7,7 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 ```
 src/
   core/          ports.ts · routing.ts · decide-turn.ts · schemas.ts
-  adapters/      codex/ · opencode/ · claude-code/ · mattermost/ · discord/ · slack/ · whatsapp/
+  adapters/      codex/ · opencode/ · claude-code/ · mattermost/ · discord/ · slack/ · whatsapp/ · telegram/
   slices/        sessions/ · events/ · approvals/ · contacts/ · skills/ · audit/ · usage/
   server/        app.ts (HTTP + static SPA + SSE) · routes.ts (API route table) · sse.ts (dashboard stream)
   engine.ts      main dispatch loop
@@ -30,12 +30,13 @@ contains its own login screen); `/api/*` and `/events/*` require the owner sessi
 
 ```bash
 npm install
+npm --prefix web install
 npm run setup          # interactive .env setup (local dev only — Docker users: docker compose run --rm --build setup)
 npm run dev            # tsx watch — API server (serves built web/dist if present)
 npm run dev:web        # optional: Vite dev server on :5173 with HMR, proxies /api + /events
 npm run lint         # tsc --noEmit
 npm test             # vitest run
-npm run build:web    # install web deps + build SPA → web/dist
+npm run build:web    # build SPA → web/dist (after installing web dependencies above)
 npm run build        # build:web + build:server → dist/ (+ web/dist)
 npm start            # node dist/index.js
 ```
@@ -101,7 +102,7 @@ Stable Runtime capabilities:
 - Git/project editing basics
 - Shared runtime tooling under `workspace/runtime/`
 
-Provider-specific operational CLIs are intentionally excluded from the image, including `aws`, `gcloud`, `kubectl`, and `terraform`. Use the `install-tool` skill or another explicit setup path for those.
+Provider-specific operational CLIs are intentionally excluded from the image, including `aws`, `gcloud`, `kubectl`, and `terraform`. Use the `install-tool` skill or another explicit setup path for those. The pinned `gog` CLI is the sole supported exception because it is the runtime boundary of the bundled Google Workspace skill; customer OAuth credentials remain external to the image.
 
 LibreOffice and browser automation runtimes are excluded from v1.
 
@@ -129,7 +130,7 @@ Key variables:
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
 | `SLACK_TOKEN` | Slack | enables the adapter when set |
-| `WHATSAPP_BOT_NAME` | WhatsApp | enables the adapter when set |
+| `WHATSAPP_BOT_NAME` | WhatsApp | optional display-name override; paired `wacli` authentication enables the adapter |
 
 See `.env.example` for the complete list with all defaults.
 

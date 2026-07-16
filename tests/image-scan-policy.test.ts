@@ -75,6 +75,16 @@ describe("candidate image risk policy", () => {
     );
   });
 
+  it("rejects a suppression that does not identify a package PURL", () => {
+    const missingProduct = report({ PkgIdentifier: undefined });
+    const { vex, review } = suppression();
+    vex.statements[0].products[0]["@id"] = "";
+    review.reviews[0].product = "";
+    const result = evaluateImageReport(missingProduct, vex, review, now);
+    expect(result.policyErrors).toContainEqual(expect.stringContaining("missing product"));
+    expect(result.blockers).toHaveLength(1);
+  });
+
   it("never suppresses a fixable high finding", () => {
     const { vex, review } = suppression();
     const result = evaluateImageReport(report({ FixedVersion: "1.0.1" }), vex, review, now);

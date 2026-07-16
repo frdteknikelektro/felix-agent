@@ -11,10 +11,10 @@ describe("agent runtime image contract", () => {
     expect(dockerfile.trimEnd()).toMatch(/FROM runtime AS production$/);
   });
 
-  it("keeps a digest-pinned Node Trixie runtime base and provider-neutral batteries", async () => {
+  it("keeps the documented digest-pinned Node Bookworm base and provider-neutral batteries", async () => {
     const dockerfile = await read("Dockerfile");
 
-    expect(dockerfile).toMatch(/ARG NODE_IMAGE=node:24-trixie-slim@sha256:[0-9a-f]{64}/);
+    expect(dockerfile).toMatch(/ARG NODE_IMAGE=node:24-bookworm-slim@sha256:[0-9a-f]{64}/);
     expect(dockerfile).toMatch(/ARG GO_IMAGE=golang:1\.26\.5-bookworm@sha256:[0-9a-f]{64}/);
     expect(dockerfile).toContain("FROM ${NODE_IMAGE} AS runtime");
     expect(dockerfile).toContain("go build -trimpath");
@@ -30,6 +30,7 @@ describe("agent runtime image contract", () => {
       "imagemagick",
       "python3",
       "python3-pip",
+      "python3-venv",
       "unzip",
       "zip",
     ]) {
@@ -39,7 +40,6 @@ describe("agent runtime image contract", () => {
     // (sqlite uses the node:sqlite built-in), and runtime pip installs are wheels-only.
     expect(dockerfile).not.toContain("build-essential");
     expect(dockerfile).not.toContain("python3-dev");
-    expect(dockerfile).not.toContain("python3-venv");
   });
 
   it("installs and verifies the core data stack at build time", async () => {
