@@ -19,12 +19,12 @@ Felix uses digest-pinned `node:24-trixie-slim` and
 limited to the documented runtime capability inventory. Security findings may
 still be reviewed during maintenance, but they do not block publication.
 
-The release image targets `linux/amd64`; other platform builds are an optional
-maintenance concern rather than a release gate.
+The release image targets `linux/amd64` and `linux/arm64`; other platform builds
+are an optional maintenance concern rather than a release gate.
 
 ## Consequences
 
 The runtime and locked Python graph now share Python 3.13. The simplified
-release workflow builds only `linux/amd64` and does not require release-time
+release workflow builds `linux/amd64` and `linux/arm64` and does not require release-time
 scans, SBOMs, attestations, or candidate evidence. Security review remains an
 optional maintenance activity outside publication.

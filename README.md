@@ -129,9 +129,10 @@ The setup container mounts the host configuration directory at `/config` and ato
 > ```
 
 Releases are intentionally simple: dispatch the **Release** workflow with a
-version, or push a `v*` tag. One AMD64 image build publishes both the versioned
-tag and `latest`, then creates the GitHub Release. There are no candidate,
-acceptance, scan, evidence, attestation, or promotion workflows.
+version, or push a `v*` tag. One multi-architecture image build publishes both
+the versioned tag and `latest` for AMD64 and Apple Silicon, then creates the
+GitHub Release. There are no candidate, acceptance, scan, evidence,
+attestation, or promotion workflows.
 
 ## 🖥️ Owner Console
 

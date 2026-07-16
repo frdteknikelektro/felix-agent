@@ -3,9 +3,9 @@
 The original candidate-first release design was replaced because its multiple
 workflows and duplicated gates prevented timely delivery. Felix now uses one
 `Release` workflow. A manual version input or `v*` tag triggers one
-`linux/amd64` Docker build that publishes the version tag and `latest`, followed
-by a GitHub Release. Release-time scans, evidence, attestations, acceptance, and
-separate promotion are intentionally omitted.
+`linux/amd64` and `linux/arm64` Docker build that publishes the version tag and
+`latest`, followed by a GitHub Release. Release-time scans, evidence,
+attestations, acceptance, and separate promotion are intentionally omitted.
 
 Each source exposes a runtime platform identity snapshot containing the bot ID
 or JID, optional username, optional display name, discovery source, and

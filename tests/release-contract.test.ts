@@ -42,7 +42,7 @@ describe("0.1.1 release contract", () => {
 
     const steps = workflow.jobs.release.steps;
     const build = steps.find((step: any) => step.name === "Build and publish");
-    expect(build.with.platforms).toBe("linux/amd64");
+    expect(build.with.platforms).toBe("linux/amd64,linux/arm64");
     expect(build.with.tags).toContain("steps.version.outputs.value");
     expect(build.with.tags).toContain(":latest");
     expect(build.with.provenance).toBe(false);
