@@ -559,7 +559,7 @@ export async function handleWhatsAppWebhook(
     await cleanupExpiredBotMessages(cfg);
   }
 
-  const botName = cfg.WHATSAPP_BOT_NAME ?? cfg.FELIX_NAME;
+  const botName = cfg.FELIX_NAME;
   const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
 
   let payload: ParsedMessage;
@@ -866,7 +866,7 @@ class WhatsAppAdapter implements SourceAdapter {
     if (!this.botJid) return undefined;
     return {
       ...platformIdentityFromWacliAuth({ jid: this.botJid, connected: true }),
-      displayName: this.cfg.WHATSAPP_BOT_NAME || this.cfg.FELIX_NAME,
+      displayName: this.cfg.FELIX_NAME,
     };
   }
   get botUserId(): string | undefined {
@@ -960,7 +960,7 @@ class WhatsAppAdapter implements SourceAdapter {
 
   async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
+    const botName = this.cfg.FELIX_NAME;
     const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
     const mentionHow = aliases.length > 0
       ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
@@ -1095,7 +1095,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
       : [];
 
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
+    const botName = this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 
@@ -1138,7 +1138,7 @@ class WhatsAppAdapter implements SourceAdapter {
     userId: string;
     text: string;
   }): Promise<SourceMessageAnchor | null> {
-    const botName = this.cfg.WHATSAPP_BOT_NAME ?? this.cfg.FELIX_NAME;
+    const botName = this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
 

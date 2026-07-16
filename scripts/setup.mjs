@@ -13,6 +13,7 @@ import {
   writeFileAtomic,
   writeSetupEnv,
 } from "./setup-support.mjs";
+import { claimTelegramOwner } from "./setup-source-discovery.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const IN_CONTAINER = existsSync("/app");
@@ -94,9 +95,9 @@ const SOURCE_DEFS = {
     label: "Mattermost",
     required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["MATTERMOST_OWNER_USER_ID", "MATTERMOST_OWNER_USERNAME", "MATTERMOST_OWNER_DISPLAY"],
-    ownerDefaults: { MATTERMOST_OWNER_DISPLAY: "" },
-    ownerHint: "Enter your Mattermost User ID. Felix will resolve its username and display name through the API.",
+    ownerKeys: ["MATTERMOST_OWNER_USER_ID"],
+    ownerDefaults: {},
+    ownerHint: "Enter your Mattermost User ID. Felix resolves your username and display name through the API at runtime.",
   },
   discord: {
     label: "Discord",
@@ -126,9 +127,9 @@ const SOURCE_DEFS = {
     label: "Telegram",
     required: ["TELEGRAM_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["TELEGRAM_OWNER_USER_ID", "TELEGRAM_OWNER_DISPLAY"],
-    ownerDefaults: { TELEGRAM_OWNER_DISPLAY: "Owner" },
-    ownerHint: "Find your User ID: send /start to @userinfobot on Telegram, or check t.me/userinfobot.",
+    ownerKeys: ["TELEGRAM_OWNER_USER_ID"],
+    ownerDefaults: {},
+    ownerHint: "Felix securely discovers the owner from a one-time private claim message.",
   },
 };
 
@@ -618,7 +619,11 @@ async function main() {
         { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
         { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
         { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
-        { value: "whatsapp", name: "WhatsApp (via wacli)", checked: !!(existing.WHATSAPP_BOT_NAME || existing.WHATSAPP_OWNER_JID) },
+        {
+          value: "whatsapp",
+          name: "WhatsApp (via wacli)",
+          checked: !!(existing.WHATSAPP_OWNER_JID || existing.WHATSAPP_BOT_ALIASES || existing.WHATSAPP_BOT_NAME),
+        },
         { value: "telegram", name: "Telegram", checked: !!existing.TELEGRAM_BOT_TOKEN },
       ],
     });
@@ -660,8 +665,6 @@ async function main() {
       section(def.label);
 
       for (const reqKey of def.required) {
-        // WHATSAPP_BOT_NAME handled in the WhatsApp block (plain input, no masking)
-        if (src === "whatsapp" && reqKey === "WHATSAPP_BOT_NAME") continue;
         const val = await promptRequired(reqKey, src, existing);
         if (val) wizard[reqKey] = val;
       }
@@ -675,57 +678,13 @@ async function main() {
       }
 
       if (src === "mattermost") {
-          const mmUrl = wizard.MATTERMOST_URL || existing.MATTERMOST_URL;
-          const mmToken = wizard.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_BOT_TOKEN;
-          const existingUsername = existing.MATTERMOST_OWNER_USERNAME || wizard.MATTERMOST_OWNER_USERNAME || "";
-          const existingDisplay = existing.MATTERMOST_OWNER_DISPLAY || wizard.MATTERMOST_OWNER_DISPLAY || def.ownerDefaults.MATTERMOST_OWNER_DISPLAY;
-
+          info(def.ownerHint);
           const ownerUserId = await input({
             message: `MATTERMOST_OWNER_USER_ID  ${reqTag(false)}:`,
             default: existing.MATTERMOST_OWNER_USER_ID || "",
           });
           wizard.MATTERMOST_OWNER_USER_ID = ownerUserId;
-
-          if (mmUrl && mmToken && ownerUserId) {
-            info("Looking up your Mattermost username and display name via API...");
-            try {
-              const res = await fetch(`${mmUrl}/api/v4/users/${encodeURIComponent(ownerUserId)}`, {
-                headers: { Authorization: `Bearer ${mmToken}` },
-              });
-              if (res.ok) {
-                const user = await res.json();
-                wizard.MATTERMOST_OWNER_USERNAME = user.username || existingUsername;
-                succeed(`Found username: ${user.username || existingUsername || "(not provided)"}`);
-                if (user.nickname || user.first_name || user.last_name) {
-                  const fetchedDisplay = user.nickname || [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
-                  info(`Fetched display name: ${fetchedDisplay}`);
-                }
-              } else {
-                warn(`API lookup failed (${res.status}); preserving the configured owner ID.`);
-                wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
-              }
-            } catch (err) {
-              warn(`API lookup failed: ${err.message}; preserving the configured owner ID.`);
-              wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
-            }
-          } else {
-            wizard.MATTERMOST_OWNER_USERNAME = existingUsername;
-          }
-
-          const display = await input({
-            message: `MATTERMOST_OWNER_DISPLAY  ${reqTag(false)}:`,
-            default: existingDisplay,
-          });
-          wizard.MATTERMOST_OWNER_DISPLAY = display;
         } else if (src === "whatsapp") {
-          // WHATSAPP_BOT_NAME — plain input, no masking
-          const botName = await input({
-            message: `WHATSAPP_BOT_NAME  ${reqTag(false)} (blank uses FELIX_NAME):`,
-            default: existing.WHATSAPP_BOT_NAME || "",
-            validate: (v) => /^[A-Za-z0-9_]*$/.test(v) ? true : "Only letters, digits, and underscores allowed",
-          });
-          wizard.WHATSAPP_BOT_NAME = botName;
-
           // WHATSAPP_BOT_ALIASES — plain input, optional
           const aliases = await input({
             message: `WHATSAPP_BOT_ALIASES  ${reqTag(false)}:`,
@@ -811,12 +770,21 @@ async function main() {
           }
           console.log();
           info(def.ownerHint);
-          for (const ownerKey of def.ownerKeys) {
-            const val = await input({
-              message: `${ownerKey}  ${reqTag(false)}:`,
-              default: existing[ownerKey] || def.ownerDefaults[ownerKey] || "",
+          if (!existing.TELEGRAM_OWNER_USER_ID) {
+            const claimCode = `felix-claim-${randomBytes(12).toString("base64url")}`;
+            info("Use a new or inactive bot for this first-time claim; no Felix instance or webhook may be using it.");
+            info("Open a private chat with this Telegram bot and send this exact one-time message:");
+            console.log(`\n  ${c.bold}${c.yellow}${claimCode}${c.reset}\n`);
+            info("Waiting up to two minutes for the matching private message...");
+            const owner = await claimTelegramOwner({
+              botToken: wizard.TELEGRAM_BOT_TOKEN || existing.TELEGRAM_BOT_TOKEN,
+              claimCode,
             });
-            wizard[ownerKey] = val;
+            wizard.TELEGRAM_OWNER_USER_ID = owner.userId;
+            succeed("Telegram owner claimed.");
+          } else {
+            wizard.TELEGRAM_OWNER_USER_ID = existing.TELEGRAM_OWNER_USER_ID;
+            succeed("Kept the existing Telegram owner claim.");
           }
         } else {
           console.log();
@@ -972,7 +940,16 @@ async function main() {
       return;
     }
 
-    writeSetupEnv(EXAMPLE_PATH, ENV_PATH, final, existing);
+    const retainedExisting = { ...existing };
+    for (const key of [
+      "MATTERMOST_OWNER_USERNAME",
+      "MATTERMOST_OWNER_DISPLAY",
+      "WHATSAPP_BOT_NAME",
+      "TELEGRAM_OWNER_DISPLAY",
+    ]) {
+      delete retainedExisting[key];
+    }
+    writeSetupEnv(EXAMPLE_PATH, ENV_PATH, final, retainedExisting);
     if (!IN_CONTAINER && !existsSync(WORKSPACE_PATH)) {
       mkdirSync(WORKSPACE_PATH);
     }

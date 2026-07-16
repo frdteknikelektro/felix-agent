@@ -30,7 +30,6 @@ export async function makeTestConfig(prefix: string, extras: Partial<AppConfig> 
     MATTERMOST_OWNER_DISPLAY: "Owner",
     DISCORD_OWNER_DISPLAY: "Owner",
     SLACK_OWNER_DISPLAY: "Owner",
-    WHATSAPP_BOT_NAME: undefined,
     WHATSAPP_OWNER_JID: undefined,
     WHATSAPP_OWNER_DISPLAY: "Owner",
     WHATSAPP_WACLI_BIN: "wacli",

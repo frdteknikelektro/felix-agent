@@ -12,11 +12,11 @@ Felix previously had no single configured name. Runtime fallbacks were hardcoded
 
 Add a required `FELIX_NAME` prompt as the first step of the setup wizard. Persist it in `.env`, default it to `Felix` for existing installations, and use it for runtime-visible fallback identity and harness decision-notification prompts.
 
-Source-specific identities remain authoritative when configured. In particular, Mattermost username/display and WhatsApp bot name continue to control platform mention behavior; `FELIX_NAME` is the fallback rather than a replacement for those settings.
+Source identities discovered from authenticated platform APIs remain authoritative. Mattermost owner profile details are derived from the configured owner ID at runtime, while WhatsApp uses `FELIX_NAME` directly instead of exposing a second name override.
 
 ## Consequences
 
 - New customers choose the agent name before configuring providers.
 - Existing `.env` files continue to boot unchanged.
-- Telegram, Mattermost fallback mentions, WhatsApp fallback formatting, and decision notifications use the configured name.
+- Telegram, Mattermost fallback mentions, WhatsApp formatting, and decision notifications use the configured name.
 - Product branding and internal identifiers remain `Felix`; this setting controls the agent’s customer-facing identity.

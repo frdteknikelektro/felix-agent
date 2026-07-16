@@ -130,7 +130,7 @@ Key variables:
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
 | `SLACK_TOKEN` | Slack | enables the adapter when set |
-| `WHATSAPP_BOT_NAME` | WhatsApp | optional display-name override; paired `wacli` authentication enables the adapter |
+| `WHATSAPP_BOT_ALIASES` | WhatsApp | optional short mention aliases; paired `wacli` authentication enables the adapter and the display name comes from `FELIX_NAME` |
 
 See `.env.example` for the complete list with all defaults.
 

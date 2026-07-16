@@ -12,7 +12,6 @@ import { makeTestConfig } from "./helpers/workspace.js";
 describe("WhatsApp shared-number reply detection", () => {
   it("does not treat an unprefixed message from the shared JID as Felix", async () => {
     const cfg = await makeTestConfig("wa-shared-reply-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_OWNER_JID: "bot@s.whatsapp.net",
     });
     const bin = path.join(cfg.paths.bin, "fake-wacli");

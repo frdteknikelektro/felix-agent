@@ -89,11 +89,11 @@ describe("whatsappSourceThreadRef", () => {
 // ─── getTurnContext ────────────────────────────────────────────────────────
 
 describe("WhatsAppAdapter getTurnContext", () => {
-  it("uses FELIX_NAME when the optional source-specific name is absent", async () => {
+  it("always uses FELIX_NAME and ignores the removed source-specific override", async () => {
     const cfg = await makeTestConfig("wa-turnctx-fallback-", {
       FELIX_NAME: "Nova",
-      WHATSAPP_BOT_NAME: undefined,
     });
+    Object.assign(cfg, { WHATSAPP_BOT_NAME: "LegacyBot" });
     const adapter: SourceAdapter = createWhatsAppAdapter(cfg);
     const ctx = await adapter.getTurnContext({
       event: {
@@ -104,11 +104,11 @@ describe("WhatsAppAdapter getTurnContext", () => {
       },
     });
     expect(ctx.behaviorInstructions[0]).toContain("@Nova");
+    expect(ctx.behaviorInstructions[0]).not.toContain("@LegacyBot");
   });
 
   it("returns WhatsApp-specific behavior instructions", async () => {
     const cfg = await makeTestConfig("wa-turnctx-", {
-      WHATSAPP_BOT_NAME: "Felix",
     });
     const adapter: SourceAdapter = createWhatsAppAdapter(cfg);
     const ctx = await adapter.getTurnContext({
@@ -157,7 +157,6 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
   it("bakes the bot name prefix into the caption template when the bot shares the owner's number", async () => {
     const cfg = await makeTestConfig("wa-turnctx-shared-", {
-      WHATSAPP_BOT_NAME: "Felix",
     });
     const adapter = createWhatsAppAdapter(cfg);
     // Simulate the shared-number detection that start() performs from wacli auth.
@@ -200,7 +199,6 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
   it("instructs mentioning the owner via wacli --mention when an owner jid is configured", async () => {
     const cfg = await makeTestConfig("wa-turnctx-owner-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_OWNER_JID: "9876543210@s.whatsapp.net",
     });
     const adapter = createWhatsAppAdapter(cfg);
@@ -233,7 +231,6 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
   it("does not instruct an owner mention when no owner jid is configured", async () => {
     const cfg = await makeTestConfig("wa-turnctx-no-owner-", {
-      WHATSAPP_BOT_NAME: "Felix",
     });
     const adapter = createWhatsAppAdapter(cfg);
 
@@ -263,7 +260,6 @@ describe("WhatsAppAdapter getTurnContext", () => {
 
   it("does not instruct an owner mention when the bot shares the owner's number", async () => {
     const cfg = await makeTestConfig("wa-turnctx-owner-same-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_OWNER_JID: "9876543210@s.whatsapp.net",
     });
     const adapter = createWhatsAppAdapter(cfg);
@@ -424,7 +420,7 @@ describe("isFelixMessage", () => {
 describe("WhatsApp mention detection (via getTurnContext)", () => {
   it("documents @mention behavior in group instructions", async () => {
     const cfg = await makeTestConfig("wa-mention-", {
-      WHATSAPP_BOT_NAME: "FelixBot",
+      FELIX_NAME: "FelixBot",
     });
     const adapter = createWhatsAppAdapter(cfg);
 
@@ -775,7 +771,6 @@ describe("WhatsAppAdapter send methods exist", () => {
     );
 
     const cfg = await makeTestConfig("wa-send-group-cfg-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_WACLI_BIN: bin,
     });
     const adapter = createWhatsAppAdapter(cfg);
@@ -822,7 +817,6 @@ describe("WhatsAppAdapter send methods exist", () => {
     );
 
     const cfg = await makeTestConfig("wa-typing-cfg-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_WACLI_BIN: bin,
     });
     const adapter = createWhatsAppAdapter(cfg);
@@ -870,7 +864,6 @@ describe("WhatsAppAdapter send methods exist", () => {
     );
 
     const cfg = await makeTestConfig("wa-typing-perchat-cfg-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_WACLI_BIN: bin,
     });
     const adapter = createWhatsAppAdapter(cfg);

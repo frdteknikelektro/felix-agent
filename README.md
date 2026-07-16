@@ -43,7 +43,7 @@ Without `--build` you'll silently get the old setup script. Same applies to `doc
 
 Run `docker compose run --rm --build setup` to configure your `.env` interactively. Re-run anytime to update harness, sources, or the owner channel.
 The first setup prompt asks for the agent name; it is stored as `FELIX_NAME` and defaults to `Felix`.
-Platform bot identities are discovered from authenticated APIs or paired-account state and are never written back to `.env`. Legacy Mattermost, Discord, and Slack bot identity variables remain accepted only as migration fallbacks; Telegram requires `getMe` and treats its legacy identity variable as parse-only. Human owner IDs remain configured manually.
+Platform bot identities are discovered from authenticated APIs or paired-account state and are never written back to `.env`. Legacy Mattermost, Discord, and Slack bot identity variables remain accepted only as migration fallbacks; Telegram requires `getMe` and treats its legacy identity variable as parse-only. Mattermost setup asks only for the owner's authorization ID and derives profile details at runtime. First-time Telegram setup uses a new or inactive bot and discovers the owner ID by waiting for an exact one-time claim message in a private chat; later setup runs preserve that claim. Other owner IDs remain configured manually.
 
 | Variable | Purpose |
 |---|---|
@@ -58,7 +58,7 @@ Platform bot identities are discovered from authenticated APIs or paired-account
 | 💬 `MATTERMOST_BOT_TOKEN` | Enables Mattermost; identity comes from `/api/v4/users/me` |
 | 🎮 `DISCORD_BOT_TOKEN` | Enables Discord; identity comes from the logged-in client |
 | 💼 `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` | Enables Slack; identity comes from `auth.test` |
-| 📱 `WHATSAPP_BOT_NAME` | Optional WhatsApp display override; blank uses `FELIX_NAME` |
+| 📱 `WHATSAPP_BOT_ALIASES` | Optional comma-separated short aliases; the displayed name always uses `FELIX_NAME` |
 | ✈️ `TELEGRAM_BOT_TOKEN` | Enables Telegram; identity comes from `getMe` |
 | 🔁 `TELEGRAM_MODE` | `polling` (default) or `webhook` |
 | 🌐 `TELEGRAM_WEBHOOK_URL` | Required for webhook mode; customer-managed HTTPS only |

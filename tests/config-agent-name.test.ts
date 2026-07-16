@@ -22,6 +22,18 @@ describe("FELIX_NAME config", () => {
     expect(cfg.MATTERMOST_BOT_DISPLAY).toBe("");
   });
 
+  it("drops the removed WhatsApp-specific name override", () => {
+    const cfg = loadConfig({
+      FELIX_NAME: "Nova",
+      WHATSAPP_BOT_NAME: "LegacyBot",
+      WORKSPACE_DIR: "/tmp/felix-agent-name-legacy-whatsapp",
+      SECRET_ENV_FILE: "/tmp/felix-agent-name-does-not-exist",
+    });
+
+    expect(cfg.FELIX_NAME).toBe("Nova");
+    expect("WHATSAPP_BOT_NAME" in cfg).toBe(false);
+  });
+
   it("defaults Telegram to polling and requires webhook credentials in webhook mode", () => {
     const polling = loadConfig({
       WORKSPACE_DIR: "/tmp/felix-telegram-polling",

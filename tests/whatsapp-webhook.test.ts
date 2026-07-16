@@ -187,21 +187,21 @@ exit 1
   });
 
   it("returns 400 for invalid JSON body", async () => {
-    cfg = await makeTestConfig("wa-wh-json-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-json-", {});
     const result = await sendWebhook(cfg, engine, "not json");
     expect(result.status).toBe(400);
     expect(result.body).toHaveProperty("error", "invalid_json");
   });
 
   it("ignores messages with missing Chat or ID", async () => {
-    cfg = await makeTestConfig("wa-wh-miss-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-miss-", {});
     const result = await sendWebhook(cfg, engine, JSON.stringify({ Text: "hi" }));
     expect(result.status).toBe(200);
     expect(result.body).toHaveProperty("ignored", "missing_fields");
   });
 
   it("ignores broadcast chat messages", async () => {
-    cfg = await makeTestConfig("wa-wh-bcast-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-bcast-", {});
     const result = await sendWebhook(
       cfg,
       engine,
@@ -212,7 +212,7 @@ exit 1
   });
 
   it("drops FromMe messages starting with bot prefix", async () => {
-    cfg = await makeTestConfig("wa-wh-prefix-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-prefix-", {});
     const result = await sendWebhook(
       cfg,
       engine,
@@ -228,7 +228,7 @@ exit 1
   });
 
   it("drops FromMe media-only messages as self_media when same number", async () => {
-    cfg = await makeTestConfig("wa-wh-selfm-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-selfm-", {});
     const result = await sendWebhook(
       cfg,
       engine,
@@ -244,7 +244,7 @@ exit 1
   });
 
   it("ignores FromMe reactions not on tracked bot messages", async () => {
-    cfg = await makeTestConfig("wa-wh-selfr-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-selfr-", {});
     const result = await sendWebhook(
       cfg,
       engine,
@@ -264,7 +264,6 @@ exit 1
     // On a shared number, FromMe non-prefix messages are owner messages.
     // The sender.id is prefixed with "owner:" so isOwnMessage lets them through.
     cfg = await makeTestConfig("wa-wh-owndm-", {
-      WHATSAPP_BOT_NAME: "Felix",
     });
     const result = await sendWebhook(
       cfg,
@@ -281,7 +280,7 @@ exit 1
   });
 
   it("drops empty events (no text, no media, no reaction)", async () => {
-    cfg = await makeTestConfig("wa-wh-empty-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-empty-", {});
     const result = await sendWebhook(
       cfg,
       engine,
@@ -297,7 +296,7 @@ exit 1
   });
 
   it("resolves every valid non-broadcast webhook through wacli messages show", async () => {
-    cfg = await makeTestConfig("wa-wh-resolve-all-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-resolve-all-", {});
     const argsFile = path.join(cfg.paths.runtime, "wacli-args.txt");
     await installFakeWacli(cfg, `
 echo "$@" >> "${argsFile}"
@@ -327,7 +326,6 @@ exit 1
 
   it("canonicalizes @lid DM chats before ingestion", async () => {
     cfg = await makeTestConfig("wa-wh-lid-dm-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_BOT_ALIASES: "f",
     });
     const { engine: localEngine, ingest } = makeMockEngine();
@@ -366,7 +364,7 @@ exit 1
   });
 
   it("keeps group chat JID when resolver returns an individual chat", async () => {
-    cfg = await makeTestConfig("wa-wh-group-safe-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-group-safe-", {});
     const { engine: localEngine, ingest } = makeMockEngine();
     await installFakeWacli(cfg, `
 if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
@@ -394,7 +392,6 @@ exit 1
 
   it("detects caption-only media mentions and does not use captions as filenames", async () => {
     cfg = await makeTestConfig("wa-wh-caption-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_BOT_ALIASES: "f",
     });
     const { engine: localEngine, ingest } = makeMockEngine();
@@ -418,7 +415,6 @@ exit 1
 
   it("accepts FromMe caption-only media instead of dropping it as self_media", async () => {
     cfg = await makeTestConfig("wa-wh-fromme-caption-", {
-      WHATSAPP_BOT_NAME: "Felix",
       WHATSAPP_BOT_ALIASES: "f",
     });
     const { engine: localEngine, ingest } = makeMockEngine();
@@ -444,7 +440,7 @@ exit 1
   });
 
   it("preserves webhook FromMe instead of taking it from resolver output", async () => {
-    cfg = await makeTestConfig("wa-wh-fromme-preserve-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-fromme-preserve-", {});
     const { engine: localEngine, ingest } = makeMockEngine();
     await installFakeWacli(cfg, `
 if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
@@ -473,7 +469,7 @@ exit 1
   });
 
   it("falls back to the original payload when resolver fails", async () => {
-    cfg = await makeTestConfig("wa-wh-resolve-fail-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-resolve-fail-", {});
     const { engine: localEngine, ingest } = makeMockEngine();
     await installFakeWacli(cfg, "exit 9");
 
@@ -495,7 +491,7 @@ exit 1
   });
 
   it("retargets an existing @lid thread to the canonical resolved key", async () => {
-    cfg = await makeTestConfig("wa-wh-retarget-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-retarget-", {});
     const oldKey = whatsappThreadKey("264776194232430@lid");
     const canonicalKey = whatsappThreadKey("6285878175157@s.whatsapp.net");
     await createOrLoadThread(cfg, {
@@ -533,7 +529,7 @@ exit 1
   });
 
   it("does not merge when old @lid and canonical threads both exist", async () => {
-    cfg = await makeTestConfig("wa-wh-retarget-conflict-", { WHATSAPP_BOT_NAME: "Felix" });
+    cfg = await makeTestConfig("wa-wh-retarget-conflict-", {});
     const oldKey = whatsappThreadKey("264776194232430@lid");
     const canonicalKey = whatsappThreadKey("6285878175157@s.whatsapp.net");
     await createOrLoadThread(cfg, {
@@ -586,7 +582,7 @@ exit 1
 
   describe("owner permission decision via persisted tracking", () => {
     it("tracked message persists to disk and survives re-read", async () => {
-      cfg = await makeTestConfig("wa-wh-persist-", { WHATSAPP_BOT_NAME: "Felix" });
+      cfg = await makeTestConfig("wa-wh-persist-", {});
       const msgId = "tracked-msg-id-1";
       const botMsgPath = path.join(cfg.paths.botMessageIndex, "whatsapp", `${msgId}.json`);
 
@@ -611,7 +607,6 @@ exit 1
 
     it("FromMe text reply to tracked bot message routes to decision path", async () => {
       cfg = await makeTestConfig("wa-wh-fromme-reply-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       const msgId = "tracked-fromme-reply";
@@ -646,7 +641,6 @@ exit 1
 
     it("FromMe reply to untracked message falls through to normal ingestion", async () => {
       cfg = await makeTestConfig("wa-wh-fromme-untracked-", {
-        WHATSAPP_BOT_NAME: "Felix",
       });
       const { engine: localEngine, ingest: localIngest } = makeMockEngine();
 
@@ -672,7 +666,6 @@ exit 1
 
     it("FromMe reaction to tracked bot message routes to decision path", async () => {
       cfg = await makeTestConfig("wa-wh-fromme-react-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       const reactionTarget = "tracked-fromme-react";
@@ -705,7 +698,6 @@ exit 1
 
     it("incoming owner reaction to tracked bot message responds when emoji is not a decision", async () => {
       cfg = await makeTestConfig("wa-wh-owner-react-unknown-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       const reactionTarget = "tracked-owner-react-unknown";
@@ -735,7 +727,6 @@ exit 1
 
     it("untracked reaction is ignored as self_reaction", async () => {
       cfg = await makeTestConfig("wa-wh-untracked-react-", {
-        WHATSAPP_BOT_NAME: "Felix",
       });
       const result = await sendWebhook(
         cfg,
@@ -756,7 +747,6 @@ exit 1
   describe("reply-to-Felix detection", () => {
     it("non-FromMe reply to a Felix message in a group triggers the agent", async () => {
       cfg = await makeTestConfig("wa-wh-reply-felix-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       // Fake wacli: return *[Felix]* prefix for the replied-to message (shared mode)
@@ -795,7 +785,6 @@ exit 1
 
     it("FromMe reply to a Felix message in shared-number mode triggers the agent", async () => {
       cfg = await makeTestConfig("wa-wh-reply-shared-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       await installFakeWacli(cfg, `
@@ -833,7 +822,6 @@ exit 1
 
     it("reply to a non-Felix message without @mention is dispatched with mentions_bot=false", async () => {
       cfg = await makeTestConfig("wa-wh-reply-other-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       await installFakeWacli(cfg, `
@@ -871,7 +859,6 @@ exit 1
 
     it("reply to Felix message with failed fetch falls through with mentions_bot=false", async () => {
       cfg = await makeTestConfig("wa-wh-reply-fail-", {
-        WHATSAPP_BOT_NAME: "Felix",
       });
       await installFakeWacli(cfg, `exit 1`);
       const { engine: localEngine, ingest: localIngest } = makeMockEngine();
@@ -898,7 +885,6 @@ exit 1
 
     it("DM reply to a Felix message in shared-number mode triggers the agent", async () => {
       cfg = await makeTestConfig("wa-wh-reply-dm-", {
-        WHATSAPP_BOT_NAME: "Felix",
         WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
       });
       await installFakeWacli(cfg, `
