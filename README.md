@@ -128,15 +128,10 @@ The setup container mounts the host configuration directory at `/config` and ato
 > docker compose up -d
 > ```
 
-Production deployments should pin the published image by digest after verifying
-the `0.1.1` manifest. Set `FELIX_IMAGE=frdinawan/felix-agent@sha256:<digest>` to test or deploy an accepted candidate. The `latest` alias is not a production deployment target;
-it is promoted manually only after release evidence is complete.
-
-Replace the image reference with the verified immutable value:
-
-```yaml
-image: frdinawan/felix-agent@sha256:<verified-release-digest>
-```
+Releases are intentionally simple: dispatch the **Release** workflow with a
+version, or push a `v*` tag. One AMD64 image build publishes both the versioned
+tag and `latest`, then creates the GitHub Release. There are no candidate,
+acceptance, scan, evidence, attestation, or promotion workflows.
 
 ## 🖥️ Owner Console
 

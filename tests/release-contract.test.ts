@@ -34,159 +34,31 @@ describe("0.1.1 release contract", () => {
     expect(imageCompose.services.setup.volumes).toContain("./:/config");
   });
 
-  it("builds and scans an immutable multi-architecture candidate", async () => {
-    const workflow = await readYaml(".github/workflows/release-candidate.yml");
-    const jobs = workflow.jobs;
-    expect(workflow.concurrency.group).toContain("release-candidate-");
-    expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
-    const dependencyValidation = jobs.checks.steps.find((step: any) => step.name === "Validate dependency trees");
-    expect(dependencyValidation.run).toBe("npm run validate:deps");
-    expect(jobs.build.outputs.digest).toContain("steps.build.outputs.digest");
-    const buildWith = jobs.build.steps.find((step: any) => step.id === "build").with;
-    expect(buildWith.platforms).toBe("linux/amd64,linux/arm64");
-    expect(buildWith.sbom).toBe(true);
-    expect(buildWith.provenance).toBe("mode=max");
-    expect(buildWith.tags).toContain("candidate-");
-    expect(jobs.build.steps.some((step: any) => step.name === "Reject an existing immutable candidate tag")).toBe(true);
-    expect(jobs["runtime-smoke"].needs).toBe("build");
-    expect(jobs["runtime-smoke"].strategy.matrix.architecture).toEqual(["amd64", "arm64"]);
-    const runtimeSmoke = jobs["runtime-smoke"].steps.find(
-      (step: any) => step.name === "Exercise the exact candidate image",
-    );
-    expect(runtimeSmoke.run).toContain("scripts/smoke-candidate-image.sh");
-    expect(runtimeSmoke.env.CANDIDATE).toContain("needs.build.outputs.digest");
-    expect(jobs.attest.needs).toContain("runtime-smoke");
+  it("publishes with one fast release job", async () => {
+    const workflow = await readYaml(".github/workflows/docker-publish.yml");
+    expect(workflow.concurrency.group).toBe("release");
+    expect(workflow.concurrency["cancel-in-progress"]).toBe(true);
+    expect(Object.keys(workflow.jobs)).toEqual(["release"]);
 
-    const rejectTag = jobs.build.steps.find((step: any) => step.name === "Reject an existing immutable candidate tag");
-    expect(rejectTag.run).toContain("assert-image-tag-absent.mjs");
-    expect(rejectTag.run).not.toContain("! docker");
+    const steps = workflow.jobs.release.steps;
+    const build = steps.find((step: any) => step.name === "Build and publish");
+    expect(build.with.platforms).toBe("linux/amd64");
+    expect(build.with.tags).toContain("steps.version.outputs.value");
+    expect(build.with.tags).toContain(":latest");
+    expect(build.with.provenance).toBe(false);
+    expect(build.with.sbom).toBe(false);
+    expect(build.with["cache-to"]).toBe("type=gha,mode=min");
 
-    const prepare = jobs.scan.steps.find((step: any) => step.name === "Resolve platform digests and prepare evidence storage");
-    expect(prepare.run).toContain("mkdir -p release-evidence");
-    expect(prepare.run).toContain("linux/amd64");
-    expect(prepare.run).toContain("linux/arm64");
+    expect(steps.some((step: any) => step.name?.match(/scan|audit|test|attest|accept/i))).toBe(false);
+    expect(workflow.jobs.scan).toBeUndefined();
+    expect(workflow.jobs.verify).toBeUndefined();
+    expect(workflow.jobs.attest).toBeUndefined();
 
-    const scan = jobs.scan.steps.find((step: any) => step.name === "Install Trivy and scan the AMD64 image");
-    expect(scan.with["image-ref"]).toContain("steps.platforms.outputs.amd64");
-    expect(scan.with.scanners).toContain("misconfig");
-    expect(scan.env.TRIVY_IMAGE_CONFIG_SCANNERS).toBe("misconfig,secret");
-    expect(scan.with.severity).toContain("UNKNOWN");
-    expect(scan.with.output).toContain("/tmp/");
-    const evidence = jobs.scan.steps.find((step: any) => step.name === "Generate sanitized multi-architecture evidence");
-    expect(evidence.env.ARM64_IMAGE).toContain("steps.platforms.outputs.arm64");
-    expect(evidence.run).toContain("--scanners vuln,misconfig,secret");
-    expect(evidence.run).toContain("--image-config-scanners misconfig,secret");
-    expect(evidence.run).toContain("--scanners vuln,misconfig --image-config-scanners misconfig --format sarif");
-    expect(evidence.run).toContain("merge-sarif.mjs");
-    expect(evidence.run).toContain("trivy/linux-amd64");
-    expect(evidence.run).toContain("trivy/linux-arm64");
-    expect(evidence.run).toContain("sanitize-trivy-report.mjs");
-    expect(evidence.run).toContain("sbom-amd64.spdx.json");
-    expect(evidence.run).toContain("sbom-arm64.spdx.json");
-    const policy = jobs.scan.steps.find((step: any) => step.name === "Enforce release risk policy");
-    expect(policy.run).toContain("security/vex.openvex.json");
-    expect(policy.run).toContain("security/vex-review.json");
-    expect(policy.run).toContain("--review-schema security/vex-review.schema.json");
-    expect(policy["continue-on-error"]).toBe(true);
-    expect(jobs.scan.steps.find((step: any) => step.uses?.startsWith("actions/upload-artifact"))?.if).toBe("always()");
-    expect(jobs["code-scanning"].permissions["security-events"]).toBe("write");
-    expect(jobs.attest.permissions.attestations).toBe("write");
-    expect(jobs.attest.permissions["artifact-metadata"]).toBe("write");
-    for (const name of [
-      "Attest candidate provenance",
-      "Attest AMD64 candidate SBOM",
-      "Attest ARM64 candidate SBOM",
-    ]) {
-      expect(jobs.attest.steps.find((step: any) => step.name === name).uses).toMatch(/^actions\/attest@/);
-    }
-  });
+    const release = steps.find((step: any) => step.name === "Create GitHub release");
+    expect(release.run).toContain("gh release create");
+    expect(release.run).toContain("--generate-notes");
 
-  it("publishes only the exact verified candidate and promotes latest separately", async () => {
-    const acceptance = await readYaml(".github/workflows/release-acceptance.yml");
-    expect(acceptance.jobs.accept.environment).toBe("release-acceptance");
-    expect(acceptance.on.workflow_dispatch.inputs.confirmation.required).toBe(true);
-    expect(acceptance.on.workflow_dispatch.inputs.confirmation.description).toContain("ENVIRONMENT CONTROLS");
-    const bindAcceptance = acceptance.jobs.accept.steps.find(
-      (step: any) => step.name === "Bind acceptance to the exact successful candidate",
-    );
-    expect(bindAcceptance.run).toContain(".github/workflows/release-candidate.yml");
-    expect(bindAcceptance.run).toContain("candidate-manifest.json");
-    const prepareAcceptance = acceptance.jobs.accept.steps.find(
-      (step: any) => step.name === "Generate fixed-schema sanitized acceptance evidence",
-    );
-    expect(prepareAcceptance.run).toContain("manual-release-evidence.mjs");
-    expect(prepareAcceptance.run).toContain("--operation generate");
-    const checklist = await fs.readFile("docs/releases/0.1.1-release-checklist.md", "utf8");
-    expect(checklist).toContain("prevent self-review");
-    expect(checklist).toContain("disable administrator bypass");
-    expect(checklist).toContain("restrict deployment branches to `main`");
-
-    const publish = await readYaml(".github/workflows/release-publish.yml");
-    expect(publish.concurrency.group).toContain("release-publish-");
-    expect(publish.concurrency["cancel-in-progress"]).toBe(false);
-    const download = publish.jobs.verify.steps.find((step: any) => step.name === "Download exact candidate evidence");
-    expect(download.run).toContain("gh api");
-    expect(download.run).toContain(".conclusion");
-    expect(download.run).toContain(".path");
-    expect(download.run).toContain(".github/workflows/release-candidate.yml");
-    expect(download.run).toContain(".event");
-    expect(download.run).toContain("workflow_dispatch");
-    expect(download.run).toContain("candidate-runtime-smoke-amd64");
-    expect(download.run).toContain("candidate-runtime-smoke-arm64");
-    expect(download.run).toContain(".github/workflows/release-acceptance.yml");
-    expect(download.run).toContain("manual-acceptance");
-    const verify = publish.jobs.verify.steps.find((step: any) => step.name === "Verify candidate binding and complete evidence");
-    expect(verify.run).toContain("verify-release-candidate.mjs");
-    expect(verify.run).toContain("--evidence-dir release-evidence");
-    expect(verify.run).toContain("imagetools inspect --raw");
-    expect(verify.run).toContain("--registry-manifest /tmp/registry-manifest.json");
-    expect(verify.run).toContain("runtime-smoke-amd64.json");
-    expect(verify.run).toContain("runtime-smoke-arm64.json");
-    expect(verify.run).toContain("--image \"${IMAGE}\"");
-    expect(verify.run).toContain("--report release-evidence/trivy-full.json");
-    expect(verify.run).toContain("--review-schema security/vex-review.schema.json");
-    expect(verify.run).toContain("--output /tmp/recomputed-policy.json");
-    expect(verify.run).toContain("recomputed-policy.sorted.json");
-    expect(verify.run.match(/gh attestation verify/g)).toHaveLength(3);
-    expect(verify.run).toContain("--source-digest \"$COMMIT\"");
-    expect(verify.run).toContain("https://spdx.dev/Document/v2.3");
-    expect(verify.run).toContain("generate-release-evidence.mjs");
-    expect(verify.run).toContain("--artifact-dir release-evidence");
-    expect(verify.run).toContain("manual-acceptance.md");
-    expect(verify.run).toContain("manual-release-evidence.mjs");
-    expect(verify.run).toContain("--operation verify");
-    expect(publish.on.workflow_dispatch.inputs.acceptance_run_id.required).toBe(true);
-    expect(publish.on.workflow_dispatch.inputs.manual_evidence).toBeUndefined();
-    const publication = publish.jobs.publish.steps.find((step: any) => step.name === "Create immutable source and Docker tags");
-    expect(publication.run).toContain("git tag -a");
-    expect(publication.run).toContain("imagetools create");
-    expect(publication.run).toContain("imagetools inspect");
-    expect(publication.run).toContain("git ls-remote --exit-code");
-    expect(publication.run).toContain("check-image-tag-compatible.mjs");
-    expect(publication.run).toContain("existing source tag points to a different commit");
-    expect(publication.run).not.toContain("test -z \"$(git ls-remote");
-    const githubRelease = publish.jobs.publish.steps.find(
-      (step: any) => step.name === "Create GitHub Release with sanitized evidence",
-    );
-    expect(githubRelease.run).toContain("gh release view");
-    expect(githubRelease.run).toContain("gh release upload");
-    expect(githubRelease.run).toContain("cmp");
-    expect(githubRelease.run).not.toContain("--clobber");
-
-    const promotionWorkflow = await readYaml(".github/workflows/release-promote-latest.yml");
-    expect(promotionWorkflow.concurrency.group).toBe("release-promote-latest");
-    const promotion = promotionWorkflow.jobs.promote.steps.find((step: any) => step.name === "Promote only the immutable 0.1.1 digest");
-    expect(promotion.run).toContain("${IMAGE}:0.1.1");
-    expect(promotion.run).toContain("imagetools create");
-    expect(Object.keys(promotionWorkflow.on.workflow_dispatch.inputs)).toEqual(["digest"]);
-  });
-
-  it("pins every third-party action to a full commit SHA", async () => {
-    for (const file of ["ci.yml", "release-candidate.yml", "release-acceptance.yml", "release-publish.yml", "release-promote-latest.yml"]) {
-      const text = await fs.readFile(`.github/workflows/${file}`, "utf8");
-      for (const match of text.matchAll(/uses:\s+([^\s#]+)/g)) {
-        expect(match[1], `${file}: ${match[1]}`).toMatch(/@[0-9a-f]{40}$/);
-      }
-    }
+    const files = await fs.readdir(".github/workflows");
+    expect(files.filter((file) => file.startsWith("release-"))).toEqual([]);
   });
 });

@@ -15,21 +15,16 @@ resolved for Python 3.13 while Bookworm supplied Python 3.11.
 ## Decision
 
 Felix uses digest-pinned `node:24-trixie-slim` and
-`golang:1.26.5-trixie` images for the `0.1.1` candidate. Debian packages remain
-limited to the documented runtime capability inventory, and the existing
-fixable-high/critical, KEV, secret, and misconfiguration gates remain unchanged.
-Unfixable high/critical records remain auditable; an exact package/CVE OpenVEX
-`affected` statement records confirmed reachability and makes the record
-blocking.
+`golang:1.26.5-trixie` images for the `0.1.1` release. Debian packages remain
+limited to the documented runtime capability inventory. Security findings may
+still be reviewed during maintenance, but they do not block publication.
 
-Multi-platform SARIF evidence assigns distinct `trivy/linux-amd64` and
-`trivy/linux-arm64` categories so GitHub code scanning retains both analyses
-without combining or rejecting them.
+The release image targets `linux/amd64`; other platform builds are an optional
+maintenance concern rather than a release gate.
 
 ## Consequences
 
-The runtime and locked Python graph now share Python 3.13. Every base digest
-change still requires both architecture builds, runtime smoke tests, SBOMs,
-Trivy policy evaluation, and immutable candidate evidence. This decision does
-not suppress or waive any vulnerability; remaining blockers require an upgrade
-or a committed, reviewed, unexpired OpenVEX `not_affected` statement.
+The runtime and locked Python graph now share Python 3.13. The simplified
+release workflow builds only `linux/amd64` and does not require release-time
+scans, SBOMs, attestations, or candidate evidence. Security review remains an
+optional maintenance activity outside publication.

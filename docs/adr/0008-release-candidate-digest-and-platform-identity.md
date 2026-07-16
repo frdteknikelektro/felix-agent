@@ -1,34 +1,11 @@
-# ADR 0008: Release candidate digests and platform identity snapshots
+# ADR 0008: Simple release and platform identity snapshots
 
-Felix builds a multi-architecture candidate image under an immutable
-`candidate-<commit-sha>` tag, scans its exact registry digest, and creates the
-customer-facing `0.1.1` tag only after scan policy, attestations, and manual
-acceptance pass. Manual `latest` promotion accepts only a digest that matches
-the verified `0.1.1` manifest. The `v0.1.0` source tag and image are never moved.
-Completed manual evidence is supplied separately from the immutable candidate
-commit by a protected release-acceptance workflow. That workflow emits only a
-fixed set of generic, fixed-schema pass records and a manifest containing their
-SHA-256 hashes, attesting dispatcher, attestation time, acceptance run ID, candidate run ID,
-commit, version, and digest. Publication downloads the exact successful
-acceptance run, rejects any missing, extra, renamed, non-file, or byte-mismatched
-asset, and revalidates every binding before retaining the bundle with the
-release.
-Before publication, both platform images must also boot from the accepted
-digest and produce sanitized runtime-smoke reports covering health, owner
-authentication, unauthorized API/SSE rejection, disabled sources, read-only
-root operation, persistence across restart, graceful shutdown, and crash
-restart.
-Publication is serialized per version. Before creating or resuming a release,
-the publish workflow recomputes scan policy from the candidate's sanitized
-report, verifies the multi-architecture manifest and platform digests, verifies
-the index provenance and both platform SBOM attestations against the candidate
-commit, and compares the attested SBOM predicates with the uploaded SPDX files.
-Existing source or image tags may be resumed only when they already resolve to
-the accepted commit and digest. Existing GitHub Release assets may be resumed
-only when every existing byte matches the candidate evidence; missing assets
-are added without replacing any existing asset. The generated evidence
-manifest records the SHA-256 digest of every candidate and manual evidence
-asset present before the manifest itself is generated.
+The original candidate-first release design was replaced because its multiple
+workflows and duplicated gates prevented timely delivery. Felix now uses one
+`Release` workflow. A manual version input or `v*` tag triggers one
+`linux/amd64` Docker build that publishes the version tag and `latest`, followed
+by a GitHub Release. Release-time scans, evidence, attestations, acceptance, and
+separate promotion are intentionally omitted.
 
 Each source exposes a runtime platform identity snapshot containing the bot ID
 or JID, optional username, optional display name, discovery source, and

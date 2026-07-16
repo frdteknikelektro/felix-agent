@@ -84,19 +84,19 @@
 - `Release package`: the customer-facing set shipped with a Release: the versioned image, GitHub release metadata, operating documentation, security and legal notices, image evidence, and rollback materials.
 - `Data durability policy`: the Release promise that Workspace data survives supported upgrades and can be recovered using the documented backup and restore procedure.
 - `Network exposure policy`: the Release rule for reachability; the Owner console is private by default, while any public webhook access requires customer-managed HTTPS, firewall controls, and webhook authentication.
-- `Update policy`: customers upgrade manually to a versioned image or immutable digest after backing up Workspace data; the `latest` alias is not a production deployment target.
-- `Release evidence`: the single sanitized record demonstrating that a Release passed automated checks, exact-digest image verification, integration acceptance, lifecycle recovery, and documentation review.
+- `Update policy`: customers upgrade manually to a versioned image after backing up Workspace data; `latest` is published alongside each release as a convenience alias.
+- `Release evidence`: optional historical material; it is no longer required by the simplified release workflow.
 - `Webhook mode`: a source transport in which the platform pushes authenticated HTTPS requests to Felix; Telegram webhook mode requires a URL and secret, while polling is the default.
 - `Persisted integration state`: customer-owned authorization and runtime state stored under the Workspace volume, including Google `GOG_HOME` and the `gog` file keyring.
-- `Image promotion`: the manual operation that retags an already verified immutable image digest as `latest`; it is not part of automatic version publication.
-- `Release candidate digest`: the immutable multi-architecture registry digest produced under a non-customer-facing candidate tag before security scanning.
-- `Verified release digest`: the candidate digest that passed the release scan and was used unchanged to create the customer-facing `0.1.1` tag.
+- `Image promotion`: publication of the version tag and `latest` by the same release build.
+- `Release candidate digest`: a retired concept from the previous multi-stage release process.
+- `Verified release digest`: a retired concept from the previous multi-stage release process.
 - `Platform identity snapshot`: the runtime bot identity for a source — platform user ID or JID, optional username, optional display name, discovery source, and discovery status. It is discovered from the authenticated platform or paired account and is never written into `.env`; human owner authorization remains ID-based even when setup discovers that ID from a friendlier input.
 - `Owner identification`: the setup workflow that converts a human-friendly proof into the source's stable authorization identifier. Mattermost resolves a username, Discord/Slack/Telegram accept an exact one-time private-message claim, and WhatsApp normalizes an international phone number into a JID. Existing identifiers are preserved by default; raw ID entry is a recovery path shown only after automatic discovery fails.
 - `Platform identity discovery`: runtime resolution of a bot identity through its authenticated source API or paired-account state. Mattermost, Discord, and Slack may use legacy environment values when discovery is unavailable; Telegram requires `getMe` and treats its legacy identity as parse-only.
 - `Deprecated identity configuration`: legacy bot identity and owner-presentation environment variables retained only so existing `.env` files parse; setup no longer requests them and runtime discovery is authoritative where supported.
-- `Release gate`: the set of checks that must pass before a Release is customer-distributable; for `0.1.1`, failures in supported integrations, risk policy, image validation, upgrade, backup, or restore block publication.
-- `Security exception`: an exact package-PURL OpenVEX `not_affected` statement with committed justification, evidence, reviewer, review date, and expiry; unmatched or expired statements fail the Release gate.
+- `Release gate`: the successful single AMD64 Docker build in the `Release` workflow.
+- `Security exception`: optional security documentation; it does not block the simplified release workflow.
 - `Support policy`: the customer assistance promise for a Release; `0.1.1` provides best-effort issue-tracker support without uptime, response-time, restoration-time, or resolution-time guarantees.
 - `Data-handling policy`: Felix collects no Felix-owned telemetry; Workspace data remains on the customer's host, while messages and prompts may be sent to the customer-selected source and model providers.
 - `License policy`: `0.1.1` is distributed under Apache-2.0, with applicable third-party notices included.
