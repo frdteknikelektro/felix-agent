@@ -91,6 +91,14 @@ describe("agent runtime image contract", () => {
     expect(dockerfile).not.toContain("ARG AGENT_GID");
   });
 
+  it("includes every module used by the container setup entrypoint", async () => {
+    const dockerfile = await read("Dockerfile");
+
+    expect(dockerfile).toContain("scripts/setup.mjs ./scripts/setup.mjs");
+    expect(dockerfile).toContain("scripts/setup-support.mjs ./scripts/setup-support.mjs");
+    expect(dockerfile).toContain("scripts/setup-owner-discovery.mjs ./scripts/setup-owner-discovery.mjs");
+  });
+
   it("installs whisper-cli and piper TTS binaries", async () => {
     const dockerfile = await read("Dockerfile");
 

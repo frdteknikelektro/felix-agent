@@ -171,6 +171,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --chown=node:node skills ./skills
 COPY --chown=node:node scripts/setup.mjs ./scripts/setup.mjs
 COPY --chown=node:node scripts/setup-support.mjs ./scripts/setup-support.mjs
+COPY --chown=node:node scripts/setup-owner-discovery.mjs ./scripts/setup-owner-discovery.mjs
 COPY --chown=node:node .env.example ./.env.example
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/web/dist ./web/dist
