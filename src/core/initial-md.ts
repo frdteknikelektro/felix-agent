@@ -9,6 +9,11 @@ interface InitialMdInput {
   harnessType: string;
   threadDir: string;
   behaviorInstructions: string[];
+  owner?: {
+    displayName?: string;
+    username?: string;
+    userId?: string;
+  };
 }
 
 /**
@@ -42,6 +47,23 @@ export async function buildInitialMd(input: InitialMdInput): Promise<string> {
       sections.push(instruction);
       sections.push("");
     }
+  }
+
+  if (input.owner) {
+    sections.push("## Owner Context", "");
+    sections.push("- Role: Personal assistant to the owner");
+    if (input.owner.displayName) {
+      sections.push(`- Owner: ${input.owner.displayName}`);
+    }
+    if (input.owner.username) {
+      sections.push(`- Username: @${input.owner.username}`);
+    }
+    if (input.owner.userId) {
+      sections.push(`- User ID: ${input.owner.userId}`);
+    }
+    sections.push("- When interacting with others, you represent the owner");
+    sections.push("- Prioritize owner's interests");
+    sections.push("");
   }
 
   sections.push("---");

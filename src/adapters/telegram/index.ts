@@ -812,7 +812,10 @@ class TelegramAdapter implements SourceAdapter {
       ? `[${this.cfg.TELEGRAM_OWNER_DISPLAY}](tg://user?id=${this.cfg.TELEGRAM_OWNER_USER_ID})`
       : undefined;
 
+    const isOwner = this.ownerUserId !== undefined && this.ownerUserId === input.event.sender.id;
+
     return {
+      isOwner,
       behaviorInstructions: [
         `T1. For Telegram group messages (visibility: channel), only answer when the post explicitly mentions ${botName}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
         "T2. Telegram formatting: use *bold*, _italic_, ~strikethrough~, ```code```, and [link](url) syntax. Your Markdown is automatically converted to HTML before sending — just write standard Markdown.",
