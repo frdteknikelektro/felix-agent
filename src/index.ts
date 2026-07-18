@@ -179,6 +179,22 @@ async function main(): Promise<void> {
   }
   log.info("contract.written", { agents_md: agentsMdDst, claude_md: claudeMdDst, bytes: agentsMd.length });
 
+  // Write PERSONALITY.md — the personality configuration.
+  // Unlike AGENTS.md, we skip the copy if the file already exists in the
+  // workspace to preserve user customizations.
+  const personalityMdSrc = path.resolve(import.meta.dirname, "PERSONALITY.md");
+  const personalityMd = await fs.readFile(personalityMdSrc, "utf-8").catch(() => null);
+  if (personalityMd) {
+    const personalityMdDst = path.join(cfg.paths.root, "PERSONALITY.md");
+    const exists = await fs.stat(personalityMdDst).then((s) => s.isFile()).catch(() => false);
+    if (!exists) {
+      await writeTextAtomic(personalityMdDst, personalityMd);
+      log.info("personality.written", { path: personalityMdDst, bytes: personalityMd.length });
+    } else {
+      log.info("personality.skipped", { path: personalityMdDst, reason: "already_exists" });
+    }
+  }
+
   // Write WORKSPACE_FOLDER_STRUCTURE.md — the authoritative directory layout.
   const structSrc = path.resolve(import.meta.dirname, "WORKSPACE_FOLDER_STRUCTURE.md");
   const structMd = await fs.readFile(structSrc, "utf-8").catch(() => null);
