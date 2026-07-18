@@ -50,19 +50,19 @@ export async function buildInitialMd(input: InitialMdInput): Promise<string> {
   }
 
   if (input.owner) {
-    sections.push("## Owner Context", "");
-    sections.push("- Role: Personal assistant to the owner");
+    sections.push("## Owner Information", "");
+    const parts: string[] = [];
+    parts.push("You are the owner's personal assistant.");
     if (input.owner.displayName) {
-      sections.push(`- Owner: ${input.owner.displayName}`);
+      parts.push(`The owner's name is ${input.owner.displayName}.`);
     }
     if (input.owner.username) {
-      sections.push(`- Username: @${input.owner.username}`);
+      parts.push(`Their username is @${input.owner.username}.`);
     }
     if (input.owner.userId) {
-      sections.push(`- User ID: ${input.owner.userId}`);
+      parts.push(`Their user ID is ${input.owner.userId}.`);
     }
-    sections.push("- When interacting with others, you represent the owner");
-    sections.push("- Prioritize owner's interests");
+    sections.push(parts.join(" "));
     sections.push("");
   }
 
