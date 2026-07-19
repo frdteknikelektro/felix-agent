@@ -191,6 +191,8 @@ async function executeJob(cfg: AppConfig, harness: Harness, job: SchedulerJob): 
       skills: [],
       sourceContext: { behaviorInstructions: [] },
       resumed: false,
+      promptOverride: job.prompt,
+      modelOverride: job.model,
     };
 
     const result = await harness.run(input);

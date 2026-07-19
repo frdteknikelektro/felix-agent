@@ -21,6 +21,7 @@ export const SchedulerJobSchema = z.object({
     source: z.string(),
     user_id: z.string(),
   }),
+  model: z.string().optional(),
   next_run_at: z.string().nullable(),
   last_run_at: z.string().nullable(),
   created_at: z.string(),
