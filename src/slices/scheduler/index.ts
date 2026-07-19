@@ -18,10 +18,13 @@ const MEMORY_SYSTEM_THREAD_KEY = "scheduler-system";
 
 interface SchedulerState {
   locked: boolean;
-  timer: ReturnType<typeof setInterval> | null;
+  timer: ReturnType<typeof setTimeout> | null;
+  nextTickAt: number; // target timestamp for next tick
+  cfg: AppConfig | null;
+  harness: Harness | null;
 }
 
-const state: SchedulerState = { locked: false, timer: null };
+const state: SchedulerState = { locked: false, timer: null, nextTickAt: 0, cfg: null, harness: null };
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -318,12 +321,34 @@ async function executeJobWithRetry(
 
 // ─── Tick loop ────────────────────────────────────────────────────────────────
 
-async function tick(cfg: AppConfig, harness: Harness): Promise<void> {
+function scheduleNextTick(): void {
+  // Calculate offset from current time to maintain precise 10s intervals
+  const now = Date.now();
+  const elapsed = now % TICK_INTERVAL_MS;
+  const offset = TICK_INTERVAL_MS - elapsed;
+
+  state.nextTickAt = now + offset;
+
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    // Run tick, then schedule next
+    tick().catch((err) => {
+      log.error("scheduler: tick failed", { error: err instanceof Error ? err.message : String(err) });
+    }).finally(() => {
+      scheduleNextTick();
+    });
+  }, offset);
+
+  // Unref so it doesn't block process exit
+  state.timer.unref();
+}
+
+async function tick(): Promise<void> {
   if (state.locked) return;
   state.locked = true;
 
   try {
-    const jobs = await listJobs(cfg, { status: "active" });
+    const jobs = await listJobs(state.cfg!, { status: "active" });
     const now = new Date();
 
     for (const job of jobs) {
@@ -332,13 +357,13 @@ async function tick(cfg: AppConfig, harness: Harness): Promise<void> {
       if (nextRun > now) continue;
 
       // Atomic update: immediately update next_run_at before execution
-      const updatedJob = await updateJob(cfg, job.id, {
+      const updatedJob = await updateJob(state.cfg!, job.id, {
         schedule: job.schedule,
       });
 
       if (updatedJob) {
         // Execute job in parallel
-        executeJob(cfg, harness, updatedJob).catch((err) => {
+        executeJob(state.cfg!, state.harness!, updatedJob).catch((err) => {
           log.error("scheduler: job execution failed", {
             jobId: job.id,
             error: err instanceof Error ? err.message : String(err),
@@ -356,20 +381,16 @@ async function tick(cfg: AppConfig, harness: Harness): Promise<void> {
 export function startScheduler(cfg: AppConfig, harness: Harness): void {
   if (state.timer) return;
 
-  log.info("scheduler: starting tick loop", { intervalMs: TICK_INTERVAL_MS });
-  state.timer = setInterval(() => {
-    tick(cfg, harness).catch((err) => {
-      log.error("scheduler: tick failed", { error: err instanceof Error ? err.message : String(err) });
-    });
-  }, TICK_INTERVAL_MS);
+  state.cfg = cfg;
+  state.harness = harness;
 
-  // Unref so it doesn't block process exit
-  state.timer.unref();
+  log.info("scheduler: starting tick loop", { intervalMs: TICK_INTERVAL_MS });
+  scheduleNextTick();
 }
 
 export function stopScheduler(): void {
   if (state.timer) {
-    clearInterval(state.timer);
+    clearTimeout(state.timer);
     state.timer = null;
     log.info("scheduler: stopped");
   }
