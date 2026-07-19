@@ -23,6 +23,9 @@ export interface WorkspacePaths {
   usage: string;
   memoryDir: string;
   wikiDir: string;
+  schedulerDir: string;
+  schedulerJobsDir: string;
+  schedulerLogsDir: string;
 }
 
 export function buildWorkspacePaths(root: string): WorkspacePaths {
@@ -32,6 +35,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
   const index = path.join(root, "index");
   const projects = path.join(root, "projects");
   const memoryDir = path.join(root, "memory");
+  const schedulerDir = path.join(root, "scheduler");
   return {
     root,
     intake,
@@ -53,6 +57,9 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     usage: path.join(root, "usage"),
     memoryDir,
     wikiDir: path.join(memoryDir, "wiki"),
+    schedulerDir,
+    schedulerJobsDir: path.join(schedulerDir, "jobs"),
+    schedulerLogsDir: path.join(schedulerDir, "logs"),
   };
 }
 
@@ -87,6 +94,9 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.wikiDir, "concepts")),
     ensureDir(path.join(paths.wikiDir, "sessions")),
     ensureDir(path.join(paths.wikiDir, "comparisons")),
+    ensureDir(paths.schedulerDir),
+    ensureDir(paths.schedulerJobsDir),
+    ensureDir(paths.schedulerLogsDir),
   ]);
 }
 
