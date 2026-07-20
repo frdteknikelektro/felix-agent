@@ -180,6 +180,7 @@ export async function readJobFile(
 function scheduleNextTick(): void {
   if (!state.running) return;
 
+  const generation = state.generation;
   const elapsed = Date.now() % TICK_INTERVAL_MS;
   const offset = TICK_INTERVAL_MS - elapsed;
   state.timer = setTimeout(() => {
@@ -191,7 +192,9 @@ function scheduleNextTick(): void {
         });
       })
       .finally(() => {
-        if (state.running) scheduleNextTick();
+        if (state.running && state.generation === generation) {
+          scheduleNextTick();
+        }
       });
   }, offset);
   state.timer.unref();
