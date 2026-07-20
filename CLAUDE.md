@@ -15,7 +15,8 @@ src/
   config.ts      env var loading
 web/             owner console SPA — React + Vite + Tailwind (own package.json/lockfile)
 tests/           vitest unit tests
-.agents/skills/  bundled skills shipped in the image
+skills/          bundled runtime skills shipped in the image
+.agents/skills/  development/engineering skills
 .env             local secrets (git-ignored)
 .env.example     env template (tracked)
 ```
@@ -158,9 +159,9 @@ The `database` skill provides full database management capabilities — a univer
 
 **Connection files:** `databases/connections/<alias>.json` — encrypted credentials using `DB_ENCRYPTION_KEY`.
 
-**Query wrapper:** `.agents/skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, node:sqlite built-in, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
+**Query wrapper:** `skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, node:sqlite built-in, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
 
-See `.agents/skills/database/SKILL.md` for the full skill definition and `.agents/skills/database/references/` for engine-specific documentation.
+See `skills/database/SKILL.md` for the full skill definition and `skills/database/references/` for engine-specific documentation.
 
 ## Owner console
 
