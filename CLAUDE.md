@@ -15,11 +15,12 @@ src/
   config.ts      env var loading
 web/             owner console SPA — React + Vite + Tailwind (own package.json/lockfile)
 tests/           vitest unit tests
-workspace/       runtime sessions, catalog, approvals, indexes, projects, tools (git-ignored)
-skills/          bundled skills shipped in the image
+.agents/skills/  bundled skills shipped in the image
 .env             local secrets (git-ignored)
 .env.example     env template (tracked)
 ```
+
+> **Note:** In the Docker container, the workspace root is `$HOME` (`/home/node`). Runtime directories (sessions, catalog, approvals, indexes, projects, databases, runtime) are created at the workspace root level, not in a `workspace/` subdirectory.
 
 The owner console is a React SPA in `web/`, built to `web/dist` and served as static
 assets by the Node HTTP server. The server exposes a REST API under `/api/*` and a live
@@ -65,7 +66,7 @@ curl http://localhost:53318/healthz   # → {"ok":true}
 docker compose up -d --build
 ```
 
-Set `UID` / `GID` to match the host user that owns the bind-mounted `workspace/` directory. On macOS and Windows Docker Desktop the defaults (1000:1000) usually work.
+Set `UID` / `GID` to match the host user that owns the bind-mounted workspace directory. On macOS and Windows Docker Desktop the defaults (1000:1000) usually work.
 
 ### docker run (manual)
 
@@ -81,7 +82,7 @@ docker run -d \
   --tmpfs /tmp:rw,noexec,nosuid \
   --tmpfs /home/node/.codex:rw,noexec,nosuid \
   -v $(pwd)/.env:/run/secrets/.env:ro \
-  -v $(pwd)/workspace:/home/node/workspace \
+  -v $(pwd)/workspace:/home/node \
   felix-agent:latest
 ```
 
@@ -100,7 +101,7 @@ Stable Runtime capabilities:
 - Text-to-speech CLI (`piper`, voice model fetched on first use)
 - Shell, network, archive, and compression utilities
 - Git/project editing basics
-- Shared runtime tooling under `workspace/runtime/`
+- Shared runtime tooling under `runtime/`
 
 Provider-specific operational CLIs are intentionally excluded from the image, including `aws`, `gcloud`, `kubectl`, and `terraform`. Use the `install-tool` skill or another explicit setup path for those. The pinned `gog` CLI is the sole supported exception because it is the runtime boundary of the bundled Google Workspace skill; customer OAuth credentials remain external to the image.
 
@@ -119,7 +120,7 @@ Key variables:
 | `OPENAI_CODEX_AUTH_JSON` | Codex harness (OAuth) | ChatGPT Plus auth JSON (populated by setup) |
 | `ANTHROPIC_API_KEY` | Claude Code harness | Anthropic API key |
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
-| `WORKSPACE_DIR` | — | default `/home/node/workspace` |
+| `WORKSPACE_DIR` | — | default `/home/node` |
 | `CODEX_MODEL` | — | default `gpt-5.4-mini` |
 | `CODEX_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CODEX_MODEL`) |
 | `OPENCODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `OPENCODE_MODEL`) |
@@ -155,11 +156,11 @@ The `database` skill provides full database management capabilities — a univer
 - `database:admin.<alias>` — admin access to a specific connection
 - Wildcards: `database:read.*` — read access to all connections
 
-**Connection files:** `workspace/databases/connections/<alias>.json` — encrypted credentials using `DB_ENCRYPTION_KEY`.
+**Connection files:** `databases/connections/<alias>.json` — encrypted credentials using `DB_ENCRYPTION_KEY`.
 
-**Query wrapper:** `skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, node:sqlite built-in, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
+**Query wrapper:** `.agents/skills/database/query.mjs` — Node.js script using official drivers (pg, mysql2, node:sqlite built-in, mongodb, ioredis, @aws-sdk/client-dynamodb, @azure/cosmos).
 
-See `skills/database/SKILL.md` for the full skill definition and `skills/database/references/` for engine-specific documentation.
+See `.agents/skills/database/SKILL.md` for the full skill definition and `.agents/skills/database/references/` for engine-specific documentation.
 
 ## Owner console
 
