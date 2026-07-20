@@ -130,6 +130,28 @@ async function pauseInvalidJobFile(
   }
 }
 
+async function pauseValidJob(
+  filePath: string,
+  job: SchedulerJob,
+  reason: string,
+): Promise<void> {
+  try {
+    await writeJsonAtomic(filePath, { ...job, status: "paused" });
+    log.warn("scheduler: active job paused", {
+      file: filePath,
+      jobId: job.id,
+      reason,
+    });
+  } catch (error) {
+    log.warn("scheduler: active job could not be paused", {
+      file: filePath,
+      jobId: job.id,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function readJobFile(
   filePath: string,
 ): Promise<SchedulerJob | null> {
@@ -232,6 +254,7 @@ export async function tick(): Promise<void> {
           file: filePath,
           jobId: job.id,
         });
+        await pauseValidJob(filePath, job, "invalid_next_run_at");
         continue;
       }
       if (nextRun > now) continue;
@@ -245,6 +268,7 @@ export async function tick(): Promise<void> {
           jobId: job.id,
           error: error instanceof Error ? error.message : String(error),
         });
+        await pauseValidJob(filePath, job, "invalid_schedule");
         continue;
       }
 

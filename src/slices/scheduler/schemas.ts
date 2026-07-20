@@ -36,9 +36,10 @@ const SchedulerOriginSchema = z
       reference.thread_id,
       reference.root_message_id,
       reference.message_id,
-      reference.raw,
     ].some((value) => value !== undefined && value !== "");
-    if (!hasStableReference) {
+    const hasRawReference =
+      reference.raw !== undefined && Object.keys(reference.raw).length > 0;
+    if (!hasStableReference && !hasRawReference) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["source_thread_ref"],

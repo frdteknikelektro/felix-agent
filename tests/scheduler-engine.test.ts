@@ -141,6 +141,8 @@ describe("scheduled engine execution", () => {
     expect(inputs).toHaveLength(1);
     expect(inputs[0]?.event.source).toBe("mattermost");
     expect(inputs[0]?.event.thread_key).toBe(job.origin.thread_key);
+    expect(inputs[0]?.event.synthetic).toBe("scheduled");
+    expect(calls.updateEventStatus).not.toHaveBeenCalled();
     expect(calls.sendThreadReply).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining("scheduled result"),

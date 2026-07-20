@@ -95,6 +95,15 @@ describe("SchedulerJobSchema", () => {
     expect(
       SchedulerJobSchema.safeParse({
         ...makeJob(),
+        origin: {
+          ...ORIGIN,
+          source_thread_ref: { source: "mattermost", raw: {} },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      SchedulerJobSchema.safeParse({
+        ...makeJob(),
         permissions: ["github.write"],
       }).success,
     ).toBe(false);
@@ -211,6 +220,21 @@ describe("Scheduler job files", () => {
       ...job,
       origin: undefined as never,
     });
+
+    startScheduler(cfg, { run: vi.fn() });
+    await tick();
+
+    expect(JSON.parse(await fs.readFile(filePath, "utf8")).status).toBe(
+      "paused",
+    );
+  });
+
+  it("pauses an active job with an invalid cron expression", async () => {
+    const cfg = await makeTestConfig("scheduler-invalid-cron-");
+    const job = makeJob({
+      schedule: { type: "cron", expression: "not a cron expression" },
+    });
+    const filePath = await writeJob(cfg, job);
 
     startScheduler(cfg, { run: vi.fn() });
     await tick();

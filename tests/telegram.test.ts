@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createTelegramAdapter, handleTelegramWebhook, startTelegramSource } from "../src/adapters/telegram/index.js";
+import {
+  createTelegramAdapter,
+  handleTelegramWebhook,
+  startTelegramSource,
+} from "../src/adapters/telegram/index.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 import type { SourceAdapter } from "../src/core/ports.js";
 import { Readable } from "node:stream";
@@ -14,7 +18,9 @@ afterEach(() => {
 
 describe("TelegramAdapter getTurnContext", () => {
   it("uses the configured agent name when no Telegram username is known", async () => {
-    const cfg = await makeTestConfig("tg-turnctx-name-", { FELIX_NAME: "Nova" });
+    const cfg = await makeTestConfig("tg-turnctx-name-", {
+      FELIX_NAME: "Nova",
+    });
     const adapter: SourceAdapter = createTelegramAdapter(cfg);
 
     const ctx = await adapter.getTurnContext({
@@ -88,6 +94,53 @@ describe("TelegramAdapter getTurnContext", () => {
   });
 });
 
+describe("TelegramAdapter scheduled replies", () => {
+  it("does not reply to a synthetic scheduler message", async () => {
+    const cfg = await makeTestConfig("tg-scheduled-reply-", {
+      TELEGRAM_BOT_TOKEN: "token",
+    });
+    const requests: Array<Record<string, unknown>> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({ ok: true, result: { message_id: 2 } }),
+      );
+    }) as typeof fetch;
+
+    try {
+      const adapter = createTelegramAdapter(cfg);
+      await adapter.sendThreadReply({
+        event: {
+          source: "telegram",
+          event_id: "scheduler-job-execution",
+          synthetic: "scheduled",
+          thread_key: "telegram:1706579477:1",
+          received_at: "2026-07-01T00:00:00.000Z",
+          visibility: "channel",
+          mentions_bot: false,
+          sender: { source: "telegram", id: "1706579477" },
+          text: "scheduled prompt",
+          attachments: [],
+          raw_path: "",
+          source_thread_ref: {
+            source: "telegram",
+            conversation_id: "1706579477",
+            thread_id: "1706579477",
+            root_message_id: "1706579477",
+          },
+        },
+        text: "scheduled response",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.reply_parameters).toBeUndefined();
+  });
+});
+
 describe("Telegram transport modes", () => {
   it("does not start from the legacy identity when getMe is unavailable", async () => {
     const cfg = await makeTestConfig("tg-api-required-", {
@@ -95,7 +148,10 @@ describe("Telegram transport modes", () => {
       TELEGRAM_BOT_USER_ID: "legacy-id",
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: false, description: "unavailable" }), { status: 503 })) as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: false, description: "unavailable" }), {
+        status: 503,
+      })) as typeof fetch;
     try {
       const handle = await startTelegramSource(cfg, {} as never);
       await handle.done;
@@ -112,11 +168,25 @@ describe("Telegram transport modes", () => {
       TELEGRAM_WEBHOOK_SECRET: "secret",
     });
     const calls: string[] = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       const url = typeof input === "string" ? input : input.toString();
       const method = url.split("/").pop() ?? "";
       calls.push(method);
-      if (method === "getMe") return new Response(JSON.stringify({ ok: true, result: { id: 42, is_bot: true, first_name: "NovaBot", username: "nova_bot" } }));
+      if (method === "getMe")
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            result: {
+              id: 42,
+              is_bot: true,
+              first_name: "NovaBot",
+              username: "nova_bot",
+            },
+          }),
+        );
       return new Response(JSON.stringify({ ok: true, result: true }));
     }) as typeof fetch;
     const handle = await startTelegramSource(cfg, {} as never);
@@ -134,10 +204,24 @@ describe("Telegram transport modes", () => {
       TELEGRAM_WEBHOOK_SECRET: "secret",
     });
     const req = Object.assign(Readable.from(["{}"]), { headers: {} });
-    const response = { statusCode: 0, headers: new Map<string, string>(), setHeader(k: string, v: string) { this.headers.set(k, v); }, end: vi.fn() };
-    await handleTelegramWebhook(cfg, {} as never, req as never, response as never);
+    const response = {
+      statusCode: 0,
+      headers: new Map<string, string>(),
+      setHeader(k: string, v: string) {
+        this.headers.set(k, v);
+      },
+      end: vi.fn(),
+    };
+    await handleTelegramWebhook(
+      cfg,
+      {} as never,
+      req as never,
+      response as never,
+    );
     expect(response.statusCode).toBe(401);
-    expect(response.end).toHaveBeenCalledWith(JSON.stringify({ error: "invalid_secret" }));
+    expect(response.end).toHaveBeenCalledWith(
+      JSON.stringify({ error: "invalid_secret" }),
+    );
   });
 
   it("returns a retryable response when webhook identity cannot be discovered", async () => {
@@ -148,13 +232,32 @@ describe("Telegram transport modes", () => {
       TELEGRAM_WEBHOOK_SECRET: "secret",
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ ok: false, description: "unavailable" }), { status: 503 })) as typeof fetch;
-    const req = Object.assign(Readable.from(["{}"]), { headers: { "x-telegram-bot-api-secret-token": "secret" } });
-    const response = { statusCode: 0, headers: new Map<string, string>(), setHeader(k: string, v: string) { this.headers.set(k, v); }, end: vi.fn() };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: false, description: "unavailable" }), {
+        status: 503,
+      })) as typeof fetch;
+    const req = Object.assign(Readable.from(["{}"]), {
+      headers: { "x-telegram-bot-api-secret-token": "secret" },
+    });
+    const response = {
+      statusCode: 0,
+      headers: new Map<string, string>(),
+      setHeader(k: string, v: string) {
+        this.headers.set(k, v);
+      },
+      end: vi.fn(),
+    };
     try {
-      await handleTelegramWebhook(cfg, {} as never, req as never, response as never);
+      await handleTelegramWebhook(
+        cfg,
+        {} as never,
+        req as never,
+        response as never,
+      );
       expect(response.statusCode).toBe(503);
-      expect(response.end).toHaveBeenCalledWith(JSON.stringify({ error: "telegram_identity_unavailable" }));
+      expect(response.end).toHaveBeenCalledWith(
+        JSON.stringify({ error: "telegram_identity_unavailable" }),
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }

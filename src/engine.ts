@@ -681,6 +681,7 @@ export class FelixEngine {
     const event: UniversalEvent = {
       source: job.origin.source,
       event_id: `scheduler-${job.id}-${request.executionId}`,
+      synthetic: "scheduled",
       thread_key: job.origin.thread_key,
       received_at: new Date().toISOString(),
       visibility: job.origin.visibility,
@@ -819,7 +820,9 @@ export class FelixEngine {
     const adapter = this.requireAdapter(event.source);
     await adapter.sendThreadReply({ event, text });
     await appendFelixReply(thread, new Date().toISOString(), text, sessionId);
-    await adapter.updateEventStatus({ event, status: "replied" });
+    if (event.synthetic !== "scheduled") {
+      await adapter.updateEventStatus({ event, status: "replied" });
+    }
   }
 
   /**

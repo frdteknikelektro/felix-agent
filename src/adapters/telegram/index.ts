@@ -2,12 +2,24 @@ import path from "node:path";
 import type http from "node:http";
 import type { AppConfig } from "../../config.js";
 import { log } from "../../lib/log.js";
-import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
+import type {
+  SourceAdapter,
+  SourceEventStatus,
+  SourceTurnContext,
+} from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
+import {
+  handleSourceEventIntake,
+  handleSourceReactionIntake,
+} from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
-import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
+import type {
+  SourceMessageAnchor,
+  SourceThreadRef,
+  UniversalAttachment,
+  UniversalEvent,
+} from "../../types.js";
 import {
   downloadResponseToFile,
   storedAttachmentPath,
@@ -63,7 +75,8 @@ export async function handleTelegramWebhook(
   }
   const body = await readRequestBody(req);
 
-  const secretToken = req.headers["x-telegram-bot-api-secret-token"] as string | undefined;
+  const secretToken = req.headers["x-telegram-bot-api-secret-token"] as
+    string | undefined;
   if (secretToken !== cfg.TELEGRAM_WEBHOOK_SECRET) {
     log.warn("telegram.webhook_invalid_secret");
     sendJson(res, 401, { error: "invalid_secret" });
@@ -87,7 +100,9 @@ export async function handleTelegramWebhook(
   }
   sendJson(res, 200, { ok: true });
   void adapter.processUpdate(engine, update).catch((error) => {
-    log.warn("telegram.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+    log.warn("telegram.webhook_async_error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 
@@ -98,7 +113,11 @@ const POLLING_TIMEOUT = 30;
 const OUTBOUND_MIN_GAP_MS = 1000;
 const TYPING_DEDUP_MS = 4000;
 
-function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  data: unknown,
+): void {
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(data));
@@ -184,7 +203,9 @@ export function markdownToTelegramHtml(text: string): string {
         if (urlEnd !== -1) {
           const linkText = text.slice(i + 1, close);
           const url = text.slice(close + 2, urlEnd);
-          out.push(`<a href="${escapeHtml(url)}">${markdownToTelegramHtml(linkText)}</a>`);
+          out.push(
+            `<a href="${escapeHtml(url)}">${markdownToTelegramHtml(linkText)}</a>`,
+          );
           i = urlEnd + 1;
           continue;
         }
@@ -235,10 +256,7 @@ export function markdownToTelegramHtml(text: string): string {
 }
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ─── Telegram Bot API types ───────────────────────────────────────────────────
@@ -449,7 +467,10 @@ class TelegramAdapter implements SourceAdapter {
     return `${TELEGRAM_API_BASE}/bot${this.cfg.TELEGRAM_BOT_TOKEN}`;
   }
 
-  private async apiCall<T>(method: string, body?: Record<string, unknown>): Promise<T | null> {
+  private async apiCall<T>(
+    method: string,
+    body?: Record<string, unknown>,
+  ): Promise<T | null> {
     const url = `${this.apiBase}/${method}`;
     try {
       const res = await fetch(url, {
@@ -457,7 +478,11 @@ class TelegramAdapter implements SourceAdapter {
         headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
       });
-      const json = (await res.json()) as { ok: boolean; result?: T; description?: string };
+      const json = (await res.json()) as {
+        ok: boolean;
+        result?: T;
+        description?: string;
+      };
       if (!json.ok) {
         log.warn("telegram.api_error", { method, error: json.description });
         return null;
@@ -487,7 +512,9 @@ class TelegramAdapter implements SourceAdapter {
 
   // ── start (supervisor contract) ──────────────────────────────────────────
 
-  async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
+  async start(
+    engine: FelixEngine,
+  ): Promise<{ stop(): void; done: Promise<void> }> {
     if (!this.cfg.TELEGRAM_BOT_TOKEN) {
       log.warn("telegram.disabled", { reason: "missing_token" });
       return { stop: () => undefined, done: Promise.resolve() };
@@ -506,10 +533,14 @@ class TelegramAdapter implements SourceAdapter {
         allowed_updates: ["message", "edited_message", "message_reaction"],
       });
       if (!registered) {
-        log.warn("telegram.disabled", { reason: "webhook_registration_failed" });
+        log.warn("telegram.disabled", {
+          reason: "webhook_registration_failed",
+        });
         return { stop: () => undefined, done: Promise.resolve() };
       }
-      log.info("telegram.webhook_registered", { url: this.cfg.TELEGRAM_WEBHOOK_URL });
+      log.info("telegram.webhook_registered", {
+        url: this.cfg.TELEGRAM_WEBHOOK_URL,
+      });
     } else {
       await this.apiCall("deleteWebhook");
     }
@@ -545,7 +576,12 @@ class TelegramAdapter implements SourceAdapter {
 
   async ensureBotIdentity(): Promise<TelegramUser | null> {
     if (this.botId !== undefined) {
-      return { id: this.botId, is_bot: true, first_name: this.botUsername ?? "Telegram bot", username: this.botUsername };
+      return {
+        id: this.botId,
+        is_bot: true,
+        first_name: this.botUsername ?? "Telegram bot",
+        username: this.botUsername,
+      };
     }
     const me = await this.apiCall<TelegramUser>("getMe");
     if (!me) return null;
@@ -562,7 +598,11 @@ class TelegramAdapter implements SourceAdapter {
         const updates = await this.apiCall<TelegramUpdate[]>("getUpdates", {
           offset: this.offset,
           timeout: POLLING_TIMEOUT,
-          allowed_updates: JSON.stringify(["message", "edited_message", "message_reaction"]),
+          allowed_updates: JSON.stringify([
+            "message",
+            "edited_message",
+            "message_reaction",
+          ]),
         });
         if (!updates) {
           // API call failed — back off briefly
@@ -574,7 +614,9 @@ class TelegramAdapter implements SourceAdapter {
           await this.processUpdate(engine, update);
         }
       } catch (error) {
-        log.warn("telegram.poll_error", { error: error instanceof Error ? error.message : String(error) });
+        log.warn("telegram.poll_error", {
+          error: error instanceof Error ? error.message : String(error),
+        });
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
@@ -582,7 +624,10 @@ class TelegramAdapter implements SourceAdapter {
 
   // ── Update processing ───────────────────────────────────────────────────
 
-  async processUpdate(engine: FelixEngine, update: TelegramUpdate): Promise<void> {
+  async processUpdate(
+    engine: FelixEngine,
+    update: TelegramUpdate,
+  ): Promise<void> {
     // Handle message reactions
     if (update.message_reaction) {
       await this.handleReaction(engine, update.message_reaction);
@@ -603,9 +648,10 @@ class TelegramAdapter implements SourceAdapter {
 
     await handleSourceEventIntake(this.cfg, {
       event,
-      owner: this.ownerUserId && this.ownerUserId === event.sender.id
-        ? { decidedBy: event.sender.id }
-        : undefined,
+      owner:
+        this.ownerUserId && this.ownerUserId === event.sender.id
+          ? { decidedBy: event.sender.id }
+          : undefined,
       ports: engine,
     });
   }
@@ -613,8 +659,11 @@ class TelegramAdapter implements SourceAdapter {
   private normalizeMessage(message: TelegramMessage): UniversalEvent | null {
     const chatId = String(message.chat.id);
     const messageId = String(message.message_id);
-    const threadId = message.message_thread_id ? String(message.message_thread_id) : chatId;
-    const isGroup = message.chat.type === "group" || message.chat.type === "supergroup";
+    const threadId = message.message_thread_id
+      ? String(message.message_thread_id)
+      : chatId;
+    const isGroup =
+      message.chat.type === "group" || message.chat.type === "supergroup";
 
     // Determine visibility
     const visibility = isGroup ? "channel" : "dm";
@@ -664,9 +713,16 @@ class TelegramAdapter implements SourceAdapter {
     });
   }
 
-  private buildSender(message: TelegramMessage): { source: string; id: string; display?: string; username?: string } {
+  private buildSender(message: TelegramMessage): {
+    source: string;
+    id: string;
+    display?: string;
+    username?: string;
+  } {
     if (message.from) {
-      const display = [message.from.first_name, message.from.last_name].filter(Boolean).join(" ");
+      const display = [message.from.first_name, message.from.last_name]
+        .filter(Boolean)
+        .join(" ");
       return {
         source: "telegram",
         id: String(message.from.id),
@@ -703,7 +759,8 @@ class TelegramAdapter implements SourceAdapter {
     if (message.document) {
       attachments.push({
         file_id: message.document.file_id,
-        filename: message.document.file_name ?? `document_${message.message_id}`,
+        filename:
+          message.document.file_name ?? `document_${message.message_id}`,
         content_type: message.document.mime_type,
         size_bytes: message.document.file_size,
       });
@@ -750,7 +807,8 @@ class TelegramAdapter implements SourceAdapter {
     if (message.animation) {
       attachments.push({
         file_id: message.animation.file_id,
-        filename: message.animation.file_name ?? `animation_${message.message_id}.gif`,
+        filename:
+          message.animation.file_name ?? `animation_${message.message_id}.gif`,
         content_type: message.animation.mime_type ?? "image/gif",
         size_bytes: message.animation.file_size,
       });
@@ -761,17 +819,28 @@ class TelegramAdapter implements SourceAdapter {
 
   // ── Reactions ───────────────────────────────────────────────────────────
 
-  private async handleReaction(engine: FelixEngine, reaction: TelegramMessageReaction): Promise<void> {
+  private async handleReaction(
+    engine: FelixEngine,
+    reaction: TelegramMessageReaction,
+  ): Promise<void> {
     if (!this.ownerUserId) return;
-    const senderId = reaction.user ? String(reaction.user.id) : reaction.actor_chat ? String(reaction.actor_chat.id) : undefined;
+    const senderId = reaction.user
+      ? String(reaction.user.id)
+      : reaction.actor_chat
+        ? String(reaction.actor_chat.id)
+        : undefined;
     if (senderId !== this.ownerUserId) return;
 
     // Check for new emoji reactions
-    const emojiReactions = reaction.new_reaction.filter((r) => r.type === "emoji" && r.emoji);
+    const emojiReactions = reaction.new_reaction.filter(
+      (r) => r.type === "emoji" && r.emoji,
+    );
     if (emojiReactions.length === 0) return;
 
     // Check if any reaction is a decision token
-    const decisionEmoji = emojiReactions.find((r) => isOwnerDecisionReactionToken(r.emoji!));
+    const decisionEmoji = emojiReactions.find((r) =>
+      isOwnerDecisionReactionToken(r.emoji!),
+    );
     if (!decisionEmoji?.emoji) return;
 
     const chatId = String(reaction.chat.id);
@@ -805,9 +874,13 @@ class TelegramAdapter implements SourceAdapter {
     return undefined;
   }
 
-  async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
+  async getTurnContext(input: {
+    event: UniversalEvent;
+  }): Promise<SourceTurnContext> {
     const chatId = input.event.source_thread_ref.conversation_id;
-    const botName = this.botUsername ? `@${this.botUsername}` : `@${this.cfg.FELIX_NAME}`;
+    const botName = this.botUsername
+      ? `@${this.botUsername}`
+      : `@${this.cfg.FELIX_NAME}`;
     const ownerMentionToken = this.cfg.TELEGRAM_OWNER_USER_ID
       ? `[${this.cfg.TELEGRAM_OWNER_DISPLAY}](tg://user?id=${this.cfg.TELEGRAM_OWNER_USER_ID})`
       : undefined;
@@ -819,7 +892,7 @@ class TelegramAdapter implements SourceAdapter {
         "T3. Telegram API posting (for intermediate messages only — final replies go through FELIX_REPLY):",
         "```bash",
         `CHAT_ID="${chatId}"`,
-        'curl -sS -X POST \\',
+        "curl -sS -X POST \\",
         '  -H "Content-Type: application/json" \\',
         '  -d \'{"chat_id":"\'"$CHAT_ID"\'","text":"<b>message</b>","parse_mode":"HTML"}\' \\',
         `  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"`,
@@ -828,7 +901,7 @@ class TelegramAdapter implements SourceAdapter {
         "```bash",
         `CHAT_ID="${chatId}"`,
         'ARTIFACT_PATH="<path under session artifact directory>"',
-        'curl -sS -X POST \\',
+        "curl -sS -X POST \\",
         '  -F "chat_id=$CHAT_ID" \\',
         '  -F "document=@${ARTIFACT_PATH}" \\',
         `  "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendDocument"`,
@@ -845,7 +918,10 @@ class TelegramAdapter implements SourceAdapter {
     };
   }
 
-  async updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void> {
+  async updateEventStatus(input: {
+    event: UniversalEvent;
+    status: SourceEventStatus;
+  }): Promise<void> {
     const chatId = input.event.source_thread_ref.conversation_id;
     if (!chatId) return;
     const messageId = input.event.event_id;
@@ -882,29 +958,40 @@ class TelegramAdapter implements SourceAdapter {
     });
   }
 
-  async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
+  async sendThreadReply(input: {
+    event: UniversalEvent;
+    text: string;
+  }): Promise<void> {
     const chatId = input.event.source_thread_ref.conversation_id;
     if (!chatId) {
-      throw new Error("Telegram sendThreadReply: missing conversation_id in source_thread_ref");
+      throw new Error(
+        "Telegram sendThreadReply: missing conversation_id in source_thread_ref",
+      );
     }
 
     const isGroup = input.event.visibility === "channel";
-    const isSystem = input.event.sender.id === "system";
+    const isSystem =
+      input.event.sender.id === "system" ||
+      input.event.synthetic === "scheduled";
     const threadId = input.event.source_thread_ref.root_message_id;
     const html = markdownToTelegramHtml(input.text);
-    const replyParams = isSystem ? {} : {
-      reply_parameters: {
-        message_id: Number(input.event.event_id),
-        allow_sending_without_reply: true,
-      },
-    };
+    const replyParams = isSystem
+      ? {}
+      : {
+          reply_parameters: {
+            message_id: Number(input.event.event_id),
+            allow_sending_without_reply: true,
+          },
+        };
 
     await this.waitForSendSlot();
     const ok = await this.apiCall("sendMessage", {
       chat_id: chatId,
       text: html,
       parse_mode: "HTML",
-      ...(isGroup && threadId !== chatId ? { message_thread_id: Number(threadId) } : {}),
+      ...(isGroup && threadId !== chatId
+        ? { message_thread_id: Number(threadId) }
+        : {}),
       ...replyParams,
     });
     if (!ok) {
@@ -912,7 +999,9 @@ class TelegramAdapter implements SourceAdapter {
       await this.apiCall("sendMessage", {
         chat_id: chatId,
         text: input.text,
-        ...(isGroup && threadId !== chatId ? { message_thread_id: Number(threadId) } : {}),
+        ...(isGroup && threadId !== chatId
+          ? { message_thread_id: Number(threadId) }
+          : {}),
         ...replyParams,
       });
     }
@@ -924,14 +1013,20 @@ class TelegramAdapter implements SourceAdapter {
   }): Promise<SourceMessageAnchor | null> {
     await this.waitForSendSlot();
     const html = markdownToTelegramHtml(input.text);
-    const result = await this.apiCall<{ message_id: number; chat: TelegramChat }>("sendMessage", {
+    const result = await this.apiCall<{
+      message_id: number;
+      chat: TelegramChat;
+    }>("sendMessage", {
       chat_id: input.userId,
       text: html,
       parse_mode: "HTML",
     });
     if (!result) {
       // fallback: plain text
-      const retry = await this.apiCall<{ message_id: number; chat: TelegramChat }>("sendMessage", {
+      const retry = await this.apiCall<{
+        message_id: number;
+        chat: TelegramChat;
+      }>("sendMessage", {
         chat_id: input.userId,
         text: input.text,
       });
@@ -951,7 +1046,10 @@ class TelegramAdapter implements SourceAdapter {
     };
   }
 
-  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+  async editUserMessage(input: {
+    anchor: SourceMessageAnchor;
+    text: string;
+  }): Promise<void> {
     const chatId = input.anchor.conversation_id;
     const messageId = input.anchor.message_id;
     if (!chatId || !messageId) {
@@ -1003,11 +1101,14 @@ class TelegramAdapter implements SourceAdapter {
       file_id: input.attachment.file_id,
     });
     if (!fileInfo?.file_path) {
-      throw new Error(`Cannot access Telegram file ${input.attachment.file_id}`);
+      throw new Error(
+        `Cannot access Telegram file ${input.attachment.file_id}`,
+      );
     }
 
     const fileUrl = `${TELEGRAM_API_BASE}/file/bot${this.cfg.TELEGRAM_BOT_TOKEN}/${fileInfo.file_path}`;
-    const filename = input.attachment.filename ?? path.basename(fileInfo.file_path);
+    const filename =
+      input.attachment.filename ?? path.basename(fileInfo.file_path);
     const dest = storedAttachmentPath(
       input.destinationDir,
       input.event.received_at,
@@ -1017,7 +1118,9 @@ class TelegramAdapter implements SourceAdapter {
 
     const res = await fetch(fileUrl);
     if (!res.ok) {
-      throw new Error(`download failed for ${input.attachment.file_id}: ${res.status}`);
+      throw new Error(
+        `download failed for ${input.attachment.file_id}: ${res.status}`,
+      );
     }
 
     const written = await downloadResponseToFile(res, dest, input.maxBytes);

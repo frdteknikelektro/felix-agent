@@ -34,6 +34,8 @@ export interface UniversalAttachment {
 export interface UniversalEvent {
   source: SourceName;
   event_id: string;
+  /** Marks engine-generated events that have no corresponding source message. */
+  synthetic?: "scheduled";
   thread_key: string;
   received_at: string;
   visibility: "dm" | "channel";
@@ -70,7 +72,10 @@ export interface PermissionDecision {
 
 export type OwnerDecisionTarget =
   | { kind: "thread"; threadKey: string }
-  | { kind: "owner_message"; anchor: import("./core/schemas.js").SourceMessageAnchor }
+  | {
+      kind: "owner_message";
+      anchor: import("./core/schemas.js").SourceMessageAnchor;
+    }
   | { kind: "approval"; approvalId: string };
 
 export interface OwnerDecision {
