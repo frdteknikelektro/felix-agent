@@ -21,7 +21,10 @@ import {
   addDatabaseAudit,
 } from "../owner-data.js";
 import { parseUsageWindow, usageView } from "../slices/usage/index.js";
-import { listApprovalRecords, ownerDecisionFromAction } from "../slices/approvals/index.js";
+import {
+  listApprovalRecords,
+  ownerDecisionFromAction,
+} from "../slices/approvals/index.js";
 import {
   ContactEditorError,
   createContactFromEditor,
@@ -120,7 +123,10 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/sessions/:threadKey",
     async handler({ cfg, params, send }) {
       const threadKey = params["threadKey"];
-      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      if (!threadKey) {
+        send(400, { error: "missing_thread_key" });
+        return;
+      }
       const detail = await loadSessionDetail(cfg, threadKey);
       if (!detail) {
         send(404, { error: "not_found" });
@@ -134,13 +140,30 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/sessions/:threadKey/messages",
     async handler({ cfg, params, send }) {
       const threadKey = params["threadKey"];
-      if (!threadKey) { send(400, { error: "missing_thread_key" }); return; }
+      if (!threadKey) {
+        send(400, { error: "missing_thread_key" });
+        return;
+      }
       const messages = await loadChatTimeline(cfg, threadKey);
       if (!messages) {
         send(404, { error: "not_found" });
         return;
       }
       send(200, { items: messages });
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/threads/:threadKey/block",
+    async handler({ engine, params, send }) {
+      await setThreadBlockedRoute(engine, params["threadKey"], true, send);
+    },
+  },
+  {
+    method: "POST",
+    pattern: "/api/threads/:threadKey/unblock",
+    async handler({ engine, params, send }) {
+      await setThreadBlockedRoute(engine, params["threadKey"], false, send);
     },
   },
 
@@ -157,7 +180,10 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/skills/:skillId",
     async handler({ cfg, params, send }) {
       const skillId = validateId(params["skillId"] ?? "");
-      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
+      if (!skillId) {
+        send(400, { error: "invalid_skill_id" });
+        return;
+      }
       const skill = await loadSkillForUi(cfg, skillId);
       if (!skill) {
         send(404, { error: "not_found" });
@@ -181,9 +207,15 @@ export const API_ROUTES: Route[] = [
         send(409, { error: "skill_exists" });
         return;
       }
-      const saved = await saveSkillForUi(cfg, skillId, normalizeSkillBody(body));
+      const saved = await saveSkillForUi(
+        cfg,
+        skillId,
+        normalizeSkillBody(body),
+      );
       await engine.refreshSkills();
-      await addSkillAudit(cfg, skillId, "create", `Created skill ${skillId}`, { path: saved.path });
+      await addSkillAudit(cfg, skillId, "create", `Created skill ${skillId}`, {
+        path: saved.path,
+      });
       send(201, saved);
     },
   },
@@ -192,16 +224,25 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/skills/:skillId",
     async handler({ cfg, engine, params, readBody, send }) {
       const skillId = validateId(params["skillId"] ?? "");
-      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
+      if (!skillId) {
+        send(400, { error: "invalid_skill_id" });
+        return;
+      }
       const existing = await loadSkillForUi(cfg, skillId);
       if (!existing) {
         send(404, { error: "not_found" });
         return;
       }
       const body = await readBody();
-      const saved = await saveSkillForUi(cfg, skillId, normalizeSkillBody(body));
+      const saved = await saveSkillForUi(
+        cfg,
+        skillId,
+        normalizeSkillBody(body),
+      );
       await engine.refreshSkills();
-      await addSkillAudit(cfg, skillId, "update", `Updated skill ${skillId}`, { path: saved.path });
+      await addSkillAudit(cfg, skillId, "update", `Updated skill ${skillId}`, {
+        path: saved.path,
+      });
       send(200, saved);
     },
   },
@@ -210,7 +251,10 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/skills/:skillId",
     async handler({ cfg, engine, params, send }) {
       const skillId = validateId(params["skillId"] ?? "");
-      if (!skillId) { send(400, { error: "invalid_skill_id" }); return; }
+      if (!skillId) {
+        send(400, { error: "invalid_skill_id" });
+        return;
+      }
       const existing = await loadSkillForUi(cfg, skillId);
       if (!existing) {
         send(404, { error: "not_found" });
@@ -260,9 +304,16 @@ export const API_ROUTES: Route[] = [
       const body = await readBody();
       try {
         const saved = await updateContactFromEditor(cfg, source, userId, body);
-        await addContactAudit(cfg, source, userId, "update", `Updated contact ${source}:${userId}`, {
-          permissions: saved.allowed_permissions,
-        });
+        await addContactAudit(
+          cfg,
+          source,
+          userId,
+          "update",
+          `Updated contact ${source}:${userId}`,
+          {
+            permissions: saved.allowed_permissions,
+          },
+        );
         send(200, saved);
       } catch (error) {
         if (isContactEditorError(error, "contact_missing")) {
@@ -285,9 +336,16 @@ export const API_ROUTES: Route[] = [
       const body = await readBody();
       try {
         const saved = await createContactFromEditor(cfg, source, userId, body);
-        await addContactAudit(cfg, source, userId, "create", `Created contact ${source}:${userId}`, {
-          permissions: saved.allowed_permissions,
-        });
+        await addContactAudit(
+          cfg,
+          source,
+          userId,
+          "create",
+          `Created contact ${source}:${userId}`,
+          {
+            permissions: saved.allowed_permissions,
+          },
+        );
         send(201, saved);
       } catch (error) {
         if (isContactEditorError(error, "contact_exists")) {
@@ -312,7 +370,10 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/databases/:alias",
     async handler({ cfg, params, send }) {
       const alias = validateId(params["alias"] ?? "");
-      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      if (!alias) {
+        send(400, { error: "invalid_alias" });
+        return;
+      }
       const conn = await loadDatabaseConnection(cfg, alias);
       if (!conn) {
         send(404, { error: "not_found" });
@@ -333,7 +394,12 @@ export const API_ROUTES: Route[] = [
       }
       try {
         const saved = await createDatabaseConnection(cfg, alias, body);
-        await addDatabaseAudit(cfg, alias, "create", `Created connection ${alias}`);
+        await addDatabaseAudit(
+          cfg,
+          alias,
+          "create",
+          `Created connection ${alias}`,
+        );
         send(201, saved);
       } catch (error) {
         if (error instanceof Error && error.message === "connection_exists") {
@@ -349,11 +415,19 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/databases/:alias",
     async handler({ cfg, params, readBody, send }) {
       const alias = validateId(params["alias"] ?? "");
-      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      if (!alias) {
+        send(400, { error: "invalid_alias" });
+        return;
+      }
       const body = await readBody();
       try {
         const saved = await updateDatabaseConnection(cfg, alias, body);
-        await addDatabaseAudit(cfg, alias, "update", `Updated connection ${alias}`);
+        await addDatabaseAudit(
+          cfg,
+          alias,
+          "update",
+          `Updated connection ${alias}`,
+        );
         send(200, saved);
       } catch (error) {
         if (error instanceof Error && error.message === "connection_missing") {
@@ -369,10 +443,18 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/databases/:alias",
     async handler({ cfg, params, send }) {
       const alias = validateId(params["alias"] ?? "");
-      if (!alias) { send(400, { error: "invalid_alias" }); return; }
+      if (!alias) {
+        send(400, { error: "invalid_alias" });
+        return;
+      }
       try {
         await deleteDatabaseConnection(cfg, alias);
-        await addDatabaseAudit(cfg, alias, "delete", `Deleted connection ${alias}`);
+        await addDatabaseAudit(
+          cfg,
+          alias,
+          "delete",
+          `Deleted connection ${alias}`,
+        );
         send(200, { ok: true });
       } catch (error) {
         if (error instanceof Error && error.message === "not_found") {
@@ -397,17 +479,24 @@ export const API_ROUTES: Route[] = [
     pattern: "/api/approvals/:approvalId/:action",
     async handler({ cfg, engine, params, readBody, searchParams, send }) {
       const approvalId = decodeURIComponent(params["approvalId"] ?? "");
-      if (!approvalId) { send(400, { error: "missing_approval_id" }); return; }
+      if (!approvalId) {
+        send(400, { error: "missing_approval_id" });
+        return;
+      }
       const action = params["action"] ?? "";
       const body = await readBody();
-      const scope = String(body["scope"] ?? searchParams.get("scope") ?? "once");
+      const scope = String(
+        body["scope"] ?? searchParams.get("scope") ?? "once",
+      );
       const mode = ownerDecisionFromAction(action, scope);
       if (!mode) {
         send(400, { error: "invalid_decision" });
         return;
       }
       const approvals = await listApprovalRecords(cfg);
-      const approval = approvals.find((item) => matchesApprovalId(item, approvalId));
+      const approval = approvals.find((item) =>
+        matchesApprovalId(item, approvalId),
+      );
       if (!approval) {
         send(404, { error: "not_found" });
         return;
@@ -421,7 +510,12 @@ export const API_ROUTES: Route[] = [
         send(409, { error: "already_decided" });
         return;
       }
-      await addApprovalAudit(cfg, approval, mode === "reject" ? "reject" : "approve", "owner-ui");
+      await addApprovalAudit(
+        cfg,
+        approval,
+        mode === "reject" ? "reject" : "approve",
+        "owner-ui",
+      );
       send(200, { ok: true });
     },
   },
@@ -455,14 +549,20 @@ function validateId(value: string): string | null {
   return value;
 }
 
-function extractContactParams(params: Record<string, string>): { source?: string; userId?: string } {
+function extractContactParams(params: Record<string, string>): {
+  source?: string;
+  userId?: string;
+} {
   const source = params["source"];
   const rest = params["**"];
   if (!source || !rest) return {};
   return { source, userId: rest };
 }
 
-function matchesApprovalId(record: { id?: string; requestId?: string }, id: string): boolean {
+function matchesApprovalId(
+  record: { id?: string; requestId?: string },
+  id: string,
+): boolean {
   return record.id === id || record.requestId === id;
 }
 
@@ -474,7 +574,8 @@ function normalizeSkillBody(body: Record<string, unknown>): {
 } {
   return {
     name: typeof body["name"] === "string" ? body["name"] : undefined,
-    description: typeof body["description"] === "string" ? body["description"] : undefined,
+    description:
+      typeof body["description"] === "string" ? body["description"] : undefined,
     permissions: normalizeList(body["permissions"]),
     body: typeof body["body"] === "string" ? body["body"] : "",
   };
@@ -485,11 +586,33 @@ function normalizeList(value: unknown): string[] {
     return value.map((item) => String(item).trim()).filter(Boolean);
   }
   if (typeof value === "string") {
-    return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
   }
   return [];
 }
 
 function isContactEditorError(error: unknown, code: string): boolean {
   return error instanceof ContactEditorError && error.code === code;
+}
+
+async function setThreadBlockedRoute(
+  engine: FelixEngine,
+  threadKey: string | undefined,
+  blocked: boolean,
+  send: (status: number, data: unknown) => void,
+): Promise<void> {
+  if (!threadKey) {
+    send(400, { error: "missing_thread_key" });
+    return;
+  }
+  try {
+    await engine.setBlocked(threadKey, blocked);
+  } catch {
+    send(400, { error: "invalid_thread_key" });
+    return;
+  }
+  send(200, { ok: true, blocked });
 }

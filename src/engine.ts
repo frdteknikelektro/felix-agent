@@ -16,6 +16,7 @@ import {
   findThreadHandle,
   hasThreadEvent,
   loadSessionState,
+  loadThreadState,
   queueThreadEvent,
   recordTurnUsage,
   setThreadBusy,
@@ -39,10 +40,19 @@ import type {
 import { loadSkills, permissionSatisfied } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
-import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
+import {
+  shouldAcceptEvent,
+  isOwnMessage,
+  isOwnerMessage,
+} from "./core/routing.js";
 import { TurnRunner } from "./core/turn-runner.js";
 import { createTurnCancellation } from "./core/turn-cancellation.js";
-import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
+import {
+  writeTextAtomic,
+  readText,
+  ensureDir,
+  safeFileName,
+} from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { startMemoryCron } from "./slices/memory/index.js";
 import { startScheduler } from "./slices/scheduler/index.js";
@@ -72,6 +82,7 @@ export class FelixEngine {
   private readonly approvalLifecycle: ApprovalRequestLifecycle;
   private processing = new Map<string, Promise<unknown>>();
   private processingKinds = new Map<string, "normal" | "scheduled">();
+  private threadMutationLocks = new Map<string, Promise<unknown>>();
   private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
   private readonly cancellation = createTurnCancellation();
@@ -113,15 +124,83 @@ export class FelixEngine {
   }
 
   async ingest(event: UniversalEvent): Promise<void> {
-    const adapter = this.requireAdapter(event.source);
-    const thread = await findThreadHandle(this.cfg, event.thread_key);
-    if (!this.shouldAccept(thread, event)) {
-      await this.persistRawIgnored(event);
-      return;
-    }
-    const isNew = !thread;
-    const threadHandle = thread ?? (await createOrLoadThread(this.cfg, event));
-    await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
+    return this.withThreadMutationLock(event.thread_key, async () => {
+      const adapter = this.requireAdapter(event.source);
+      const thread = await findThreadHandle(this.cfg, event.thread_key);
+      // /block and /unblock are owner escape hatches — they bypass the
+      // block-state check so an Owner can recover a silenced thread. They
+      // still need a real thread on disk to be meaningful.
+      const isBlockEscape =
+        !!thread && FelixEngine.isBlockOrUnblockCommand(event);
+      if (!this.shouldAccept(thread, event) && !isBlockEscape) {
+        // Blocked-thread events are queued silently (no reply, no process
+        // call) and replayed in order when the thread is unblocked. Anything
+        // else that shouldAccept rejected is just not for us.
+        if (thread?.state.blocked) {
+          if (await hasThreadEvent(thread, event.source, event.event_id)) {
+            log.info("thread.event_duplicate", {
+              thread_key: thread.state.thread_key,
+              event_id: event.event_id,
+              source: event.source,
+            });
+            return;
+          }
+          await this.persistAndQueueEvent(thread, event, adapter, {
+            markProcessing: false,
+          });
+          return;
+        }
+        await this.persistRawIgnored(event);
+        return;
+      }
+      const isNew = !thread;
+      const threadHandle =
+        thread ?? (await createOrLoadThread(this.cfg, event));
+      await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
+    });
+  }
+
+  /**
+   * Set the blocked flag on a thread. When transitioning to unblocked,
+   * triggers processing so any events queued while the thread was blocked
+   * are replayed in order. When the thread does not yet exist, a minimal
+   * stub is created so the Owner can pre-emptively silence a contact
+   * before any events arrive.
+   */
+  async setBlocked(threadKey: string, blocked: boolean): Promise<void> {
+    const source = sourceFromThreadKey(threadKey);
+    return this.withThreadMutationLock(threadKey, async () => {
+      let thread = await findThreadHandle(this.cfg, threadKey);
+      if (!thread) {
+        thread = await createOrLoadThread(this.cfg, {
+          source,
+          thread_key: threadKey,
+          source_thread_ref: { source },
+          received_at: new Date().toISOString(),
+        });
+      }
+      await updateThreadState(thread, { blocked });
+      if (!blocked) {
+        this.kickProcessThread(thread);
+      }
+    });
+  }
+
+  private async withThreadMutationLock<T>(
+    threadKey: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const previous =
+      this.threadMutationLocks.get(threadKey) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(task);
+    let tracked!: Promise<T>;
+    tracked = current.finally(() => {
+      if (this.threadMutationLocks.get(threadKey) === tracked) {
+        this.threadMutationLocks.delete(threadKey);
+      }
+    });
+    this.threadMutationLocks.set(threadKey, tracked);
+    return tracked;
   }
 
   private async handleEventAcceptance(
@@ -130,7 +209,10 @@ export class FelixEngine {
     adapter: SourceAdapter,
     opts?: { isNew?: boolean },
   ): Promise<void> {
-    if (!this.shouldAccept(thread, event)) {
+    // Block/unblock commands are owner escape hatches — they bypass the
+    // block-state check below. See the matching bypass in `ingest`.
+    const isBlockEscape = FelixEngine.isBlockOrUnblockCommand(event);
+    if (!this.shouldAccept(thread, event) && !isBlockEscape) {
       await this.persistRawIgnored(event);
       return;
     }
@@ -146,6 +228,11 @@ export class FelixEngine {
 
     if (opts?.isNew) {
       await this.notifyOwnerNewThread(thread, event, adapter);
+    }
+
+    if (FelixEngine.isBlockOrUnblockCommand(event)) {
+      await this.handleBlockCommand(thread, event, adapter);
+      return;
     }
 
     if (FelixEngine.isStopCommand(event)) {
@@ -257,30 +344,11 @@ export class FelixEngine {
     // Commands (/stop, /compact, /new) are handled above and return early — only
     // download attachments for messages that become real turns, so an abort
     // never blocks on fetching media it would discard.
-    event.attachments = await this.prepareAttachments(thread, event, adapter);
+    await this.persistAndQueueEvent(thread, event, adapter);
 
-    const eventFile = await appendEventToThread(thread, event);
-    await updateThreadState(thread, {
-      managed_by_felix: true,
-      updated_at: new Date().toISOString(),
-    });
-
-    if (event.mentions_bot || event.visibility === "dm") {
-      await adapter.updateEventStatus({ event, status: "processing" });
-    }
-
-    const queued = await queueThreadEvent(thread, {
-      received_at: event.received_at,
-      event_file: eventFile,
-      source_event_id: event.event_id,
-    });
-    if (!queued.busy && (event.mentions_bot || event.visibility === "dm")) {
-      void this.processThread(thread).catch((error) => {
-        log.error("thread.process_failed", {
-          thread_key: thread.state.thread_key,
-          error: error.message,
-        });
-      });
+    const session = await loadSessionState(thread);
+    if (!session.busy && (event.mentions_bot || event.visibility === "dm")) {
+      this.kickProcessThread(thread);
     }
   }
 
@@ -311,6 +379,67 @@ export class FelixEngine {
     return FelixEngine.stripMentions(event.text).toLowerCase() === "/new";
   }
 
+  private static isBlockCommand(event: UniversalEvent): boolean {
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/block";
+  }
+
+  private static isUnblockCommand(event: UniversalEvent): boolean {
+    return FelixEngine.stripMentions(event.text).toLowerCase() === "/unblock";
+  }
+
+  private static isBlockOrUnblockCommand(event: UniversalEvent): boolean {
+    return (
+      FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event)
+    );
+  }
+
+  /**
+   * Start a background drain of the thread queue. Errors are logged but
+   * not propagated — the call sites are fire-and-forget and there is no
+   * caller to surface failures to.
+   */
+  private kickProcessThread(thread: ThreadHandle): void {
+    void this.processThread(thread).catch((error) => {
+      log.error("thread.process_failed", {
+        thread_key: thread.state.thread_key,
+        error: error.message,
+      });
+    });
+  }
+
+  /**
+   * Persist an event into the thread and add it to the session queue. Used
+   * by both the normal accept path and the blocked-event path. Sets the
+   * thread as managed_by_felix (idempotent for already-managed threads)
+   * and notifies the source the event is being processed.
+   */
+  private async persistAndQueueEvent(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+    options: { markProcessing?: boolean } = {},
+  ): Promise<void> {
+    event.attachments = await this.prepareAttachments(thread, event, adapter);
+    const eventFile = await appendEventToThread(thread, event);
+    await updateThreadState(thread, {
+      managed_by_felix: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (
+      options.markProcessing !== false &&
+      (event.mentions_bot || event.visibility === "dm")
+    ) {
+      await adapter.updateEventStatus({ event, status: "processing" });
+    }
+
+    await queueThreadEvent(thread, {
+      received_at: event.received_at,
+      event_file: eventFile,
+      source_event_id: event.event_id,
+    });
+  }
+
   private async drainThreadQueue(thread: ThreadHandle): Promise<void> {
     await clearThreadQueue(thread);
   }
@@ -339,6 +468,41 @@ export class FelixEngine {
       },
       () => this.drainQueuedThreadEvents(thread),
     );
+  }
+
+  private async handleBlockCommand(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): Promise<void> {
+    if (!isOwnerMessage(event, adapter.source, adapter.ownerUserId)) {
+      // Non-owner attempt: silently ignore — do not leak command existence,
+      // do not call the harness, do not change state.
+      log.info("thread.block_command_rejected", {
+        thread_key: thread.state.thread_key,
+        sender: event.sender.id,
+      });
+      return;
+    }
+
+    const wantsBlock = FelixEngine.isBlockCommand(event);
+    if (thread.state.blocked === wantsBlock) {
+      const text = wantsBlock
+        ? "Thread is already blocked."
+        : "Thread is not blocked.";
+      await this.postThreadReply(thread, event, undefined, text);
+      return;
+    }
+
+    await updateThreadState(thread, { blocked: wantsBlock });
+    const text = wantsBlock
+      ? "Thread blocked. Felix will queue events and skip processing until unblocked."
+      : "Thread unblocked. Queued events will be replayed in order.";
+    await this.postThreadReply(thread, event, undefined, text);
+
+    if (!wantsBlock) {
+      this.kickProcessThread(thread);
+    }
   }
 
   async processThread(thread: ThreadHandle): Promise<void> {
@@ -384,6 +548,11 @@ export class FelixEngine {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
       while (true) {
+        // Re-check the block flag before each turn. A processThread started
+        // while the thread was unblocked must not drain events that arrived
+        // after a block was set.
+        const liveState = await loadThreadState(thread);
+        if (liveState.blocked) break;
         const preceding: { event: UniversalEvent; eventFile: string }[] = [];
         const trigger = await this.dequeueTriggerEvent(thread, preceding);
         if (!trigger) break;
@@ -959,4 +1128,20 @@ export class FelixEngine {
       });
     }
   }
+}
+
+function sourceFromThreadKey(threadKey: string): string {
+  if (!threadKey || /[\\/\0]/.test(threadKey)) {
+    throw new Error(`Invalid thread key: ${threadKey}`);
+  }
+  const source = threadKey.split(":", 1)[0] ?? "";
+  if (
+    !source ||
+    source === "." ||
+    source === ".." ||
+    safeFileName(source) !== source
+  ) {
+    throw new Error(`Invalid thread key source: ${source}`);
+  }
+  return source;
 }

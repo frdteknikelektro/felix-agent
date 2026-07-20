@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldAcceptEvent, isOwnMessage } from "../src/core/routing.js";
+import {
+  shouldAcceptEvent,
+  isOwnMessage,
+  isOwnerMessage,
+} from "../src/core/routing.js";
 import type { UniversalEvent } from "../src/types.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
 
@@ -22,15 +26,25 @@ function makeEvent(overrides: Partial<UniversalEvent> = {}): UniversalEvent {
 
 describe("shouldAcceptEvent", () => {
   it("accepts DMs regardless of mention", () => {
-    expect(shouldAcceptEvent(makeEvent({ visibility: "dm", mentions_bot: false }))).toBe(true);
+    expect(
+      shouldAcceptEvent(makeEvent({ visibility: "dm", mentions_bot: false })),
+    ).toBe(true);
   });
 
   it("accepts channel posts that mention the bot", () => {
-    expect(shouldAcceptEvent(makeEvent({ visibility: "channel", mentions_bot: true }))).toBe(true);
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: true }),
+      ),
+    ).toBe(true);
   });
 
   it("rejects channel posts without a mention", () => {
-    expect(shouldAcceptEvent(makeEvent({ visibility: "channel", mentions_bot: false }))).toBe(false);
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: false }),
+      ),
+    ).toBe(false);
   });
 
   it("accepts channel thread replies without a mention when thread is managed by Felix", () => {
@@ -50,41 +64,107 @@ describe("shouldAcceptEvent", () => {
       ),
     ).toBe(false);
   });
+
+  it("rejects a DM when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(makeEvent({ visibility: "dm", mentions_bot: false }), {
+        managed_by_felix: true,
+        blocked: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a bot mention when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: true }),
+        { managed_by_felix: true, blocked: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a managed-thread reply when the thread is blocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: false }),
+        { managed_by_felix: true, blocked: true },
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts again once the thread is unblocked", () => {
+    expect(
+      shouldAcceptEvent(
+        makeEvent({ visibility: "channel", mentions_bot: false }),
+        { managed_by_felix: true, blocked: false },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("isOwnMessage", () => {
   it("returns true when sender id matches bot user id", () => {
-    const event = makeEvent({ sender: { source: "mattermost", id: "bot-123" } });
+    const event = makeEvent({
+      sender: { source: "mattermost", id: "bot-123" },
+    });
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(true);
   });
 
   it("returns true for compound source:id form", () => {
-    const event = makeEvent({ sender: { source: "mattermost", id: "mattermost:bot-123" } });
+    const event = makeEvent({
+      sender: { source: "mattermost", id: "mattermost:bot-123" },
+    });
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(true);
   });
 
   it("does not treat owner-prefixed shared-account messages as bot messages", () => {
-    const event = makeEvent({ source: "whatsapp" as never, sender: { source: "whatsapp", id: "owner:bot-123" } });
+    const event = makeEvent({
+      source: "whatsapp" as never,
+      sender: { source: "whatsapp", id: "owner:bot-123" },
+    });
     expect(isOwnMessage(event, "whatsapp", "bot-123")).toBe(false);
   });
 
   it("does not treat arbitrary prefixed ids as bot messages", () => {
-    const event = makeEvent({ sender: { source: "mattermost", id: "external:bot-123" } });
+    const event = makeEvent({
+      sender: { source: "mattermost", id: "external:bot-123" },
+    });
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(false);
   });
 
   it("returns false when sender differs from bot user id", () => {
-    const event = makeEvent({ sender: { source: "mattermost", id: "other-user" } });
+    const event = makeEvent({
+      sender: { source: "mattermost", id: "other-user" },
+    });
     expect(isOwnMessage(event, "mattermost", "bot-123")).toBe(false);
   });
 
   it("returns false when no bot user id is set", () => {
-    const event = makeEvent({ sender: { source: "mattermost", id: "bot-123" } });
+    const event = makeEvent({
+      sender: { source: "mattermost", id: "bot-123" },
+    });
     expect(isOwnMessage(event, "mattermost", undefined)).toBe(false);
   });
 
   it("returns false when source does not match event source", () => {
-    const event = makeEvent({ source: "slack" as never, sender: { source: "slack", id: "bot-123" } });
+    const event = makeEvent({
+      source: "slack" as never,
+      sender: { source: "slack", id: "bot-123" },
+    });
     expect(isOwnMessage(event, "discord", "bot-123")).toBe(false);
+  });
+});
+
+describe("isOwnerMessage", () => {
+  it("recognizes a WhatsApp shared-number owner identity", () => {
+    const event = makeEvent({
+      source: "whatsapp" as never,
+      sender: { source: "whatsapp", id: "owner:+628123" },
+    });
+    expect(isOwnerMessage(event, "whatsapp", "+628123")).toBe(true);
+  });
+
+  it("rejects an unrelated sender", () => {
+    expect(isOwnerMessage(makeEvent(), "mattermost", "owner-1")).toBe(false);
   });
 });

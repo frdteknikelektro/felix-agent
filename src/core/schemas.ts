@@ -41,6 +41,7 @@ export const ThreadStateSchema = z.object({
   managed_by_felix: z.boolean(),
   source_thread_ref: SourceThreadSchema,
   participants: z.array(z.string()),
+  blocked: z.boolean().optional(),
 });
 
 export const SessionQueueItemSchema = z.object({
