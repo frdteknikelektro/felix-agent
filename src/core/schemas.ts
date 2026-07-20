@@ -41,6 +41,7 @@ export const ThreadStateSchema = z.object({
   managed_by_felix: z.boolean(),
   source_thread_ref: SourceThreadSchema,
   participants: z.array(z.string()),
+  blocked: z.boolean().optional(),
 });
 
 export const SessionQueueItemSchema = z.object({
@@ -168,7 +169,9 @@ export type SourceThreadRef = z.infer<typeof SourceThreadSchema>;
 export type SourceMessageAnchor = z.infer<typeof SourceMessageAnchorSchema>;
 export type ThreadState = z.infer<typeof ThreadStateSchema>;
 export type SessionQueueItem = z.infer<typeof SessionQueueItemSchema>;
-export type SessionPermissionRequest = z.infer<typeof SessionPermissionRequestSchema>;
+export type SessionPermissionRequest = z.infer<
+  typeof SessionPermissionRequestSchema
+>;
 export type SessionState = z.infer<typeof SessionStateSchema>;
 export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
