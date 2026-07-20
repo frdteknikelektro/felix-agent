@@ -429,6 +429,21 @@ export function isFelixMessage(
   // so sender identity alone cannot prove that the quoted message was Felix's.
   if (!ownerSharesNumber && botJid && target.senderJid === botJid) return true;
 
+  // wacli can resolve the same account with a different JID suffix (for
+  // example, @lid instead of @s.whatsapp.net). In dedicated-number mode the
+  // phone portion is still a reliable identity signal. Keep this out of
+  // shared-number mode because the owner and Felix intentionally share it.
+  const targetPhone = phoneNumberFromJid(target.senderJid);
+  const botPhone = phoneNumberFromJid(botJid);
+  if (!ownerSharesNumber && targetPhone && targetPhone === botPhone) {
+    return true;
+  }
+
+  // Dedicated-number mode must rely on the bot identity, not user-controlled
+  // response text. The prefix fallback is only safe when the owner and bot
+  // share a number and sender identity is intentionally ambiguous.
+  if (!ownerSharesNumber) return false;
+
   // Shared number mode: text or caption starts with *[BotName]*
   const prefix = `*[${botName}]*`;
   if (target.text.startsWith(prefix)) return true;
@@ -889,18 +904,9 @@ export async function handleWhatsAppWebhook(
   // ── Reply-to-Felix detection (non-FromMe) ──────────────────────────
   let replyToBot = false;
   if (payload.ReplyToID && !payload.FromMe) {
-    if (!ownerSharesNumber) {
-      // Dedicated number: any reply to a bot message triggers
-      const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
-      if (target && botJid && target.senderJid === botJid) {
-        replyToBot = true;
-      }
-    } else {
-      // Shared number: only trigger if Felix prefix is present
-      const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
-      if (target && isFelixMessage(target, botName)) {
-        replyToBot = true;
-      }
+    const target = fetchReplyTarget(cfg, chatJid, payload.ReplyToID);
+    if (target && isFelixMessage(target, botName)) {
+      replyToBot = true;
     }
   }
 
@@ -1612,7 +1618,7 @@ function normalizeParsedMessage(
   const isGroup = isWhatsAppGroupJid(chatJid);
   const visibility = !sameNumber && !isGroup ? "dm" : "channel";
   const senderJid = pm.SenderJID ?? "unknown";
-  const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases);
+  const mentionsBot = detectsWhatsappMention(mentionText, botName, aliases, botJid);
 
   const displayText = hasReaction
     ? `[Reacted ${pm.ReactionEmoji ?? "👍"} to ${pm.ReactionToID}]`
@@ -1676,6 +1682,7 @@ export function detectsWhatsappMention(
   text: string,
   botName: string,
   aliases: string[] = [],
+  botJid?: string,
 ): boolean {
   const lower = text.toLowerCase();
   if (containsStrictMention(lower, botName.toLowerCase())) return true;
@@ -1683,7 +1690,16 @@ export function detectsWhatsappMention(
     const a = alias.trim().toLowerCase();
     if (a && containsStrictMention(lower, a)) return true;
   }
+  // wacli resolves a platform mention to the bot's phone number in the
+  // message text instead of preserving the display name.
+  const botPhone = phoneNumberFromJid(botJid);
+  if (botPhone && containsStrictMention(lower, botPhone.toLowerCase())) return true;
   return false;
+}
+
+function phoneNumberFromJid(jid: string | undefined): string {
+  const phone = jid?.split("@", 1)[0]?.trim() ?? "";
+  return phone;
 }
 
 function containsStrictMention(text: string, name: string): boolean {

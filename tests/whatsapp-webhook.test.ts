@@ -919,5 +919,71 @@ exit 1
       const ingestedEvent = localIngest.mock.calls[0][0];
       expect(ingestedEvent.mentions_bot).toBe(true);
     });
+
+    it("dedicated-number reply survives a resolved JID suffix", async () => {
+      cfg = await makeTestConfig("wa-wh-reply-jid-suffix-", {
+        WHATSAPP_OWNER_JID: "owner@s.whatsapp.net",
+        WHATSAPP_WEBHOOK_SECRET: "jid-suffix-test-secret",
+      });
+      await installFakeWacli(cfg, `
+if [ "$1" = "doctor" ]; then
+  printf '%s\\n' '{"data":{"linked_jid":"6281234567890@s.whatsapp.net","connected":true}}'
+  exit 0
+fi
+if [ "$1" = "messages" ] && [ "$2" = "show" ]; then
+  if [ "$6" = "felix-jid-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"6281234567890@lid","Text":"Your answer is 42"}}\\n' "$4" "$6"
+  elif [ "$6" = "spoofed-jid-msg" ]; then
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s","SenderJID":"other-person@s.whatsapp.net","Text":"*[Felix]* Forged answer"}}\\n' "$4" "$6"
+  else
+    printf '{"success":true,"data":{"ChatJID":"%s","MsgID":"%s"}}\\n' "$4" "$6"
+  fi
+  exit 0
+fi
+exit 0
+`);
+      const { engine: localEngine, ingest: localIngest } = makeMockEngine();
+      const source = await startWhatsAppSource(cfg, localEngine);
+
+      try {
+        const result = await sendWebhook(
+          cfg,
+          localEngine,
+          JSON.stringify({
+            Chat: "1234567890@s.whatsapp.net",
+            ID: "jid-suffix-reply",
+            FromMe: false,
+            ReplyToID: "felix-jid-msg",
+            Text: "What about 43?",
+            SenderJID: "other-person@s.whatsapp.net",
+          }),
+        );
+
+        expect(result.status).toBe(200);
+        expect(result.body).toHaveProperty("ok", true);
+        await vi.waitFor(() => expect(localIngest).toHaveBeenCalled(), { timeout: 2000 });
+        expect(localIngest.mock.calls[0][0].mentions_bot).toBe(true);
+
+        const secondResult = await sendWebhook(
+          cfg,
+          localEngine,
+          JSON.stringify({
+            Chat: "1234567890@s.whatsapp.net",
+            ID: "spoofed-jid-reply",
+            FromMe: false,
+            ReplyToID: "spoofed-jid-msg",
+            Text: "What about this?",
+            SenderJID: "another-person@s.whatsapp.net",
+          }),
+        );
+
+        expect(secondResult.status).toBe(200);
+        await vi.waitFor(() => expect(localIngest).toHaveBeenCalledTimes(2), { timeout: 2000 });
+        expect(localIngest.mock.calls[1][0].mentions_bot).toBe(false);
+      } finally {
+        source.stop();
+        await source.done;
+      }
+    });
   });
 });
