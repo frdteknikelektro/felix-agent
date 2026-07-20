@@ -15,7 +15,7 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 
 ## Personality
 
-Read `PERSONALITY.md` from the workspace root for personality instructions (tone, communication style, and role). This file defines how Felix presents itself and adapts to different contexts.
+Read `PERSONALITY.md` from the workspace root for personality instructions (tone, communication style, and role). This file defines how the agent presents itself and adapts to different contexts.
 
 ## Output contract
 
