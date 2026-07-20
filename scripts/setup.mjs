@@ -195,7 +195,7 @@ function ownerDiscoveryPrompts() {
     showClaim: async ({ source, claimCode }) => {
       info(`Send this exact one-time message to the ${SOURCE_DEFS[source].label} bot in a private chat:`);
       console.log(`\n  ${c.bold}${c.yellow}${claimCode}${c.reset}\n`);
-      info("Waiting up to two minutes for the matching private message...");
+      info("Waiting up to five minutes for the matching private message...");
     },
     showConfirmation: ({ source }) => {
       succeed(`${SOURCE_DEFS[source].label} account found and verified.`);

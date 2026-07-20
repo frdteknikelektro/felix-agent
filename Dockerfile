@@ -9,7 +9,7 @@ RUN curl -fsSL "https://github.com/openclaw/wacli/archive/${WACLI_COMMIT}.tar.gz
     && echo "${WACLI_SOURCE_SHA256}  /tmp/wacli-source.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/wacli-source.tar.gz --strip-components=1 \
     && rm /tmp/wacli-source.tar.gz \
-    && GOTOOLCHAIN=local CGO_ENABLED=1 go build -trimpath -ldflags="-s -w -buildid=" -o /out/wacli ./cmd/wacli \
+    && GOTOOLCHAIN=local CGO_ENABLED=1 go build -tags sqlite_fts5 -trimpath -ldflags="-s -w -buildid=" -o /out/wacli ./cmd/wacli \
     && go version -m /out/wacli | grep -F 'go1.26.5'
 
 ARG GOG_VERSION=0.34.0

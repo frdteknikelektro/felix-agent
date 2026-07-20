@@ -1,7 +1,7 @@
 import { randomBytes as cryptoRandomBytes } from "node:crypto";
 import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
 const DISCORD_DIRECT_MESSAGE_CHANNEL_TYPE = 1;
 const MATTERMOST_USER_ID_PATTERN = /^[a-z0-9]{26}$/;
 const MATTERMOST_USERNAME_PATTERN = /^(?=.*[a-z0-9])[a-z0-9._-]{1,64}$/;
