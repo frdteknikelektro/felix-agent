@@ -5,14 +5,31 @@ import type { Dirent } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import type http from "node:http";
 import type { AppConfig } from "../../config.js";
-import { writeTextAtomic, ensureDir, safeFileName, readText } from "../../lib/fs.js";
+import {
+  writeTextAtomic,
+  ensureDir,
+  safeFileName,
+  readText,
+} from "../../lib/fs.js";
 import { log } from "../../lib/log.js";
-import type { SourceAdapter, SourceEventStatus, SourceTurnContext } from "../../core/ports.js";
+import type {
+  SourceAdapter,
+  SourceEventStatus,
+  SourceTurnContext,
+} from "../../core/ports.js";
 import type { FelixEngine } from "../../engine.js";
-import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
+import {
+  handleSourceEventIntake,
+  handleSourceReactionIntake,
+} from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { decisionEmoji, decisionLabel } from "../../core/decision.js";
-import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
+import type {
+  SourceMessageAnchor,
+  SourceThreadRef,
+  UniversalAttachment,
+  UniversalEvent,
+} from "../../types.js";
 import { createSourceHost } from "../../core/source-host.js";
 import type { PlatformIdentity } from "../../core/platform-identity.js";
 import { readRequestBody } from "../../server/request-body.js";
@@ -78,7 +95,8 @@ const BOT_MSG_CLEANUP_INTERVAL_MS = 60_000;
 function getWebhookSecret(cfg: AppConfig): string {
   const existing = webhookSecrets.get(cfg);
   if (existing) return existing;
-  const secret = cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomBytes(32).toString("hex");
+  const secret =
+    cfg.WHATSAPP_WEBHOOK_SECRET || crypto.randomBytes(32).toString("hex");
   webhookSecrets.set(cfg, secret);
   return secret;
 }
@@ -97,13 +115,24 @@ interface TrackedBotMessage {
   trackedAt: string;
 }
 
-async function addTrackedBotMessage(cfg: AppConfig, msgId: string, threadKey: string): Promise<void> {
+async function addTrackedBotMessage(
+  cfg: AppConfig,
+  msgId: string,
+  threadKey: string,
+): Promise<void> {
   await ensureDir(getBotMessagesDir(cfg));
-  const record: TrackedBotMessage = { msgId, threadKey, trackedAt: new Date().toISOString() };
+  const record: TrackedBotMessage = {
+    msgId,
+    threadKey,
+    trackedAt: new Date().toISOString(),
+  };
   await writeTextAtomic(botMessageFilePath(cfg, msgId), JSON.stringify(record));
 }
 
-async function removeTrackedBotMessage(cfg: AppConfig, msgId: string): Promise<void> {
+async function removeTrackedBotMessage(
+  cfg: AppConfig,
+  msgId: string,
+): Promise<void> {
   try {
     await fs.unlink(botMessageFilePath(cfg, msgId));
   } catch {
@@ -111,7 +140,10 @@ async function removeTrackedBotMessage(cfg: AppConfig, msgId: string): Promise<v
   }
 }
 
-async function hasTrackedBotMessage(cfg: AppConfig, msgId: string): Promise<boolean> {
+async function hasTrackedBotMessage(
+  cfg: AppConfig,
+  msgId: string,
+): Promise<boolean> {
   try {
     await fs.stat(botMessageFilePath(cfg, msgId));
     return true;
@@ -161,7 +193,9 @@ async function cleanupExpiredBotMessages(cfg: AppConfig): Promise<void> {
 async function waitForSendSlot(): Promise<void> {
   const elapsed = Date.now() - lastSendAt;
   if (elapsed < WHATSAPP_OUTBOUND_MIN_GAP_MS) {
-    await new Promise((r) => setTimeout(r, WHATSAPP_OUTBOUND_MIN_GAP_MS - elapsed));
+    await new Promise((r) =>
+      setTimeout(r, WHATSAPP_OUTBOUND_MIN_GAP_MS - elapsed),
+    );
   }
   lastSendAt = Date.now();
 }
@@ -202,22 +236,31 @@ async function resolveWacliWebhookMessage(
   const meta: WhatsAppResolveMeta = { originalChatJid, originalSenderJid };
   if (!originalChatJid || !payload.ID) return { payload, meta };
 
-  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
-    "messages", "show",
-    "--chat", originalChatJid,
-    "--id", payload.ID,
-    "--json",
-  ], {
-    encoding: "utf8",
-    timeout: 3_000,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = spawnSync(
+    cfg.WHATSAPP_WACLI_BIN,
+    [
+      "messages",
+      "show",
+      "--chat",
+      originalChatJid,
+      "--id",
+      payload.ID,
+      "--json",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 3_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
 
   if (result.status !== 0) {
     log.warn("whatsapp.message_resolve_failed", {
       chat_jid: originalChatJid,
       msg_id: payload.ID,
-      error: result.error?.message ?? (result.stderr?.trim() || `exit ${result.status}`),
+      error:
+        result.error?.message ??
+        (result.stderr?.trim() || `exit ${result.status}`),
     });
     return { payload, meta };
   }
@@ -263,16 +306,15 @@ function resolveWacliMediaLocation(
   const fallback = { canonicalChatJid: chatJid, localPath: "" };
   if (!chatJid || !msgId) return fallback;
 
-  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
-    "messages", "show",
-    "--chat", chatJid,
-    "--id", msgId,
-    "--json",
-  ], {
-    encoding: "utf8",
-    timeout: 10_000,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = spawnSync(
+    cfg.WHATSAPP_WACLI_BIN,
+    ["messages", "show", "--chat", chatJid, "--id", msgId, "--json"],
+    {
+      encoding: "utf8",
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   // Trust a complete, well-formed payload over the exit status: wacli can emit
   // valid JSON to stdout and then exit non-zero (or be signal-killed during
   // teardown). The success/MsgID checks below already reject truncated or error
@@ -294,21 +336,26 @@ function resolveWacliMediaLocation(
   };
 }
 
-function enrichParsedMessageFromWacli(payload: ParsedMessage, data: WacliMessageShowData): ParsedMessage {
+function enrichParsedMessageFromWacli(
+  payload: ParsedMessage,
+  data: WacliMessageShowData,
+): ParsedMessage {
   const originalChatJid = payload.Chat ?? "";
   const resolvedChatJid = nonEmpty(data.ChatJID);
-  const chatJid = resolvedChatJid && canReplaceChatJid(originalChatJid, resolvedChatJid)
-    ? resolvedChatJid
-    : originalChatJid;
-  const media = data.MediaType || data.MediaCaption || data.Filename || data.MimeType
-    ? {
-        ...(payload.Media ?? {}),
-        Type: nonEmpty(data.MediaType) ?? payload.Media?.Type,
-        Caption: nonEmpty(data.MediaCaption) ?? payload.Media?.Caption,
-        Filename: nonEmpty(data.Filename) ?? payload.Media?.Filename,
-        MimeType: nonEmpty(data.MimeType) ?? payload.Media?.MimeType,
-      }
-    : payload.Media;
+  const chatJid =
+    resolvedChatJid && canReplaceChatJid(originalChatJid, resolvedChatJid)
+      ? resolvedChatJid
+      : originalChatJid;
+  const media =
+    data.MediaType || data.MediaCaption || data.Filename || data.MimeType
+      ? {
+          ...(payload.Media ?? {}),
+          Type: nonEmpty(data.MediaType) ?? payload.Media?.Type,
+          Caption: nonEmpty(data.MediaCaption) ?? payload.Media?.Caption,
+          Filename: nonEmpty(data.Filename) ?? payload.Media?.Filename,
+          MimeType: nonEmpty(data.MimeType) ?? payload.Media?.MimeType,
+        }
+      : payload.Media;
 
   return {
     ...payload,
@@ -345,16 +392,15 @@ function fetchReplyTarget(
   chatJid: string,
   replyToId: string,
 ): ReplyTargetInfo | null {
-  const result = spawnSync(cfg.WHATSAPP_WACLI_BIN, [
-    "messages", "show",
-    "--chat", chatJid,
-    "--id", replyToId,
-    "--json",
-  ], {
-    encoding: "utf8",
-    timeout: 3_000,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = spawnSync(
+    cfg.WHATSAPP_WACLI_BIN,
+    ["messages", "show", "--chat", chatJid, "--id", replyToId, "--json"],
+    {
+      encoding: "utf8",
+      timeout: 3_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   if (result.status !== 0) return null;
 
   let parsed: WacliMessageShowResponse;
@@ -400,7 +446,10 @@ export function isFelixMessage(
 // these dispatch tails are the single home for "tracked bot message → owner
 // decision → clear tracking" so the four webhook call-sites cannot drift.
 
-function ownerDecisionAnchor(cfg: AppConfig, msgId: string): SourceMessageAnchor {
+function ownerDecisionAnchor(
+  cfg: AppConfig,
+  msgId: string,
+): SourceMessageAnchor {
   return {
     source: "whatsapp",
     conversation_id: cfg.WHATSAPP_OWNER_JID ?? "",
@@ -412,7 +461,11 @@ function ownerDecisionAnchor(cfg: AppConfig, msgId: string): SourceMessageAnchor
 // Shared tail for both owner-decision dispatch paths: once the decision intake
 // (with its path-specific not-found logging) settles, clear the tracked bot
 // message and swallow any async error. The single home for cleanup + error logging.
-function finishTrackedOwnerDecision(cfg: AppConfig, trackedMsgId: string, settled: Promise<unknown>): void {
+function finishTrackedOwnerDecision(
+  cfg: AppConfig,
+  trackedMsgId: string,
+  settled: Promise<unknown>,
+): void {
   void settled
     .then(() => removeTrackedBotMessage(cfg, trackedMsgId))
     .catch((error) => {
@@ -425,7 +478,12 @@ function finishTrackedOwnerDecision(cfg: AppConfig, trackedMsgId: string, settle
 function dispatchTrackedOwnerReaction(
   cfg: AppConfig,
   engine: FelixEngine,
-  args: { reactionTarget: string; emoji: string; msgId: string; decidedBy: string },
+  args: {
+    reactionTarget: string;
+    emoji: string;
+    msgId: string;
+    decidedBy: string;
+  },
 ): void {
   const anchor = ownerDecisionAnchor(cfg, args.msgId);
   const settled = handleSourceReactionIntake(cfg, {
@@ -449,7 +507,12 @@ function dispatchTrackedOwnerReaction(
 function dispatchTrackedOwnerReply(
   cfg: AppConfig,
   engine: FelixEngine,
-  args: { replyTarget: string; event: UniversalEvent; msgId: string; decidedBy: string },
+  args: {
+    replyTarget: string;
+    event: UniversalEvent;
+    msgId: string;
+    decidedBy: string;
+  },
 ): void {
   // An owner reply to a tracked permission message is a decision, resolved by the
   // owner-message anchor — not a normal conversation message. It must NOT retarget
@@ -462,7 +525,10 @@ function dispatchTrackedOwnerReply(
     owner: { decidedBy: args.decidedBy, anchor },
     ports: engine,
   }).then((result) => {
-    if (result.kind === "owner_non_decision" && result.route === "no_pending_approval") {
+    if (
+      result.kind === "owner_non_decision" &&
+      result.route === "no_pending_approval"
+    ) {
       log.warn("whatsapp.owner_decision_thread_not_found", {
         reply_target: args.replyTarget.slice(0, 40),
         message_id: args.msgId,
@@ -484,11 +550,26 @@ async function dispatchResolvedWhatsAppEvent(
   });
 }
 
-async function ensureCanonicalWhatsAppThread(cfg: AppConfig, event: UniversalEvent): Promise<void> {
-  const raw = event.source_thread_ref.raw as Record<string, unknown> | undefined;
-  const originalChatJid = typeof raw?.original_chat_jid === "string" ? raw.original_chat_jid : undefined;
-  const resolvedChatJid = typeof raw?.resolved_chat_jid === "string" ? raw.resolved_chat_jid : undefined;
-  if (!originalChatJid || !resolvedChatJid || originalChatJid === resolvedChatJid) return;
+async function ensureCanonicalWhatsAppThread(
+  cfg: AppConfig,
+  event: UniversalEvent,
+): Promise<void> {
+  const raw = event.source_thread_ref.raw as
+    Record<string, unknown> | undefined;
+  const originalChatJid =
+    typeof raw?.original_chat_jid === "string"
+      ? raw.original_chat_jid
+      : undefined;
+  const resolvedChatJid =
+    typeof raw?.resolved_chat_jid === "string"
+      ? raw.resolved_chat_jid
+      : undefined;
+  if (
+    !originalChatJid ||
+    !resolvedChatJid ||
+    originalChatJid === resolvedChatJid
+  )
+    return;
 
   const oldKey = whatsappThreadKey(originalChatJid);
   const canonicalKey = event.thread_key;
@@ -547,7 +628,10 @@ export async function handleWhatsAppWebhook(
   const body = await readRequestBody(req);
 
   const signature = req.headers["x-wacli-signature"];
-  if (typeof signature !== "string" || !verifyWebhookSignature(body, getWebhookSecret(cfg), signature)) {
+  if (
+    typeof signature !== "string" ||
+    !verifyWebhookSignature(body, getWebhookSecret(cfg), signature)
+  ) {
     log.warn("whatsapp.webhook_invalid_signature");
     sendJson(res, 401, { error: "invalid_signature" });
     return;
@@ -560,7 +644,10 @@ export async function handleWhatsAppWebhook(
   }
 
   const botName = cfg.FELIX_NAME;
-  const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
+  const botAliases = (cfg.WHATSAPP_BOT_ALIASES ?? "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
 
   let payload: ParsedMessage;
   try {
@@ -606,7 +693,8 @@ export async function handleWhatsAppWebhook(
   }
 
   if (payload.FromMe && (payload.Text ?? "").startsWith(`*[${botName}]*`)) {
-    if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
+    if (payload.Media)
+      void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
     sendJson(res, 200, { ignored: "self_message" });
     return;
   }
@@ -639,7 +727,9 @@ export async function handleWhatsAppWebhook(
         });
         return;
       }
-      log.info("whatsapp.reaction_untracked", { reaction_target: reactionTarget.slice(0, 40) });
+      log.info("whatsapp.reaction_untracked", {
+        reaction_target: reactionTarget.slice(0, 40),
+      });
       sendJson(res, 200, { ignored: "self_reaction" });
       return;
     }
@@ -653,7 +743,13 @@ export async function handleWhatsAppWebhook(
           sendJson(res, 200, { ignored: "self_reaction" });
           return;
         }
-        const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
+        const event = normalizeParsedMessage(
+          payload,
+          botName,
+          botAliases,
+          resolved.meta,
+          ownerSharesNumber,
+        );
         if (!event) {
           sendJson(res, 200, { ignored: "empty_event" });
           return;
@@ -667,7 +763,9 @@ export async function handleWhatsAppWebhook(
         });
         return;
       }
-      log.info("whatsapp.reply_untracked", { reply_target: replyTarget.slice(0, 40) });
+      log.info("whatsapp.reply_untracked", {
+        reply_target: replyTarget.slice(0, 40),
+      });
     }
 
     // ── Reply-to-Felix detection (shared number) ─────────────────────
@@ -682,13 +780,20 @@ export async function handleWhatsAppWebhook(
     // ── Owner using the same number ──────────────────────────────────
     if (ownerSharesNumber) {
       // Media-only self-message (no text/caption) — bot's own outgoing file
-      const mediaText = nonEmpty(payload.Text) ?? nonEmpty(payload.Media?.Caption) ?? "";
+      const mediaText =
+        nonEmpty(payload.Text) ?? nonEmpty(payload.Media?.Caption) ?? "";
       if (payload.Media && !mediaText.trim()) {
         void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
         sendJson(res, 200, { ignored: "self_media" });
         return;
       }
-      const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
+      const event = normalizeParsedMessage(
+        payload,
+        botName,
+        botAliases,
+        resolved.meta,
+        ownerSharesNumber,
+      );
       if (!event) {
         sendJson(res, 200, { ignored: "empty_event" });
         return;
@@ -707,23 +812,36 @@ export async function handleWhatsAppWebhook(
       }
       sendJson(res, 200, { ok: true });
       void dispatchResolvedWhatsAppEvent(cfg, engine, event).catch((error) => {
-        log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+        log.warn("whatsapp.webhook_async_error", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
       return;
     }
 
     // ── FromMe from a different number → ignore ─────────────────────
-    if (payload.Media) void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
+    if (payload.Media)
+      void deleteWacliMedia(getWacliStoreDir(), chatJid, payload.ID ?? "");
     sendJson(res, 200, { ignored: "from_me" });
     return;
   }
 
   // ── Normal processing (incoming messages from others) ────────────────
   // If this is a reply to a tracked bot message, check for owner decision first
-  if (payload.ReplyToID && await hasTrackedBotMessage(cfg, payload.ReplyToID)
-      && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
+  if (
+    payload.ReplyToID &&
+    (await hasTrackedBotMessage(cfg, payload.ReplyToID)) &&
+    cfg.WHATSAPP_OWNER_JID &&
+    payload.SenderJID === cfg.WHATSAPP_OWNER_JID
+  ) {
     const replyTarget = payload.ReplyToID;
-    const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
+    const event = normalizeParsedMessage(
+      payload,
+      botName,
+      botAliases,
+      resolved.meta,
+      ownerSharesNumber,
+    );
     if (!event) {
       sendJson(res, 200, { ignored: "empty_event" });
       return;
@@ -741,8 +859,12 @@ export async function handleWhatsAppWebhook(
   }
 
   // If this is a reaction on a tracked bot message from the owner
-  if (payload.ReactionToID && await hasTrackedBotMessage(cfg, payload.ReactionToID)
-      && cfg.WHATSAPP_OWNER_JID && payload.SenderJID === cfg.WHATSAPP_OWNER_JID) {
+  if (
+    payload.ReactionToID &&
+    (await hasTrackedBotMessage(cfg, payload.ReactionToID)) &&
+    cfg.WHATSAPP_OWNER_JID &&
+    payload.SenderJID === cfg.WHATSAPP_OWNER_JID
+  ) {
     const reactionTarget = payload.ReactionToID;
     const emoji = payload.ReactionEmoji ?? "";
     if (!emoji || !isOwnerDecisionReactionToken(emoji)) {
@@ -782,7 +904,13 @@ export async function handleWhatsAppWebhook(
     }
   }
 
-  const event = normalizeParsedMessage(payload, botName, botAliases, resolved.meta, ownerSharesNumber);
+  const event = normalizeParsedMessage(
+    payload,
+    botName,
+    botAliases,
+    resolved.meta,
+    ownerSharesNumber,
+  );
   if (!event) {
     sendJson(res, 200, { ignored: "empty_event" });
     return;
@@ -804,13 +932,19 @@ export async function handleWhatsAppWebhook(
   }
 
   void dispatchResolvedWhatsAppEvent(cfg, engine, event).catch((error) => {
-    log.warn("whatsapp.webhook_async_error", { error: error instanceof Error ? error.message : String(error) });
+    log.warn("whatsapp.webhook_async_error", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 
 // ─── Media cleanup ─────────────────────────────────────────────────────────────
 
-async function deleteWacliMedia(storeDir: string, chatJid: string, msgId: string): Promise<void> {
+async function deleteWacliMedia(
+  storeDir: string,
+  chatJid: string,
+  msgId: string,
+): Promise<void> {
   const mediaDir = path.join(storeDir, "media", chatJid, msgId);
   try {
     await fs.rm(mediaDir, { recursive: true, force: true });
@@ -888,7 +1022,9 @@ class WhatsAppAdapter implements SourceAdapter {
 
   // ── start (supervisor contract) ──────────────────────────────────────────
 
-  async start(engine: FelixEngine): Promise<{ stop(): void; done: Promise<void> }> {
+  async start(
+    engine: FelixEngine,
+  ): Promise<{ stop(): void; done: Promise<void> }> {
     const authOk = checkWacliAuth(this.cfg.WHATSAPP_WACLI_BIN);
     if (!authOk) {
       log.warn("whatsapp.disabled", { reason: "unauthenticated" });
@@ -906,12 +1042,16 @@ class WhatsAppAdapter implements SourceAdapter {
 
     const port = 3000;
     const args = [
-      "sync", "--follow",
+      "sync",
+      "--follow",
       "--download-media",
-      "--webhook", `http://127.0.0.1:${port}/webhooks/whatsapp`,
-      "--webhook-secret", secret,
+      "--webhook",
+      `http://127.0.0.1:${port}/webhooks/whatsapp`,
+      "--webhook-secret",
+      secret,
       "--webhook-allow-private",
-      "--max-reconnect", "0",
+      "--max-reconnect",
+      "0",
     ];
 
     return this.host.run({
@@ -958,13 +1098,19 @@ class WhatsAppAdapter implements SourceAdapter {
     return undefined;
   }
 
-  async getTurnContext(input: { event: UniversalEvent }): Promise<SourceTurnContext> {
+  async getTurnContext(input: {
+    event: UniversalEvent;
+  }): Promise<SourceTurnContext> {
     const chatJid = input.event.source_thread_ref.conversation_id; // equals thread_key suffix
     const botName = this.cfg.FELIX_NAME;
-    const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "").split(",").map(a => a.trim()).filter(Boolean);
-    const mentionHow = aliases.length > 0
-      ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
-      : `(e.g. \`@${botName}\`)`;
+    const aliases = (this.cfg.WHATSAPP_BOT_ALIASES ?? "")
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const mentionHow =
+      aliases.length > 0
+        ? `(e.g. \`@${botName}\`, or \`@${aliases.join("`, `@")}\`)`
+        : `(e.g. \`@${botName}\`)`;
     // Only prefix messages when the bot shares a number with its owner — on a
     // dedicated number the sender already identifies the bot. The adapter's
     // own send paths (sendThreadReply / sendUserMessage) prepend the prefix
@@ -989,7 +1135,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
         "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
         "W3.1. WhatsApp has NO table support. NEVER output pipe tables (`|---|---|`) — they render as garbled text. For simple tabular data, use key-value pairs with bold labels (e.g., `*Name:* Alice\n*Role:* Admin`). For larger or complex tables, write the data to a `.csv` or `.md` file and send it as an attachment with `wacli send file`.",
-        "W4. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., \"Processing...\") before your final `FELIX_REPLY`.",
+        'W4. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., "Processing...") before your final `FELIX_REPLY`.',
         "To reply to a specific message, add `--reply-to <quoted_msg_id>`. In group chats, also add `--reply-to-sender <sender_jid>` when the sender JID is known.",
         "When @mentioning someone in a WhatsApp group via wacli, never guess or synthesize the mention target from a display name, first name, phone-looking text, or memory. First fetch live group context with `wacli messages list --json`, match the requested person to an exact `.sender_jid` from recent messages, and pass that exact JID to `--mention`. If no exact or unambiguous sender JID is available, ask the user for the person's phone/JID instead of mentioning the wrong account. Never use the group JID, bot JID, or owner JID as the mention target unless that exact account is explicitly requested.",
         "Upload a file:",
@@ -1005,7 +1151,10 @@ class WhatsAppAdapter implements SourceAdapter {
     };
   }
 
-  async updateEventStatus(input: { event: UniversalEvent; status: SourceEventStatus }): Promise<void> {
+  async updateEventStatus(input: {
+    event: UniversalEvent;
+    status: SourceEventStatus;
+  }): Promise<void> {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid) return;
     const eventId = input.event.event_id;
@@ -1014,17 +1163,30 @@ class WhatsAppAdapter implements SourceAdapter {
     const reaction = input.status === "processing" ? "⏳" : "";
     // --sender is the JID of the person who sent the message being reacted to
     // (required for group reactions).
-    const senderArgs = this.senderArgsForChat(chatJid, input.event.sender.id, "status");
+    const senderArgs = this.senderArgsForChat(
+      chatJid,
+      input.event.sender.id,
+      "status",
+    );
     await waitForSendSlot();
     try {
-      spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
-        "send", "react",
-        "--to", chatJid,
-        "--id", eventId,
-        "--reaction", reaction,
-        "--post-send-wait", "0",
-        ...senderArgs,
-      ], { stdio: "ignore", timeout: 10_000 });
+      spawnSync(
+        this.cfg.WHATSAPP_WACLI_BIN,
+        [
+          "send",
+          "react",
+          "--to",
+          chatJid,
+          "--id",
+          eventId,
+          "--reaction",
+          reaction,
+          "--post-send-wait",
+          "0",
+          ...senderArgs,
+        ],
+        { stdio: "ignore", timeout: 10_000 },
+      );
     } catch {
       // best-effort
     }
@@ -1040,17 +1202,17 @@ class WhatsAppAdapter implements SourceAdapter {
     this.typingInFlight = true;
     await new Promise<void>((resolve) => {
       let settled = false;
-      const child = spawn(this.cfg.WHATSAPP_WACLI_BIN, [
-        "presence", "typing",
-        "--to", chatJid,
-        "--lock-wait", "10s",
-      ], {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          PATH: process.env.PATH ?? "",
+      const child = spawn(
+        this.cfg.WHATSAPP_WACLI_BIN,
+        ["presence", "typing", "--to", chatJid, "--lock-wait", "10s"],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            PATH: process.env.PATH ?? "",
+          },
         },
-      });
+      );
       const timer = setTimeout(() => {
         child.kill("SIGTERM");
       }, 15_000);
@@ -1073,37 +1235,55 @@ class WhatsAppAdapter implements SourceAdapter {
 
   private async sendPaused(chatJid: string): Promise<void> {
     try {
-      spawnSync(this.cfg.WHATSAPP_WACLI_BIN, [
-        "presence", "paused",
-        "--to", chatJid,
-      ], { stdio: "ignore", timeout: 5_000 });
+      spawnSync(
+        this.cfg.WHATSAPP_WACLI_BIN,
+        ["presence", "paused", "--to", chatJid],
+        { stdio: "ignore", timeout: 5_000 },
+      );
     } catch {
       // best-effort
     }
   }
 
-  async sendThreadReply(input: { event: UniversalEvent; text: string }): Promise<void> {
+  async sendThreadReply(input: {
+    event: UniversalEvent;
+    text: string;
+  }): Promise<void> {
     const chatJid = input.event.source_thread_ref.conversation_id;
     if (!chatJid) {
-      throw new Error("WhatsApp sendThreadReply: missing conversation_id in source_thread_ref");
+      throw new Error(
+        "WhatsApp sendThreadReply: missing conversation_id in source_thread_ref",
+      );
     }
-    const isSystem = input.event.sender.id === "system" || input.event.sender.id.startsWith("owner:");
+    const isSystem =
+      input.event.sender.id === "system" ||
+      input.event.sender.id.startsWith("owner:") ||
+      input.event.synthetic === "scheduled";
     const replyToMsgId = !isSystem ? input.event.event_id : undefined;
-    const replyToSender = !isSystem ? input.event.sender.id.replace(/^owner:/, "") : undefined;
-    const replyToArg = replyToMsgId && replyToSender
-      ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
-      : [];
+    const replyToSender = !isSystem
+      ? input.event.sender.id.replace(/^owner:/, "")
+      : undefined;
+    const replyToArg =
+      replyToMsgId && replyToSender
+        ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
+        : [];
 
     const botName = this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
-    const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
+    const text = input.text.startsWith(prefix)
+      ? input.text
+      : `${prefix}\n${input.text}`;
 
     const args = [
-      "send", "text",
-      "--to", chatJid,
-      "--message", text,
+      "send",
+      "text",
+      "--to",
+      chatJid,
+      "--message",
+      text,
       "--json",
-      "--post-send-wait", "0",
+      "--post-send-wait",
+      "0",
       ...replyToArg,
     ];
 
@@ -1118,11 +1298,17 @@ class WhatsAppAdapter implements SourceAdapter {
         try {
           JSON.parse(result.stdout.trim());
         } catch {
-          log.warn("whatsapp.send_reply_parse", { chat_jid: chatJid, stdout: result.stdout?.slice(0, 200) });
+          log.warn("whatsapp.send_reply_parse", {
+            chat_jid: chatJid,
+            stdout: result.stdout?.slice(0, 200),
+          });
         }
       } else {
         const err = result.stderr || `exit ${result.status}`;
-        log.warn("whatsapp.send_failed", { chat_jid: chatJid, error: err.trim() });
+        log.warn("whatsapp.send_failed", {
+          chat_jid: chatJid,
+          error: err.trim(),
+        });
       }
     } catch (error) {
       log.warn("whatsapp.send_error", {
@@ -1139,14 +1325,20 @@ class WhatsAppAdapter implements SourceAdapter {
   }): Promise<SourceMessageAnchor | null> {
     const botName = this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
-    const text = input.text.startsWith(prefix) ? input.text : `${prefix}\n${input.text}`;
+    const text = input.text.startsWith(prefix)
+      ? input.text
+      : `${prefix}\n${input.text}`;
 
     const args = [
-      "send", "text",
-      "--to", input.userId,
-      "--message", text,
+      "send",
+      "text",
+      "--to",
+      input.userId,
+      "--message",
+      text,
       "--json",
-      "--post-send-wait", "0",
+      "--post-send-wait",
+      "0",
     ];
 
     await waitForSendSlot();
@@ -1175,23 +1367,41 @@ class WhatsAppAdapter implements SourceAdapter {
               message_id: msgId,
               thread_id: msgId,
             };
-            await addTrackedBotMessage(this.cfg, msgId, whatsappThreadKey(input.userId));
+            await addTrackedBotMessage(
+              this.cfg,
+              msgId,
+              whatsappThreadKey(input.userId),
+            );
             return anchor;
           }
-          log.warn("whatsapp.send_user_missing_id", { chat_jid: input.userId, parsed: result.stdout.slice(0, 500) });
+          log.warn("whatsapp.send_user_missing_id", {
+            chat_jid: input.userId,
+            parsed: result.stdout.slice(0, 500),
+          });
         } catch {
-          log.warn("whatsapp.send_user_parse", { chat_jid: input.userId, stdout: result.stdout?.slice(0, 200) });
+          log.warn("whatsapp.send_user_parse", {
+            chat_jid: input.userId,
+            stdout: result.stdout?.slice(0, 200),
+          });
         }
       } else {
-        log.warn("whatsapp.send_user_empty", { chat_jid: input.userId, stderr: result.stderr?.slice(0, 500) });
+        log.warn("whatsapp.send_user_empty", {
+          chat_jid: input.userId,
+          stderr: result.stderr?.slice(0, 500),
+        });
       }
       return null;
     } catch (error) {
-      throw new Error(`Unable to send WhatsApp DM to ${input.userId}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Unable to send WhatsApp DM to ${input.userId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  async editUserMessage(input: { anchor: SourceMessageAnchor; text: string }): Promise<void> {
+  async editUserMessage(input: {
+    anchor: SourceMessageAnchor;
+    text: string;
+  }): Promise<void> {
     const chatJid = input.anchor.conversation_id;
     if (!chatJid) {
       throw new Error("WhatsApp editUserMessage: missing anchor fields");
@@ -1227,7 +1437,9 @@ class WhatsAppAdapter implements SourceAdapter {
       `*Status*\n\`${status}\``,
     ];
     if (status !== "pending" && input.decisionMode) {
-      lines.push(`*Decision*\n${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`);
+      lines.push(
+        `*Decision*\n${decisionEmoji(input.decisionMode)} ${decisionLabel(input.decisionMode)}`,
+      );
     }
     if (input.decidedAt) {
       lines.push(`*Resolved*\n${input.decidedAt}`);
@@ -1292,10 +1504,14 @@ class WhatsAppAdapter implements SourceAdapter {
 
     if (!copiedFromStore) {
       const args = [
-        "media", "download",
-        "--chat", canonicalChatJid,
-        "--id", input.attachment.file_id,
-        "--output", dest,
+        "media",
+        "download",
+        "--chat",
+        canonicalChatJid,
+        "--id",
+        input.attachment.file_id,
+        "--output",
+        dest,
         "--read-only",
       ];
 
@@ -1310,9 +1526,13 @@ class WhatsAppAdapter implements SourceAdapter {
           // signal-killed during teardown). Treat a produced, non-empty file as
           // success — the size gate below validates it — and only fail when
           // nothing usable landed on disk.
-          const wrote = await fs.stat(dest).then((s) => s.size > 0).catch(() => false);
+          const wrote = await fs
+            .stat(dest)
+            .then((s) => s.size > 0)
+            .catch(() => false);
           if (!wrote) {
-            const err = result.stderr || result.error?.message || `exit ${result.status}`;
+            const err =
+              result.stderr || result.error?.message || `exit ${result.status}`;
             throw new Error(`media download failed: ${String(err).trim()}`);
           }
           log.warn("whatsapp.media_download_nonzero_exit", {
@@ -1357,7 +1577,11 @@ class WhatsAppAdapter implements SourceAdapter {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
-  private senderArgsForChat(chatJid: string, rawSenderId: string, operation: string): string[] {
+  private senderArgsForChat(
+    chatJid: string,
+    rawSenderId: string,
+    operation: string,
+  ): string[] {
     const messageSenderJid = rawSenderId.replace(/^owner:/, "");
     if (messageSenderJid) return ["--sender", messageSenderJid];
 
@@ -1395,13 +1619,15 @@ function normalizeParsedMessage(
     : text;
 
   const attachments: UniversalAttachment[] = pm.Media
-    ? [{
-        file_id: pm.ID ?? "",
-        filename: pm.Media.Filename ?? pm.ID ?? "media",
-        content_type: pm.Media.MimeType,
-        size_bytes: pm.Media.FileLength,
-        is_image: pm.Media.MimeType?.startsWith("image/") ? true : undefined,
-      }]
+    ? [
+        {
+          file_id: pm.ID ?? "",
+          filename: pm.Media.Filename ?? pm.ID ?? "media",
+          content_type: pm.Media.MimeType,
+          size_bytes: pm.Media.FileLength,
+          is_image: pm.Media.MimeType?.startsWith("image/") ? true : undefined,
+        },
+      ]
     : [];
 
   return normalizeSourceEvent({
@@ -1427,10 +1653,18 @@ function normalizeParsedMessage(
       raw: {
         chat_jid: chatJid,
         sender_jid: senderJid,
-        ...(resolveMeta?.originalChatJid ? { original_chat_jid: resolveMeta.originalChatJid } : {}),
-        ...(resolveMeta?.resolvedChatJid ? { resolved_chat_jid: resolveMeta.resolvedChatJid } : {}),
-        ...(resolveMeta?.originalSenderJid ? { original_sender_jid: resolveMeta.originalSenderJid } : {}),
-        ...(resolveMeta?.resolvedSenderJid ? { resolved_sender_jid: resolveMeta.resolvedSenderJid } : {}),
+        ...(resolveMeta?.originalChatJid
+          ? { original_chat_jid: resolveMeta.originalChatJid }
+          : {}),
+        ...(resolveMeta?.resolvedChatJid
+          ? { resolved_chat_jid: resolveMeta.resolvedChatJid }
+          : {}),
+        ...(resolveMeta?.originalSenderJid
+          ? { original_sender_jid: resolveMeta.originalSenderJid }
+          : {}),
+        ...(resolveMeta?.resolvedSenderJid
+          ? { resolved_sender_jid: resolveMeta.resolvedSenderJid }
+          : {}),
       },
     },
   });
@@ -1438,7 +1672,11 @@ function normalizeParsedMessage(
 
 // ─── Mention detection ────────────────────────────────────────────────────────
 
-export function detectsWhatsappMention(text: string, botName: string, aliases: string[] = []): boolean {
+export function detectsWhatsappMention(
+  text: string,
+  botName: string,
+  aliases: string[] = [],
+): boolean {
   const lower = text.toLowerCase();
   if (containsStrictMention(lower, botName.toLowerCase())) return true;
   for (const alias of aliases) {
@@ -1495,16 +1733,27 @@ const checkWacliAuth = discoverWhatsAppAuth;
 
 // ─── Webhook HMAC verification ────────────────────────────────────────────────
 
-function verifyWebhookSignature(body: string, secret: string, signature: string): boolean {
+function verifyWebhookSignature(
+  body: string,
+  secret: string,
+  signature: string,
+): boolean {
   if (!/^sha256=[0-9a-fA-F]{64}$/.test(signature)) return false;
   const expected = crypto.createHmac("sha256", secret).update(body).digest();
   const provided = Buffer.from(signature.slice("sha256=".length), "hex");
-  return provided.length === expected.length && crypto.timingSafeEqual(expected, provided);
+  return (
+    provided.length === expected.length &&
+    crypto.timingSafeEqual(expected, provided)
+  );
 }
 
 // ─── HTTP utils (for webhook handler, avoid coupling to app.ts) ───────────────
 
-function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
+function sendJson(
+  res: http.ServerResponse,
+  status: number,
+  data: unknown,
+): void {
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("cache-control", "no-store");

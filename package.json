@@ -33,6 +33,7 @@
     "@inquirer/prompts": "^8.5.2",
     "@openai/codex": "^0.133.0",
     "@slack/bolt": "^4.7.3",
+    "cron-parser": "^5.6.2",
     "discord.js": "^14.18.0",
     "docx": "^9.7.1",
     "ioredis": "^5.4.2",

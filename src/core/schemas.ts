@@ -11,7 +11,7 @@ export const SourceSenderSchema = z.object({
   display: z.string().optional(),
 });
 
-const SourceThreadSchema = z.object({
+export const SourceThreadSchema = z.object({
   source: z.string(),
   conversation_id: z.string().optional(),
   thread_id: z.string().optional(),
@@ -48,6 +48,7 @@ export const SessionQueueItemSchema = z.object({
   received_at: z.string(),
   event_file: z.string(),
   source_event_id: z.string(),
+  model_override: z.string().optional(),
 });
 
 export const SessionPermissionRequestSchema = z.object({
