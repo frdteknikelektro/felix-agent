@@ -439,6 +439,11 @@ export function isFelixMessage(
     return true;
   }
 
+  // Dedicated-number mode must rely on the bot identity, not user-controlled
+  // response text. The prefix fallback is only safe when the owner and bot
+  // share a number and sender identity is intentionally ambiguous.
+  if (!ownerSharesNumber) return false;
+
   // Shared number mode: text or caption starts with *[BotName]*
   const prefix = `*[${botName}]*`;
   if (target.text.startsWith(prefix)) return true;
