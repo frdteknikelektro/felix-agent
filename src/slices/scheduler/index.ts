@@ -1,34 +1,60 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "../../config.js";
 import { ensureDir, pathExists, writeJsonAtomic } from "../../lib/fs.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput } from "../../core/ports.js";
-import type { ThreadHandle } from "../sessions/index.js";
-import { createOrLoadThread } from "../sessions/index.js";
 import { calculateNextRun } from "./next-run.js";
+import type {
+  SchedulerExecutionRequest,
+  SchedulerExecutionResult,
+  SchedulerExecutor,
+} from "./ports.js";
 import { SchedulerJobSchema, type SchedulerJob } from "./schemas.js";
 
 const TICK_INTERVAL_MS = 10_000;
-const SCHEDULER_THREAD_KEY = "scheduler-system";
+const MAX_RETRY_DELAY_MS = 86_400_000;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface SchedulerState {
   locked: boolean;
+  running: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   cfg: AppConfig | null;
-  harness: Harness | null;
-  retryTimers: Set<ReturnType<typeof setTimeout>>;
+  executor: SchedulerExecutor | null;
+  inFlightJobs: Set<string>;
+  originTails: Map<string, Promise<void>>;
+  controllers: Map<string, AbortController>;
+  generation: number;
+}
+
+interface SchedulerExecution {
+  id: string;
+  job_id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: "running" | "success" | "failed" | "paused" | "skipped" | "cancelled";
+  attempt: number;
+  exit_code?: number;
+  log_path?: string;
+  output?: string;
+  error?: string;
+  missing_permissions?: string[];
+  skipped_reason?: string;
 }
 
 const state: SchedulerState = {
   locked: false,
+  running: false,
   timer: null,
   cfg: null,
-  harness: null,
-  retryTimers: new Set(),
+  executor: null,
+  inFlightJobs: new Set(),
+  originTails: new Map(),
+  controllers: new Map(),
+  generation: 0,
 };
-
-// ─── Path helpers ─────────────────────────────────────────────────────────────
 
 function jobsDir(cfg: AppConfig): string {
   return cfg.paths.schedulerJobsDir;
@@ -38,7 +64,75 @@ function logsDir(cfg: AppConfig): string {
   return cfg.paths.schedulerLogsDir;
 }
 
-async function readJobFile(filePath: string): Promise<SchedulerJob | null> {
+function originKey(job: SchedulerJob): string {
+  return `${job.origin.source}\u0000${job.origin.thread_key}`;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.message === "scheduler stopped")
+  );
+}
+
+function schedulerJobPath(cfg: AppConfig, jobId: string): string {
+  if (!UUID_PATTERN.test(jobId)) {
+    throw new Error(`unsafe scheduler job id: ${jobId}`);
+  }
+  return path.join(jobsDir(cfg), `${jobId}.json`);
+}
+
+function assertSchedulerJobPath(
+  cfg: AppConfig,
+  jobId: string,
+  filePath: string,
+): void {
+  if (path.resolve(filePath) !== path.resolve(schedulerJobPath(cfg, jobId))) {
+    throw new Error(
+      "scheduler job path is outside the scheduler jobs directory",
+    );
+  }
+}
+
+async function pauseInvalidJobFile(
+  filePath: string,
+  schedulerDir: string,
+): Promise<void> {
+  if (path.resolve(path.dirname(filePath)) !== path.resolve(schedulerDir))
+    return;
+  const expectedId = path.basename(filePath, ".json");
+  if (!UUID_PATTERN.test(expectedId)) return;
+
+  try {
+    const value: unknown = JSON.parse(await fs.readFile(filePath, "utf8"));
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      (value as { id?: unknown }).id !== expectedId ||
+      (value as { status?: unknown }).status !== "active"
+    ) {
+      return;
+    }
+    await writeJsonAtomic(filePath, {
+      ...(value as Record<string, unknown>),
+      status: "paused",
+    });
+    log.warn("scheduler: invalid active job paused", {
+      file: filePath,
+      jobId: expectedId,
+    });
+  } catch (error) {
+    log.warn("scheduler: invalid job could not be paused", {
+      file: filePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function readJobFile(
+  filePath: string,
+): Promise<SchedulerJob | null> {
   let raw: string;
   try {
     raw = await fs.readFile(filePath, "utf8");
@@ -70,41 +164,47 @@ async function readJobFile(filePath: string): Promise<SchedulerJob | null> {
     return null;
   }
 
+  const expectedId = path.basename(filePath, ".json");
+  if (result.data.id !== expectedId) {
+    log.warn("scheduler: job filename mismatch", {
+      file: filePath,
+      jobId: result.data.id,
+      expectedId,
+    });
+    return null;
+  }
+
   return result.data;
 }
 
-// ─── Tick loop ────────────────────────────────────────────────────────────────
-
 function scheduleNextTick(): void {
-  const now = Date.now();
-  const elapsed = now % TICK_INTERVAL_MS;
-  const offset = TICK_INTERVAL_MS - elapsed;
+  if (!state.running) return;
 
+  const elapsed = Date.now() % TICK_INTERVAL_MS;
+  const offset = TICK_INTERVAL_MS - elapsed;
   state.timer = setTimeout(() => {
     state.timer = null;
-    tick()
-      .catch((err) => {
+    void tick()
+      .catch((error) => {
         log.error("scheduler: tick failed", {
-          error: err instanceof Error ? err.message : String(err),
+          error: error instanceof Error ? error.message : String(error),
         });
       })
       .finally(() => {
-        scheduleNextTick();
+        if (state.running) scheduleNextTick();
       });
   }, offset);
-
   state.timer.unref();
 }
 
-async function tick(): Promise<void> {
-  if (state.locked || !state.cfg || !state.harness) return;
+export async function tick(): Promise<void> {
+  if (!state.running || state.locked || !state.cfg || !state.executor) return;
   state.locked = true;
 
   try {
     const cfg = state.cfg;
-    const harness = state.harness;
+    const executor = state.executor;
     const dir = jobsDir(cfg);
-
     if (!(await pathExists(dir))) return;
 
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -115,7 +215,11 @@ async function tick(): Promise<void> {
 
       const filePath = path.join(dir, entry.name);
       const job = await readJobFile(filePath);
-      if (!job || job.status !== "active" || !job.next_run_at) continue;
+      if (!job) {
+        await pauseInvalidJobFile(filePath, dir);
+        continue;
+      }
+      if (job.status !== "active" || !job.next_run_at) continue;
 
       const nextRun = new Date(job.next_run_at);
       if (Number.isNaN(nextRun.getTime())) {
@@ -127,7 +231,6 @@ async function tick(): Promise<void> {
       }
       if (nextRun > now) continue;
 
-      // Atomic update: set next_run_at before execution to prevent race condition
       let nextRunAt: string;
       try {
         nextRunAt = calculateNextRun(job.schedule, now);
@@ -139,9 +242,10 @@ async function tick(): Promise<void> {
         });
         continue;
       }
+
       const updated: SchedulerJob = {
         ...job,
-        last_run_at: new Date().toISOString(),
+        last_run_at: now.toISOString(),
         next_run_at: nextRunAt,
       };
       try {
@@ -155,195 +259,242 @@ async function tick(): Promise<void> {
         continue;
       }
 
-      // Execute job in parallel (fire and forget)
-      executeJob(cfg, harness, updated).catch((err) => {
-        log.error("scheduler: job execution failed", {
-          jobId: job.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
+      if (state.inFlightJobs.has(job.id)) {
+        await writeSkippedExecution(cfg, job, "already_running");
+        continue;
+      }
+
+      startJob(cfg, executor, updated, filePath);
     }
   } finally {
     state.locked = false;
   }
 }
 
-// ─── Execution ────────────────────────────────────────────────────────────────
+function startJob(
+  cfg: AppConfig,
+  executor: SchedulerExecutor,
+  job: SchedulerJob,
+  filePath: string,
+): void {
+  const controller = new AbortController();
+  const key = originKey(job);
+  const generation = state.generation;
+  const controllerKey = `${job.id}:${generation}:${crypto.randomUUID()}`;
+  const previous = state.originTails.get(key) ?? Promise.resolve();
 
-async function schedulerThread(cfg: AppConfig): Promise<ThreadHandle> {
-  return createOrLoadThread(cfg, {
-    source: "system",
-    thread_key: SCHEDULER_THREAD_KEY,
-    source_thread_ref: null as never,
-    received_at: new Date().toISOString(),
+  state.inFlightJobs.add(job.id);
+  state.controllers.set(controllerKey, controller);
+
+  const run = previous
+    .catch(() => undefined)
+    .then(() => {
+      if (
+        controller.signal.aborted ||
+        !state.running ||
+        state.generation !== generation
+      ) {
+        return;
+      }
+      return executeJob(cfg, executor, job, filePath, controller.signal);
+    });
+  const tracked = run.finally(() => {
+    state.inFlightJobs.delete(job.id);
+    state.controllers.delete(controllerKey);
+    if (state.originTails.get(key) === tracked) state.originTails.delete(key);
+  });
+  state.originTails.set(key, tracked);
+
+  void tracked.catch((error) => {
+    log.error("scheduler: job execution failed", {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 
-interface SchedulerExecution {
-  id: string;
-  job_id: string;
-  started_at: string;
-  completed_at: string | null;
-  status: "running" | "success" | "failed";
-  attempt: number;
+async function writeExecution(
+  cfg: AppConfig,
+  job: SchedulerJob,
+  execution: SchedulerExecution,
+): Promise<void> {
+  if (!UUID_PATTERN.test(job.id)) {
+    throw new Error(`unsafe scheduler job id: ${job.id}`);
+  }
+  const executionDir = path.join(logsDir(cfg), job.id);
+  await ensureDir(executionDir);
+  await writeJsonAtomic(
+    path.join(executionDir, `${execution.id}.json`),
+    execution,
+  );
 }
 
-function scheduleRetry(
+async function writeSkippedExecution(
   cfg: AppConfig,
-  harness: Harness,
   job: SchedulerJob,
-  attempt: number,
-  backoffMs: number,
-): void {
-  const timer = setTimeout(() => {
-    state.retryTimers.delete(timer);
-    executeJob(cfg, harness, job, attempt + 1).catch((error) => {
-      log.error("scheduler: retry execution failed", {
-        jobId: job.id,
-        attempt: attempt + 1,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }, backoffMs);
-  timer.unref();
-  state.retryTimers.add(timer);
+  reason: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await writeExecution(cfg, job, {
+    id: crypto.randomUUID(),
+    job_id: job.id,
+    started_at: now,
+    completed_at: now,
+    status: "skipped",
+    attempt: 0,
+    skipped_reason: reason,
+  });
+  log.info("scheduler: job occurrence skipped", { jobId: job.id, reason });
+}
+
+async function updateJobStatus(
+  filePath: string,
+  status: SchedulerJob["status"],
+): Promise<void> {
+  const current = await readJobFile(filePath);
+  if (!current) return;
+  await writeJsonAtomic(filePath, { ...current, status });
+}
+
+function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error("scheduler stopped"));
+  const boundedDelay = Math.min(delayMs, MAX_RETRY_DELAY_MS);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, boundedDelay);
+    timer.unref();
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new Error("scheduler stopped"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function executeJob(
   cfg: AppConfig,
-  harness: Harness,
+  executor: SchedulerExecutor,
   job: SchedulerJob,
-  attempt = 1,
+  filePath: string,
+  signal: AbortSignal = new AbortController().signal,
 ): Promise<void> {
-  const executionId = crypto.randomUUID();
-  const executionDir = path.join(logsDir(cfg), job.id);
-  await ensureDir(executionDir);
-
-  const execution: SchedulerExecution = {
-    id: executionId,
-    job_id: job.id,
-    started_at: new Date().toISOString(),
-    completed_at: null,
-    status: "running",
-    attempt,
-  };
-
-  const executionPath = path.join(executionDir, `${executionId}.json`);
-  await writeJsonAtomic(executionPath, execution);
-
-  let succeeded = false;
-  try {
-    const thread = await schedulerThread(cfg);
-    const input: TurnInput = {
-      thread,
-      event: {
-        source: "system",
-        thread_key: SCHEDULER_THREAD_KEY,
-        event_id: `scheduler-${executionId}`,
-        received_at: new Date().toISOString(),
-        visibility: "channel" as const,
-        mentions_bot: false,
-        sender: { source: "system", id: "scheduler" },
-        text: job.prompt,
-        attachments: [],
-        raw_path: "",
-        source_thread_ref: null as never,
-      },
-      eventFile: "",
-      contact: {
-        user_id: job.created_by.user_id,
-        source: job.created_by.source,
-        display: "Scheduler",
-        allowed_permissions: job.permissions,
-      },
-      skills: [],
-      sourceContext: { behaviorInstructions: [] },
-      resumed: false,
-      promptOverride: job.prompt,
-      modelOverride: job.model,
+  assertSchedulerJobPath(cfg, job.id, filePath);
+  for (let attempt = 1; attempt <= job.retry.max_attempts; attempt++) {
+    const executionId = crypto.randomUUID();
+    const execution: SchedulerExecution = {
+      id: executionId,
+      job_id: job.id,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      status: "running",
+      attempt,
     };
+    await writeExecution(cfg, job, execution);
 
-    const result = await harness.run(input);
-    succeeded = result.success;
-  } catch (err) {
-    execution.status = "failed";
-    log.warn("scheduler: job attempt failed", {
-      jobId: job.id,
-      executionId,
-      attempt,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  execution.completed_at = new Date().toISOString();
-  execution.status = succeeded ? "success" : "failed";
-  await writeJsonAtomic(executionPath, execution);
-
-  if (succeeded) {
-    // Auto-mark one-shot jobs as completed
-    if (job.run_once) {
-      const completedJob = { ...job, status: "completed" as const };
-      await writeJsonAtomic(
-        path.join(jobsDir(cfg), `${job.id}.json`),
-        completedJob,
-      );
+    let result: SchedulerExecutionResult;
+    try {
+      result = await executor.run({
+        job,
+        executionId,
+        signal,
+      } satisfies SchedulerExecutionRequest);
+    } catch (error) {
+      if (signal.aborted || isAbortError(error)) {
+        execution.status = "cancelled";
+        execution.error = "scheduler stopped";
+        execution.completed_at = new Date().toISOString();
+        await writeExecution(cfg, job, execution);
+        return;
+      }
+      result = {
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
 
-    log.info("scheduler: job executed", {
-      jobId: job.id,
-      executionId,
-      attempt,
-      status: execution.status,
-    });
-    return;
-  }
+    execution.status = result.status;
+    execution.completed_at = new Date().toISOString();
+    execution.exit_code = result.exitCode;
+    execution.log_path = result.logPath;
+    execution.output = result.output;
+    execution.error = result.error;
+    execution.missing_permissions = result.missingPermissions;
+    await writeExecution(cfg, job, execution);
 
-  if (attempt >= job.retry.max_attempts) {
-    if (job.run_once) {
-      const failedJob = { ...job, status: "failed" as const };
-      await writeJsonAtomic(
-        path.join(jobsDir(cfg), `${job.id}.json`),
-        failedJob,
-      );
+    if (result.status === "success") {
+      if (job.run_once) await updateJobStatus(filePath, "completed");
+      log.info("scheduler: job executed", {
+        jobId: job.id,
+        executionId,
+        attempt,
+      });
+      return;
     }
-    log.warn("scheduler: job retries exhausted", {
-      jobId: job.id,
-      executionId,
-      attempt,
-      maxAttempts: job.retry.max_attempts,
-    });
-    return;
-  }
 
-  const backoffMs = job.retry.backoff_ms * Math.pow(2, attempt - 1);
-  log.info("scheduler: job retry scheduled", {
-    jobId: job.id,
-    attempt: attempt + 1,
-    backoffMs,
-  });
-  scheduleRetry(cfg, harness, job, attempt, backoffMs);
+    if (result.status === "paused") {
+      await updateJobStatus(filePath, "paused");
+      log.warn("scheduler: job paused", {
+        jobId: job.id,
+        missingPermissions: result.missingPermissions,
+      });
+      return;
+    }
+
+    if (attempt >= job.retry.max_attempts) {
+      if (job.run_once) await updateJobStatus(filePath, "failed");
+      log.warn("scheduler: job retries exhausted", {
+        jobId: job.id,
+        executionId,
+        attempt,
+        maxAttempts: job.retry.max_attempts,
+      });
+      return;
+    }
+
+    const delayMs = job.retry.backoff_ms * Math.pow(2, attempt - 1);
+    log.info("scheduler: job retry scheduled", {
+      jobId: job.id,
+      attempt: attempt + 1,
+      backoffMs: Math.min(delayMs, MAX_RETRY_DELAY_MS),
+    });
+    try {
+      await waitForRetry(delayMs, signal);
+    } catch (error) {
+      execution.status = "cancelled";
+      execution.error = error instanceof Error ? error.message : String(error);
+      execution.completed_at = new Date().toISOString();
+      await writeExecution(cfg, job, execution);
+      return;
+    }
+  }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-export function startScheduler(cfg: AppConfig, harness: Harness): void {
-  if (state.timer) return;
-
+export function startScheduler(
+  cfg: AppConfig,
+  executor: SchedulerExecutor,
+): void {
+  if (state.running) return;
+  state.generation += 1;
   state.cfg = cfg;
-  state.harness = harness;
-
+  state.executor = executor;
+  state.running = true;
   log.info("scheduler: starting tick loop", { intervalMs: TICK_INTERVAL_MS });
   scheduleNextTick();
 }
 
 export function stopScheduler(): void {
+  state.generation += 1;
+  state.running = false;
   if (state.timer) {
     clearTimeout(state.timer);
     state.timer = null;
   }
-  for (const timer of state.retryTimers) clearTimeout(timer);
-  state.retryTimers.clear();
+  for (const controller of state.controllers.values()) controller.abort();
+  state.controllers.clear();
   state.cfg = null;
-  state.harness = null;
+  state.executor = null;
   log.info("scheduler: stopped");
 }

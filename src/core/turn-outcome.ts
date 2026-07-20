@@ -1,4 +1,9 @@
-import type { ContactRecord, SessionQueueItem, SkillRecord, UniversalEvent } from "../types.js";
+import type {
+  ContactRecord,
+  SessionQueueItem,
+  SkillRecord,
+  UniversalEvent,
+} from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
 import { permissionSatisfied } from "../slices/skills/index.js";
 import type { PermissionRequiredOutput, TurnResult } from "./ports.js";
@@ -6,10 +11,27 @@ import { decideTurnResult } from "./decide-turn.js";
 
 export interface TurnOutcomePorts {
   clearHarnessSession(thread: ThreadHandle): Promise<void>;
-  logUsage(thread: ThreadHandle, event: UniversalEvent, result: TurnResult): Promise<void>;
-  recordTurnWithUsage(thread: ThreadHandle, event: UniversalEvent, result: TurnResult): Promise<void>;
-  postThreadError(thread: ThreadHandle, event: UniversalEvent, errorDetail: string): Promise<void>;
-  postThreadReply(thread: ThreadHandle, event: UniversalEvent, sessionId: string | undefined, text: string): Promise<void>;
+  logUsage(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    result: TurnResult,
+  ): Promise<void>;
+  recordTurnWithUsage(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    result: TurnResult,
+  ): Promise<void>;
+  postThreadError(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    errorDetail: string,
+  ): Promise<void>;
+  postThreadReply(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    sessionId: string | undefined,
+    text: string,
+  ): Promise<void>;
   requestPermission(
     thread: ThreadHandle,
     event: UniversalEvent,
@@ -43,11 +65,17 @@ export interface TurnOutcomeInput {
 
 export type TurnOutcomeResult =
   | { kind: "retry_fresh"; resumed: false; retriedFreshStart: true }
-  | { kind: "complete" }
-  | { kind: "stopped" };
+  | { kind: "complete"; result?: TurnResult }
+  | { kind: "stopped"; result?: TurnResult };
 
-export async function handleTurnOutcome(input: TurnOutcomeInput): Promise<TurnOutcomeResult> {
-  const decision = decideTurnResult(input.result, input.resumed, input.retriedFreshStart);
+export async function handleTurnOutcome(
+  input: TurnOutcomeInput,
+): Promise<TurnOutcomeResult> {
+  const decision = decideTurnResult(
+    input.result,
+    input.resumed,
+    input.retriedFreshStart,
+  );
 
   if (decision.kind === "retry_fresh") {
     input.ports.warn("harness.resume_fallback", {
@@ -68,9 +96,10 @@ export async function handleTurnOutcome(input: TurnOutcomeInput): Promise<TurnOu
     // unusable). Record them so the ledger isn't undercounted — logUsage is a
     // no-op when result.usage is null (e.g. the harness never reached the API).
     await input.ports.logUsage(input.thread, input.event, input.result);
-    const detail = input.result.exitCode !== 0
-      ? exitCodeMessage(input.result.exitCode)
-      : "The agent produced no usable output. ";
+    const detail =
+      input.result.exitCode !== 0
+        ? exitCodeMessage(input.result.exitCode)
+        : "The agent produced no usable output. ";
     await input.ports.postThreadError(input.thread, input.event, detail);
     input.ports.error("harness.empty_output", {
       thread_key: input.thread.state.thread_key,
@@ -78,7 +107,7 @@ export async function handleTurnOutcome(input: TurnOutcomeInput): Promise<TurnOu
       exit_code: input.result.exitCode,
       log_path: input.result.logPath,
     });
-    return { kind: "complete" };
+    return { kind: "complete", result: input.result };
   }
 
   if (decision.kind === "format_retry") {
@@ -86,7 +115,7 @@ export async function handleTurnOutcome(input: TurnOutcomeInput): Promise<TurnOu
   }
 
   await applySuccessfulOutcome(input, input.result);
-  return { kind: "complete" };
+  return { kind: "complete", result: input.result };
 }
 
 export async function handleTurnRunError(input: {
@@ -115,7 +144,9 @@ export async function handleTurnRunError(input: {
   return { kind: "complete" };
 }
 
-async function handleFormatRetry(input: TurnOutcomeInput): Promise<TurnOutcomeResult> {
+async function handleFormatRetry(
+  input: TurnOutcomeInput,
+): Promise<TurnOutcomeResult> {
   input.ports.warn("harness.format_error", {
     thread_key: input.thread.state.thread_key,
     session_id: input.result.sessionId,
@@ -127,7 +158,9 @@ async function handleFormatRetry(input: TurnOutcomeInput): Promise<TurnOutcomeRe
 
   let corrected: TurnResult;
   try {
-    corrected = await input.ports.runFormatCorrection(formatCorrectionPrompt(input.result.parsed.text));
+    corrected = await input.ports.runFormatCorrection(
+      formatCorrectionPrompt(input.result.parsed.text),
+    );
   } catch (error) {
     return handleTurnRunError({
       thread: input.thread,
@@ -143,31 +176,50 @@ async function handleFormatRetry(input: TurnOutcomeInput): Promise<TurnOutcomeRe
     return { kind: "stopped" };
   }
 
-  const retriedDecision = decideTurnResult(corrected, true, input.retriedFreshStart);
+  const retriedDecision = decideTurnResult(
+    corrected,
+    true,
+    input.retriedFreshStart,
+  );
   if (retriedDecision.kind === "retry_fresh") {
     await input.ports.clearHarnessSession(input.thread);
     return { kind: "retry_fresh", resumed: false, retriedFreshStart: true };
   }
 
-  if (retriedDecision.kind === "fail" || retriedDecision.kind === "format_retry") {
+  if (
+    retriedDecision.kind === "fail" ||
+    retriedDecision.kind === "format_retry"
+  ) {
     if (input.resumed) {
       await input.ports.clearHarnessSession(input.thread);
     }
-    await input.ports.postThreadError(input.thread, input.event, "The agent produced no usable output. ");
-    return { kind: "complete" };
+    await input.ports.postThreadError(
+      input.thread,
+      input.event,
+      "The agent produced no usable output. ",
+    );
+    return { kind: "complete", result: corrected };
   }
 
   await applySuccessfulOutcome(input, corrected);
-  return { kind: "complete" };
+  return { kind: "complete", result: corrected };
 }
 
 async function applySuccessfulOutcome(
-  input: Pick<TurnOutcomeInput, "thread" | "event" | "contact" | "skills" | "ports">,
+  input: Pick<
+    TurnOutcomeInput,
+    "thread" | "event" | "contact" | "skills" | "ports"
+  >,
   result: TurnResult,
 ): Promise<void> {
   await input.ports.recordTurnWithUsage(input.thread, input.event, result);
   if (result.parsed.kind !== "permission_required") {
-    await input.ports.postThreadReply(input.thread, input.event, result.sessionId, result.parsed.text);
+    await input.ports.postThreadReply(
+      input.thread,
+      input.event,
+      result.sessionId,
+      result.parsed.text,
+    );
     return;
   }
 
@@ -175,18 +227,30 @@ async function applySuccessfulOutcome(
   const skillId = permOutput.skillId ?? "(unknown)";
   // skillId is LLM-emitted; a lookup miss (unknown/mistyped id) must degrade to
   // exact-only matching — re-escalating to the owner, never widening access.
-  const declared = input.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
-  const bareMissing = (permOutput.permissions ?? []).filter(
-    (p) => {
-      const namespaced = p.includes(":") ? p : `${skillId}:${p}`;
-      return !permissionSatisfied(input.contact.allowed_permissions, namespaced, declared);
-    },
-  );
+  const declared =
+    input.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
+  const bareMissing = (permOutput.permissions ?? []).filter((p) => {
+    const namespaced = p.includes(":") ? p : `${skillId}:${p}`;
+    return !permissionSatisfied(
+      input.contact.allowed_permissions,
+      namespaced,
+      declared,
+    );
+  });
   if (bareMissing.length === 0) {
-    await input.ports.autoGrantPermission(input.thread, input.event, result.sessionId);
+    await input.ports.autoGrantPermission(
+      input.thread,
+      input.event,
+      result.sessionId,
+    );
     return;
   }
-  await input.ports.postThreadReply(input.thread, input.event, result.sessionId, permOutput.text);
+  await input.ports.postThreadReply(
+    input.thread,
+    input.event,
+    result.sessionId,
+    permOutput.text,
+  );
   await input.ports.requestPermission(input.thread, input.event, {
     ...permOutput,
     permissions: bareMissing,

@@ -8,16 +8,38 @@ import { migrateWorkspaceLayout } from "./migrations.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
 import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
+import { stopScheduler } from "./slices/scheduler/index.js";
 import { writeTextAtomic } from "./lib/fs.js";
-import { createMattermostAdapter, startMattermostSource } from "./adapters/mattermost/index.js";
-import { createDiscordAdapter, startDiscordSource } from "./adapters/discord/index.js";
-import { createSlackAdapter, startSlackSource } from "./adapters/slack/index.js";
-import { createWhatsAppAdapter, startWhatsAppSource } from "./adapters/whatsapp/index.js";
-import { createTelegramAdapter, startTelegramSource } from "./adapters/telegram/index.js";
+import {
+  createMattermostAdapter,
+  startMattermostSource,
+} from "./adapters/mattermost/index.js";
+import {
+  createDiscordAdapter,
+  startDiscordSource,
+} from "./adapters/discord/index.js";
+import {
+  createSlackAdapter,
+  startSlackSource,
+} from "./adapters/slack/index.js";
+import {
+  createWhatsAppAdapter,
+  startWhatsAppSource,
+} from "./adapters/whatsapp/index.js";
+import {
+  createTelegramAdapter,
+  startTelegramSource,
+} from "./adapters/telegram/index.js";
 import { startAppServer } from "./server/app.js";
 import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
-import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
-import { ClaudeCodeHarness, ensureClaudeCodeAuth } from "./adapters/claude-code/index.js";
+import {
+  OpencodeHarness,
+  ensureOpencodeAuth,
+} from "./adapters/opencode/index.js";
+import {
+  ClaudeCodeHarness,
+  ensureClaudeCodeAuth,
+} from "./adapters/claude-code/index.js";
 import { ninerouterEnabled } from "./core/harness-settings.js";
 import { copyTextFileIfAbsent } from "./core/bundled-files.js";
 
@@ -38,7 +60,11 @@ async function supervise(
   start: () => Promise<{ stop(): void; done: Promise<void> }>,
   opts: SuperviseOpts = {},
 ): Promise<void> {
-  const { baseDelayMs = 2_000, maxDelayMs = 60_000, shouldRestart = () => !shuttingDown } = opts;
+  const {
+    baseDelayMs = 2_000,
+    maxDelayMs = 60_000,
+    shouldRestart = () => !shuttingDown,
+  } = opts;
   let delay = baseDelayMs;
   let stop: (() => void) | null = null;
 
@@ -57,7 +83,8 @@ async function supervise(
         // If the source resolved near-instantly it was intentionally disabled
         // (e.g. missing token). Do not restart — just log and exit the loop.
         if (ranMs < 100) {
-          if (!shuttingDown) log.info(`${name}.disabled`, { reason: "exited_immediately" });
+          if (!shuttingDown)
+            log.info(`${name}.disabled`, { reason: "exited_immediately" });
           break;
         }
         // Reset backoff only if source ran long enough to be considered healthy.
@@ -105,7 +132,9 @@ function sleep(ms: number): Promise<void> {
 // Memory schema sync
 // ---------------------------------------------------------------------------
 
-async function syncMemorySchema(paths: import("./workspace.js").WorkspacePaths): Promise<void> {
+async function syncMemorySchema(
+  paths: import("./workspace.js").WorkspacePaths,
+): Promise<void> {
   const source = path.join(paths.skills, "memory", "SKILL.md");
   const dest = path.join(paths.wikiDir, ".schema.md");
   try {
@@ -138,17 +167,19 @@ async function main(): Promise<void> {
   const sshDir = path.join(os.homedir(), ".ssh");
   const sshKey = path.join(sshDir, "id_ed25519");
   try {
-    const keyExists = await fs.stat(sshKey).then((s) => s.isFile()).catch(() => false);
+    const keyExists = await fs
+      .stat(sshKey)
+      .then((s) => s.isFile())
+      .catch(() => false);
     if (keyExists) {
       log.info("ssh.exists", { key: sshKey });
     } else {
       await fs.mkdir(sshDir, { recursive: true, mode: 0o700 });
-      execFileSync("ssh-keygen", [
-        "-t", "ed25519",
-        "-f", sshKey,
-        "-N", "",
-        "-C", "felix-agent",
-      ], { stdio: "ignore" });
+      execFileSync(
+        "ssh-keygen",
+        ["-t", "ed25519", "-f", sshKey, "-N", "", "-C", "felix-agent"],
+        { stdio: "ignore" },
+      );
       fsSync.chmodSync(sshKey, 0o600);
       fsSync.chmodSync(`${sshKey}.pub`, 0o644);
       log.info("ssh.generated", { key: sshKey });
@@ -175,24 +206,43 @@ async function main(): Promise<void> {
   // Verify the contract landed where each harness will look for it — a silent
   // miss here is exactly the failure mode that lets the agent run rule-less.
   for (const dst of [agentsMdDst, claudeMdDst]) {
-    const ok = await fs.stat(dst).then((s) => s.isFile() && s.size > 0).catch(() => false);
-    if (!ok) throw new Error(`Behavior contract was not written to ${dst} — refusing to start.`);
+    const ok = await fs
+      .stat(dst)
+      .then((s) => s.isFile() && s.size > 0)
+      .catch(() => false);
+    if (!ok)
+      throw new Error(
+        `Behavior contract was not written to ${dst} — refusing to start.`,
+      );
   }
-  log.info("contract.written", { agents_md: agentsMdDst, claude_md: claudeMdDst, bytes: agentsMd.length });
+  log.info("contract.written", {
+    agents_md: agentsMdDst,
+    claude_md: claudeMdDst,
+    bytes: agentsMd.length,
+  });
 
   // Write PERSONALITY.md — the personality configuration.
   // Unlike AGENTS.md, we skip the copy if the file already exists in the
   // workspace to preserve user customizations.
   const personalityMdSrc = path.resolve(import.meta.dirname, "PERSONALITY.md");
   const personalityMdDst = path.join(cfg.paths.root, "PERSONALITY.md");
-  const personalityCopy = await copyTextFileIfAbsent(personalityMdSrc, personalityMdDst);
+  const personalityCopy = await copyTextFileIfAbsent(
+    personalityMdSrc,
+    personalityMdDst,
+  );
   log.info(`personality.${personalityCopy}`, { path: personalityMdDst });
 
   // Write WORKSPACE_FOLDER_STRUCTURE.md — the authoritative directory layout.
-  const structSrc = path.resolve(import.meta.dirname, "WORKSPACE_FOLDER_STRUCTURE.md");
+  const structSrc = path.resolve(
+    import.meta.dirname,
+    "WORKSPACE_FOLDER_STRUCTURE.md",
+  );
   const structMd = await fs.readFile(structSrc, "utf-8").catch(() => null);
   if (structMd) {
-    const structDst = path.join(cfg.paths.root, "WORKSPACE_FOLDER_STRUCTURE.md");
+    const structDst = path.join(
+      cfg.paths.root,
+      "WORKSPACE_FOLDER_STRUCTURE.md",
+    );
     await writeTextAtomic(structDst, structMd);
   }
 
@@ -228,16 +278,31 @@ async function main(): Promise<void> {
   const slackAdapter = createSlackAdapter(cfg);
   const waAdapter = createWhatsAppAdapter(cfg);
   const tgAdapter = createTelegramAdapter(cfg);
-  const engine = new FelixEngine(cfg, [mmAdapter, discordAdapter, slackAdapter, waAdapter, tgAdapter], harness);
+  const engine = new FelixEngine(
+    cfg,
+    [mmAdapter, discordAdapter, slackAdapter, waAdapter, tgAdapter],
+    harness,
+  );
   await engine.boot();
 
-  const { server: health, port: healthPort } = await startAppServer(cfg, engine);
+  const { server: health, port: healthPort } = await startAppServer(
+    cfg,
+    engine,
+  );
 
-  await supervise("mattermost", () => startMattermostSource(cfg, engine, mmAdapter));
-  await supervise("discord", () => startDiscordSource(cfg, engine, discordAdapter));
+  await supervise("mattermost", () =>
+    startMattermostSource(cfg, engine, mmAdapter),
+  );
+  await supervise("discord", () =>
+    startDiscordSource(cfg, engine, discordAdapter),
+  );
   await supervise("slack", () => startSlackSource(cfg, engine, slackAdapter));
-  await supervise("whatsapp", () => startWhatsAppSource(cfg, engine, waAdapter));
-  await supervise("telegram", () => startTelegramSource(cfg, engine, tgAdapter));
+  await supervise("whatsapp", () =>
+    startWhatsAppSource(cfg, engine, waAdapter),
+  );
+  await supervise("telegram", () =>
+    startTelegramSource(cfg, engine, tgAdapter),
+  );
 
   log.info("felix.started", {
     workspace: cfg.paths.root,
@@ -252,6 +317,8 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info("felix.shutdown", { signal });
+
+    stopScheduler();
 
     // 1. Stop accepting new events from all sources
     stopAll();
@@ -275,6 +342,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  log.error("felix.fatal", { error: error instanceof Error ? error.message : String(error), stack: (error as Error).stack });
+  log.error("felix.fatal", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: (error as Error).stack,
+  });
   process.exit(1);
 });

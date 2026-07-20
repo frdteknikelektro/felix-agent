@@ -1,11 +1,41 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "./config.js";
-import { ApprovalRequestLifecycle, hasPendingApproval } from "./slices/approvals/index.js";
+import {
+  ApprovalRequestLifecycle,
+  hasPendingApproval,
+} from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
-import type { ContactRecord, OwnerDecision, SessionQueueItem, SessionState, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
+import {
+  appendEventToThread,
+  appendFelixReply,
+  clearThreadQueue,
+  createOrLoadThread,
+  filterThreadQueue,
+  findThreadHandle,
+  hasThreadEvent,
+  loadSessionState,
+  queueThreadEvent,
+  recordTurnUsage,
+  setThreadBusy,
+  shiftNextEvent,
+  requeueEvent,
+  recordTurn,
+  clearHarnessSession,
+  updateThreadState,
+  type ThreadHandle,
+  listThreadHandles,
+} from "./slices/sessions/index.js";
+import type {
+  ContactRecord,
+  OwnerDecision,
+  SessionQueueItem,
+  SessionState,
+  SkillRecord,
+  UniversalAttachment,
+  UniversalEvent,
+} from "./types.js";
 import { loadSkills } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
@@ -16,12 +46,26 @@ import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { startMemoryCron } from "./slices/memory/index.js";
 import { startScheduler } from "./slices/scheduler/index.js";
+import type {
+  SchedulerExecutionRequest,
+  SchedulerExecutionResult,
+  SchedulerExecutor,
+} from "./slices/scheduler/ports.js";
+import type { SchedulerJob } from "./slices/scheduler/schemas.js";
 import {
   AttachmentRejectedError,
   ensureSessionScopedPath,
   rejectOversizedAttachment,
   rejectedAttachment,
 } from "./core/attachments.js";
+
+function formatScheduledOutput(job: SchedulerJob, text: string): string {
+  if (job.output === "detail") {
+    return `Scheduled job "${job.name}" completed.\n\n${text}`;
+  }
+  const concise = text.replace(/\s+/g, " ").trim().slice(0, 500);
+  return `Scheduled job "${job.name}" completed: ${concise}`;
+}
 
 export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
@@ -41,9 +85,12 @@ export class FelixEngine {
     }
     this.approvalLifecycle = new ApprovalRequestLifecycle(cfg, {
       sourceAdapter: (source) => this.requireAdapter(source),
-      generateDecisionNotification: async (input) => this.harness.generateDecisionNotification?.(input),
+      generateDecisionNotification: async (input) =>
+        this.harness.generateDecisionNotification?.(input),
       ownerDisplayForSource: (source) => this.ownerDisplayForSource(source),
-      warn: (message, data) => { log.warn(message, data); },
+      warn: (message, data) => {
+        log.warn(message, data);
+      },
     });
   }
 
@@ -51,7 +98,9 @@ export class FelixEngine {
     await this.refreshSkills();
     await this.recoverThreads();
     startMemoryCron(this.cfg, this.harness);
-    startScheduler(this.cfg, this.harness);
+    startScheduler(this.cfg, {
+      run: (request) => this.runScheduledJob(request),
+    });
   }
 
   abortThread(threadKey: string): void {
@@ -108,7 +157,12 @@ export class FelixEngine {
         await this.drainThreadQueue(thread);
         await this.postThreadReply(thread, event, undefined, "Stopped.");
       } else {
-        await this.postThreadReply(thread, event, undefined, "Nothing running.");
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Nothing running.",
+        );
       }
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
@@ -122,20 +176,43 @@ export class FelixEngine {
       }
       const session = await loadSessionState(thread);
       if (session.harness_session_id && this.harness.compact) {
-        await this.postThreadReply(thread, event, undefined, "Compacting context...");
-        const result = await this.harness.compact(session.harness_session_id, thread.dir);
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Compacting context...",
+        );
+        const result = await this.harness.compact(
+          session.harness_session_id,
+          thread.dir,
+        );
         if (result.success) {
           if (result.sessionId) {
             await recordTurn(thread, result.sessionId);
           } else {
             await clearHarnessSession(thread);
           }
-          await this.postThreadReply(thread, event, undefined, "Context compacted successfully. Starting new session.");
+          await this.postThreadReply(
+            thread,
+            event,
+            undefined,
+            "Context compacted successfully. Starting new session.",
+          );
         } else {
-          await this.postThreadReply(thread, event, undefined, "Failed to compact context.");
+          await this.postThreadReply(
+            thread,
+            event,
+            undefined,
+            "Failed to compact context.",
+          );
         }
       } else {
-        await this.postThreadReply(thread, event, undefined, "No active session to compact.");
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "No active session to compact.",
+        );
       }
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
@@ -147,7 +224,12 @@ export class FelixEngine {
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "processing" });
       }
-      await this.postThreadReply(thread, event, undefined, "Starting fresh session...");
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        "Starting fresh session...",
+      );
       await clearHarnessSession(thread);
       // Clear INITIAL.md so next turn generates fresh context
       const initialMdPath = path.join(thread.dir, "INITIAL.md");
@@ -155,7 +237,12 @@ export class FelixEngine {
       // Clear transcript
       const transcriptPath = path.join(thread.dir, "transcript.md");
       await fs.unlink(transcriptPath).catch(() => {});
-      await this.postThreadReply(thread, event, undefined, "Session cleared. Starting fresh.");
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        "Session cleared. Starting fresh.",
+      );
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
       }
@@ -184,12 +271,18 @@ export class FelixEngine {
     });
     if (!queued.busy && (event.mentions_bot || event.visibility === "dm")) {
       void this.processThread(thread).catch((error) => {
-        log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+        log.error("thread.process_failed", {
+          thread_key: thread.state.thread_key,
+          error: error.message,
+        });
       });
     }
   }
 
-  private shouldAccept(thread: ThreadHandle | null, event: UniversalEvent): boolean {
+  private shouldAccept(
+    thread: ThreadHandle | null,
+    event: UniversalEvent,
+  ): boolean {
     return shouldAcceptEvent(event, thread?.state);
   }
 
@@ -227,7 +320,10 @@ export class FelixEngine {
         const session = await loadSessionState(thread).catch(() => null);
         if (session && session.queue.length > 0 && !session.busy) {
           void this.processThread(thread).catch((error) => {
-            log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+            log.error("thread.process_failed", {
+              thread_key: thread.state.thread_key,
+              error: error.message,
+            });
           });
         }
       })();
@@ -240,41 +336,7 @@ export class FelixEngine {
     await setThreadBusy(thread, true);
     const signal = this.cancellation.begin(thread.state.thread_key);
     const retryCounts = new Map<string, number>();
-    const turnRunner = new TurnRunner(this.harness, {
-      sourceAdapter: (source) => this.requireAdapter(source),
-      clearHarnessSession: async (targetThread) => { await clearHarnessSession(targetThread); },
-      logUsage: async (targetThread, targetEvent, targetResult) => {
-        await this.logUsage(targetThread, targetEvent, targetResult);
-      },
-      recordTurnWithUsage: async (targetThread, targetEvent, targetResult) => {
-        await this.recordTurnWithUsage(targetThread, targetEvent, targetResult);
-      },
-      postThreadError: async (targetThread, targetEvent, errorDetail) => {
-        await this.postThreadError(targetThread, targetEvent, errorDetail);
-      },
-      postThreadReply: async (targetThread, targetEvent, sessionId, text) => {
-        await this.postThreadReply(targetThread, targetEvent, sessionId, text);
-      },
-      requestPermission: async (targetThread, targetEvent, parsed) => {
-        await this.approvalLifecycle.requestPermission({
-          thread: targetThread,
-          event: targetEvent,
-          parsed,
-        });
-      },
-      autoGrantPermission: async (targetThread, targetEvent, sessionId) => {
-        await this.approvalLifecycle.autoGrantPermission({
-          thread: targetThread,
-          event: targetEvent,
-          sessionId,
-        });
-      },
-      requeueEvent: async (targetThread, targetItem) => { await requeueEvent(targetThread, targetItem); },
-      isStopRequested: (threadKey) => this.cancellation.isRequested(threadKey),
-      clearStopRequested: (threadKey) => { this.cancellation.clear(threadKey); },
-      warn: (message, data) => { log.warn(message, data); },
-      error: (message, data) => { log.error(message, data); },
-    });
+    const turnRunner = this.createTurnRunner();
     try {
       await this.refreshSkills();
       await this.sanitizeThreadQueue(thread);
@@ -284,7 +346,11 @@ export class FelixEngine {
         if (!trigger) break;
         const { item, session, event } = trigger;
         await this.refreshSkills();
-        const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
+        const contact = await loadContact(
+          this.cfg,
+          event.sender.source,
+          event.sender.id,
+        );
         const result = await turnRunner.run({
           thread,
           item,
@@ -295,6 +361,7 @@ export class FelixEngine {
           precedingEvents: preceding,
           signal,
           retryCounts,
+          modelOverride: item.model_override,
         });
         if (result.kind === "stopped") break;
       }
@@ -302,6 +369,180 @@ export class FelixEngine {
       this.cancellation.end(thread.state.thread_key);
       await setThreadBusy(thread, false);
     }
+  }
+
+  private createTurnRunner(
+    options: {
+      scheduledJob?: SchedulerJob;
+      onMissingPermission?: (permissions: string[]) => void;
+    } = {},
+  ): TurnRunner {
+    return new TurnRunner(this.harness, {
+      sourceAdapter: (source) => this.requireAdapter(source),
+      clearHarnessSession: async (targetThread) => {
+        await clearHarnessSession(targetThread);
+      },
+      logUsage: async (targetThread, targetEvent, targetResult) => {
+        await this.logUsage(targetThread, targetEvent, targetResult);
+      },
+      recordTurnWithUsage: async (targetThread, targetEvent, targetResult) => {
+        await this.recordTurnWithUsage(targetThread, targetEvent, targetResult);
+      },
+      postThreadError: async (targetThread, targetEvent, errorDetail) => {
+        if (options.scheduledJob?.output === "silent") return;
+        await this.postThreadError(targetThread, targetEvent, errorDetail);
+      },
+      postThreadReply: async (targetThread, targetEvent, sessionId, text) => {
+        if (options.scheduledJob?.output === "silent") return;
+        const output = options.scheduledJob
+          ? formatScheduledOutput(options.scheduledJob, text)
+          : text;
+        await this.postThreadReply(
+          targetThread,
+          targetEvent,
+          sessionId,
+          output,
+        );
+      },
+      requestPermission: async (targetThread, targetEvent, parsed) => {
+        if (options.scheduledJob) {
+          options.onMissingPermission?.(parsed.permissions);
+          return;
+        }
+        await this.approvalLifecycle.requestPermission({
+          thread: targetThread,
+          event: targetEvent,
+          parsed,
+        });
+      },
+      autoGrantPermission: async (targetThread, targetEvent, sessionId) => {
+        if (options.scheduledJob) return;
+        await this.approvalLifecycle.autoGrantPermission({
+          thread: targetThread,
+          event: targetEvent,
+          sessionId,
+        });
+      },
+      requeueEvent: async (targetThread, targetItem) => {
+        await requeueEvent(targetThread, targetItem);
+      },
+      isStopRequested: (threadKey) => this.cancellation.isRequested(threadKey),
+      clearStopRequested: (threadKey) => {
+        this.cancellation.clear(threadKey);
+      },
+      warn: (message, data) => {
+        log.warn(message, data);
+      },
+      error: (message, data) => {
+        log.error(message, data);
+      },
+    });
+  }
+
+  private async runScheduledJob(
+    request: SchedulerExecutionRequest,
+  ): Promise<SchedulerExecutionResult> {
+    const { job } = request;
+    await this.refreshSkills();
+
+    const event: UniversalEvent = {
+      source: job.origin.source,
+      event_id: `scheduler-${job.id}-${request.executionId}`,
+      thread_key: job.origin.thread_key,
+      received_at: new Date().toISOString(),
+      visibility: job.origin.visibility,
+      mentions_bot: false,
+      sender: {
+        source: job.created_by.source,
+        id: job.created_by.user_id,
+        display: "Scheduler",
+      },
+      text: job.prompt,
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: job.origin.source_thread_ref,
+    };
+
+    const thread = await createOrLoadThread(this.cfg, event);
+    const eventFile = await appendEventToThread(thread, event);
+    const contact = await loadContact(
+      this.cfg,
+      job.created_by.source,
+      job.created_by.user_id,
+    );
+    const missingAtStart = job.permissions.filter(
+      (permission) => !contact.allowed_permissions.includes(permission),
+    );
+    if (missingAtStart.length > 0) {
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        `Scheduled job "${job.name}" was paused because it no longer has: ${missingAtStart.join(", ")}`,
+      );
+      return { status: "paused", missingPermissions: missingAtStart };
+    }
+
+    const session = await loadSessionState(thread);
+    const item: SessionQueueItem = {
+      received_at: event.received_at,
+      event_file: eventFile,
+      source_event_id: event.event_id,
+      model_override: job.model,
+    };
+    let missingPermissions: string[] = [];
+    const turnRunner = this.createTurnRunner({
+      scheduledJob: job,
+      onMissingPermission: (permissions) => {
+        missingPermissions = permissions;
+      },
+    });
+    const result = await turnRunner.run({
+      thread,
+      item,
+      session,
+      event,
+      contact: { ...contact, allowed_permissions: job.permissions },
+      skills: this.skills,
+      precedingEvents: [],
+      signal: request.signal,
+      retryCounts: new Map(),
+      modelOverride: job.model,
+      propagateRunErrors: true,
+    });
+
+    if (missingPermissions.length > 0) {
+      if (job.output === "silent") {
+        await this.postThreadReply(
+          thread,
+          event,
+          result.result?.sessionId,
+          `Scheduled job "${job.name}" was paused because it requested: ${missingPermissions.join(", ")}`,
+        );
+      }
+      return {
+        status: "paused",
+        sessionId: result.result?.sessionId,
+        exitCode: result.result?.exitCode,
+        logPath: result.result?.logPath,
+        output: result.result?.parsed.text,
+        missingPermissions,
+      };
+    }
+
+    if (!result.result) {
+      return {
+        status: "failed",
+        error: "scheduled turn completed without a result",
+      };
+    }
+    return {
+      status: result.result.success ? "success" : "failed",
+      sessionId: result.result.sessionId,
+      exitCode: result.result.exitCode,
+      logPath: result.result.logPath,
+      output: result.result.parsed.text,
+    };
   }
 
   private async postThreadReply(
@@ -350,7 +591,12 @@ export class FelixEngine {
       });
 
       // After deltaing, a duplicate cumulative snapshot yields nothing to record.
-      if (perTurn.input === 0 && perTurn.output === 0 && perTurn.cache_write === 0 && perTurn.total === 0) {
+      if (
+        perTurn.input === 0 &&
+        perTurn.output === 0 &&
+        perTurn.cache_write === 0 &&
+        perTurn.total === 0
+      ) {
         return;
       }
 
@@ -401,7 +647,10 @@ export class FelixEngine {
 
     return Promise.all(
       event.attachments.map(async (attachment) => {
-        const oversized = rejectOversizedAttachment(attachment, this.cfg.ATTACHMENT_MAX_BYTES);
+        const oversized = rejectOversizedAttachment(
+          attachment,
+          this.cfg.ATTACHMENT_MAX_BYTES,
+        );
         if (oversized) return oversized;
         try {
           const downloaded = await adapter.downloadAttachment({
@@ -425,13 +674,18 @@ export class FelixEngine {
             file_id: attachment.file_id,
             error: error instanceof Error ? error.message : String(error),
           });
-          return rejectedAttachment(attachment, "File could not be downloaded.");
+          return rejectedAttachment(
+            attachment,
+            "File could not be downloaded.",
+          );
         }
       }),
     );
   }
 
-  async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
+  async hasPendingPermission(
+    target: OwnerDecision["target"],
+  ): Promise<boolean> {
     return hasPendingApproval(this.cfg, target);
   }
 
@@ -449,9 +703,12 @@ export class FelixEngine {
   private async withOwnerDecisionLock<T>(task: () => Promise<T>): Promise<T> {
     const previous = this.ownerDecisionLock;
     let release!: () => void;
-    const current = previous.then(() => new Promise<void>((resolve) => {
-      release = resolve;
-    }));
+    const current = previous.then(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
     this.ownerDecisionLock = current;
 
     await previous;
@@ -487,7 +744,10 @@ export class FelixEngine {
       const sanitized = await loadSessionState(thread);
       if (sanitized.queue.length > 0 && !sanitized.busy) {
         void this.processThread(thread).catch((error) => {
-          log.error("thread.recover_failed", { thread_key: thread.state.thread_key, error: error.message });
+          log.error("thread.recover_failed", {
+            thread_key: thread.state.thread_key,
+            error: error.message,
+          });
         });
       }
     }
@@ -537,13 +797,21 @@ export class FelixEngine {
   private async dequeueTriggerEvent(
     thread: ThreadHandle,
     preceding: { event: UniversalEvent; eventFile: string }[],
-  ): Promise<{ item: SessionQueueItem; session: SessionState; event: UniversalEvent } | null> {
+  ): Promise<{
+    item: SessionQueueItem;
+    session: SessionState;
+    event: UniversalEvent;
+  } | null> {
     while (true) {
       const next = await shiftNextEvent(thread);
       if (!next) return null;
       const event = await this.readEventFromPath(next.item.event_file);
       if (this.isOwnMessage(event)) continue;
-      if (event.mentions_bot || event.visibility === "dm" || event.sender.id === "system") {
+      if (
+        event.mentions_bot ||
+        event.visibility === "dm" ||
+        event.sender.id === "system"
+      ) {
         return { item: next.item, session: next.session, event };
       }
       preceding.push({ event, eventFile: next.item.event_file });
@@ -578,8 +846,11 @@ export class FelixEngine {
       ? `${event.sender.display} (${event.sender.id})`
       : event.sender.id;
     const preview = event.text?.trim() || "[media]";
-    const truncated = preview.length > 100 ? `${preview.slice(0, 100)}...` : preview;
-    const threadLink = await adapter.getThreadLink(thread.state.thread_key).catch(() => undefined);
+    const truncated =
+      preview.length > 100 ? `${preview.slice(0, 100)}...` : preview;
+    const threadLink = await adapter
+      .getThreadLink(thread.state.thread_key)
+      .catch(() => undefined);
     const linkPart = threadLink ? `\n${threadLink}` : "";
     const text = `New thread by ${mention}.\n"${truncated}"${linkPart}`;
 

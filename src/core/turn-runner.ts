@@ -1,6 +1,17 @@
-import type { ContactRecord, SessionQueueItem, SessionState, SkillRecord, UniversalEvent } from "../types.js";
+import type {
+  ContactRecord,
+  SessionQueueItem,
+  SessionState,
+  SkillRecord,
+  UniversalEvent,
+} from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
-import type { Harness, SourceAdapter, SourceTurnContext, TurnResult } from "./ports.js";
+import type {
+  Harness,
+  SourceAdapter,
+  SourceTurnContext,
+  TurnResult,
+} from "./ports.js";
 import {
   handleTurnOutcome,
   handleTurnRunError,
@@ -10,7 +21,10 @@ import {
 
 type TurnSourceAdapter = Pick<SourceAdapter, "getTurnContext" | "sendTyping">;
 
-export interface TurnRunnerPorts extends Omit<TurnOutcomePorts, "runFormatCorrection"> {
+export interface TurnRunnerPorts extends Omit<
+  TurnOutcomePorts,
+  "runFormatCorrection"
+> {
   sourceAdapter(source: string): TurnSourceAdapter;
 }
 
@@ -24,11 +38,13 @@ export interface TurnRunnerInput {
   skills: SkillRecord[];
   signal: AbortSignal;
   retryCounts: Map<string, number>;
+  modelOverride?: string;
+  propagateRunErrors?: boolean;
 }
 
 export type TurnRunnerResult =
-  | { kind: "complete" }
-  | { kind: "stopped" };
+  | { kind: "complete"; result?: TurnResult }
+  | { kind: "stopped"; result?: TurnResult };
 
 export class TurnRunner {
   constructor(
@@ -49,8 +65,14 @@ export class TurnRunner {
 
       let result: TurnResult;
       try {
-        result = await this.runWithTyping(input, adapter, sourceContext, resumed);
+        result = await this.runWithTyping(
+          input,
+          adapter,
+          sourceContext,
+          resumed,
+        );
       } catch (error) {
+        if (input.propagateRunErrors) throw error;
         const outcome = await handleTurnRunError({
           thread: input.thread,
           event: input.event,
@@ -59,7 +81,7 @@ export class TurnRunner {
           retryCounts: input.retryCounts,
           ports: this.outcomePorts(input, sourceContext),
         });
-        return this.resultFromOutcome(outcome);
+        return this.resultFromOutcome(outcome, undefined, false);
       }
 
       if (this.ports.isStopRequested(input.thread.state.thread_key)) {
@@ -83,7 +105,11 @@ export class TurnRunner {
         retriedFreshStart = outcome.retriedFreshStart;
         continue;
       }
-      return this.resultFromOutcome(outcome);
+      return this.resultFromOutcome(
+        outcome,
+        result,
+        Boolean(input.propagateRunErrors),
+      );
     }
   }
 
@@ -97,19 +123,25 @@ export class TurnRunner {
       adapter.sendTyping({ event: input.event }).catch(() => {});
     }, 100);
     try {
-      return await this.harness.run(this.turnInput(input, sourceContext, resumed));
+      return await this.harness.run(
+        this.turnInput(input, sourceContext, resumed),
+      );
     } finally {
       clearInterval(typingInterval);
     }
   }
 
-  private outcomePorts(input: TurnRunnerInput, sourceContext: SourceTurnContext): TurnOutcomePorts {
+  private outcomePorts(
+    input: TurnRunnerInput,
+    sourceContext: SourceTurnContext,
+  ): TurnOutcomePorts {
     return {
       ...this.ports,
-      runFormatCorrection: async (promptOverride) => this.harness.run({
-        ...this.turnInput(input, sourceContext, true),
-        promptOverride,
-      }),
+      runFormatCorrection: async (promptOverride) =>
+        this.harness.run({
+          ...this.turnInput(input, sourceContext, true),
+          promptOverride,
+        }),
     };
   }
 
@@ -126,15 +158,21 @@ export class TurnRunner {
       skills: input.skills,
       sourceContext,
       resumed,
-      precedingEvents: input.precedingEvents.length > 0 ? input.precedingEvents : undefined,
+      precedingEvents:
+        input.precedingEvents.length > 0 ? input.precedingEvents : undefined,
       signal: input.signal,
+      modelOverride: input.modelOverride,
     };
   }
 
   private resultFromOutcome(
     outcome: Extract<TurnOutcomeResult, { kind: "complete" | "stopped" }>,
+    result?: TurnResult,
+    includeResult = false,
   ): TurnRunnerResult {
-    if (outcome.kind === "stopped") return { kind: "stopped" };
-    return { kind: "complete" };
+    if (!includeResult) return { kind: outcome.kind };
+    if (outcome.kind === "stopped")
+      return { kind: "stopped", result: outcome.result ?? result };
+    return { kind: "complete", result: outcome.result ?? result };
   }
 }
