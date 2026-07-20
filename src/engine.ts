@@ -70,7 +70,8 @@ function formatScheduledOutput(job: SchedulerJob, text: string): string {
 export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
   private readonly approvalLifecycle: ApprovalRequestLifecycle;
-  private processing = new Map<string, Promise<void>>();
+  private processing = new Map<string, Promise<unknown>>();
+  private processingKinds = new Map<string, "normal" | "scheduled">();
   private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
   private readonly cancellation = createTurnCancellation();
@@ -311,25 +312,42 @@ export class FelixEngine {
   }
 
   async processThread(thread: ThreadHandle): Promise<void> {
-    if (this.processing.has(thread.state.thread_key)) {
-      return this.processing.get(thread.state.thread_key)!;
+    const threadKey = thread.state.thread_key;
+    const existing = this.processing.get(threadKey);
+    if (existing && this.processingKinds.get(threadKey) === "normal") {
+      return existing as Promise<void>;
     }
-    const promise = this.processThreadInternal(thread).finally(() => {
-      this.processing.delete(thread.state.thread_key);
-      void (async () => {
+    return this.enqueueThreadExecution(
+      threadKey,
+      "normal",
+      () => this.processThreadInternal(thread),
+      async () => {
         const session = await loadSessionState(thread).catch(() => null);
         if (session && session.queue.length > 0 && !session.busy) {
-          void this.processThread(thread).catch((error) => {
-            log.error("thread.process_failed", {
-              thread_key: thread.state.thread_key,
-              error: error.message,
-            });
-          });
+          await this.processThread(thread);
         }
-      })();
+      },
+    );
+  }
+
+  private enqueueThreadExecution<T>(
+    threadKey: string,
+    kind: "normal" | "scheduled",
+    task: () => Promise<T>,
+    after?: () => Promise<void>,
+  ): Promise<T> {
+    const previous = this.processing.get(threadKey) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(task);
+    let tracked!: Promise<T>;
+    tracked = current.finally(async () => {
+      if (this.processing.get(threadKey) !== tracked) return;
+      this.processing.delete(threadKey);
+      this.processingKinds.delete(threadKey);
+      await after?.();
     });
-    this.processing.set(thread.state.thread_key, promise);
-    return promise;
+    this.processing.set(threadKey, tracked);
+    this.processingKinds.set(threadKey, kind);
+    return tracked;
   }
 
   private async processThreadInternal(thread: ThreadHandle): Promise<void> {
@@ -439,7 +457,17 @@ export class FelixEngine {
     });
   }
 
-  private async runScheduledJob(
+  private runScheduledJob(
+    request: SchedulerExecutionRequest,
+  ): Promise<SchedulerExecutionResult> {
+    return this.enqueueThreadExecution(
+      request.job.origin.thread_key,
+      "scheduled",
+      () => this.runScheduledJobInternal(request),
+    );
+  }
+
+  private async runScheduledJobInternal(
     request: SchedulerExecutionRequest,
   ): Promise<SchedulerExecutionResult> {
     const { job } = request;

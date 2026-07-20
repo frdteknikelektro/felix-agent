@@ -13,6 +13,7 @@ import { stopMemoryCron } from "../src/slices/memory/index.js";
 import { stopScheduler, tick } from "../src/slices/scheduler/index.js";
 import { SchedulerJobSchema } from "../src/slices/scheduler/schemas.js";
 import { writeJsonAtomic } from "../src/lib/fs.js";
+import type { UniversalEvent } from "../src/types.js";
 import { makeTestConfig } from "./helpers/workspace.js";
 
 function makeAdapter(calls: {
@@ -260,5 +261,68 @@ describe("scheduled engine execution", () => {
       ),
     ) as { pending_permission?: unknown };
     expect(session.pending_permission ?? null).toBeNull();
+  });
+
+  it("serializes scheduled execution behind an active human turn", async () => {
+    const cfg = await makeTestConfig("scheduler-thread-lock-");
+    await saveContact(cfg, {
+      source: "mattermost",
+      user_id: "user-1",
+      allowed_permissions: ["scheduler:read"],
+    });
+    const calls = { sendThreadReply: vi.fn(), updateEventStatus: vi.fn() };
+    const started: string[] = [];
+    let releaseHuman!: () => void;
+    const humanFinished = new Promise<void>((resolve) => {
+      releaseHuman = resolve;
+    });
+    const harness: Harness = {
+      run: async (input) => {
+        const kind = input.event.event_id.startsWith("scheduler-")
+          ? "scheduled"
+          : "human";
+        started.push(kind);
+        if (kind === "human") {
+          await humanFinished;
+        }
+        return makeResult({ sessionId: `${kind}-session` });
+      },
+    };
+    const engine = new FelixEngine(cfg, [makeAdapter(calls)], harness);
+    const { filePath } = await makeScheduledJob(cfg);
+    const humanEvent: UniversalEvent = {
+      source: "mattermost",
+      event_id: "human-event",
+      thread_key: "mattermost:channel:root",
+      received_at: new Date().toISOString(),
+      visibility: "channel",
+      mentions_bot: true,
+      sender: { source: "mattermost", id: "user-1" },
+      text: "Run the human turn first.",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: {
+        source: "mattermost",
+        conversation_id: "channel",
+        thread_id: "root",
+        root_message_id: "root",
+        message_id: "human-event",
+      },
+    };
+
+    await engine.boot();
+    await engine.ingest(humanEvent);
+    await vi.waitFor(() => expect(started).toEqual(["human"]));
+
+    await tick();
+    expect(started).toEqual(["human"]);
+
+    releaseHuman();
+    await vi.waitFor(() => expect(started).toEqual(["human", "scheduled"]));
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await fs.readFile(filePath, "utf8")).status).toBe(
+        "completed",
+      );
+    });
   });
 });

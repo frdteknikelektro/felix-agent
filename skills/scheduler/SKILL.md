@@ -45,3 +45,5 @@ thread: `ringkas` is concise, `detail` is complete, and `silent` suppresses rout
 output. Permission revocation pauses the job and reports the missing grant. If a task
 changes, delete and recreate it; edit only the schedule so the authorized work cannot
 change silently. Different jobs may run concurrently; the same job never overlaps itself.
+Scheduled turns share the engine's per-thread lock with human turns so session state is
+never used concurrently.

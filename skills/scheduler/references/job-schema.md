@@ -67,4 +67,5 @@ The engine writes `scheduler/logs/<job-id>/<execution-id>.json` with attempt, ti
 status, exit code, harness log path, output, errors, skipped reasons, and missing
 permissions. Different jobs may run concurrently, but occurrences of the same job are
 skipped while an execution or retry is still active. Jobs targeting the same originating
-thread are serialized to protect session state.
+thread are serialized to protect session state, and scheduled turns wait for any active
+human turn on that thread before using the session.

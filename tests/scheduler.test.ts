@@ -101,6 +101,18 @@ describe("SchedulerJobSchema", () => {
     expect(
       SchedulerJobSchema.safeParse({
         ...makeJob(),
+        permissions: ["scheduler:"],
+      }).success,
+    ).toBe(false);
+    expect(
+      SchedulerJobSchema.safeParse({
+        ...makeJob(),
+        permissions: [":read"],
+      }).success,
+    ).toBe(false);
+    expect(
+      SchedulerJobSchema.safeParse({
+        ...makeJob(),
         retry: { max_attempts: 11, backoff_ms: 0 },
       }).success,
     ).toBe(false);

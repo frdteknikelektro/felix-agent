@@ -200,6 +200,7 @@ function scheduleNextTick(): void {
 export async function tick(): Promise<void> {
   if (!state.running || state.locked || !state.cfg || !state.executor) return;
   state.locked = true;
+  const generation = state.generation;
 
   try {
     const cfg = state.cfg;
@@ -211,6 +212,7 @@ export async function tick(): Promise<void> {
     const now = new Date();
 
     for (const entry of entries) {
+      if (!state.running || state.generation !== generation) break;
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
 
       const filePath = path.join(dir, entry.name);
@@ -242,6 +244,8 @@ export async function tick(): Promise<void> {
         });
         continue;
       }
+
+      if (!state.running || state.generation !== generation) break;
 
       const updated: SchedulerJob = {
         ...job,

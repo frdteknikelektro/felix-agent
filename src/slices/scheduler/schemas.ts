@@ -5,9 +5,15 @@ const PermissionGrantSchema = z
   .string()
   .trim()
   .min(3)
-  .refine((value) => value.includes(":"), {
-    message: "permissions must use the namespaced skill:permission format",
-  });
+  .refine(
+    (value) => {
+      const separator = value.indexOf(":");
+      return separator > 0 && separator < value.length - 1;
+    },
+    {
+      message: "permissions must use the namespaced skill:permission format",
+    },
+  );
 
 const SchedulerOriginSchema = z
   .object({
@@ -74,8 +80,8 @@ export const SchedulerJobSchema = z
     }),
     permissions: z.array(PermissionGrantSchema),
     created_by: z.object({
-      source: z.string(),
-      user_id: z.string(),
+      source: z.string().trim().min(1),
+      user_id: z.string().trim().min(1),
     }),
     model: z.string().optional(),
     next_run_at: z.string().datetime({ offset: true }).nullable(),
