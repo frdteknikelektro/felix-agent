@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { withBase } from "./base";
 import type { DashboardSnapshot, ProgressEvent } from "./types";
+import { applyProgressEvent, progressStateFromSnapshot, type ProgressClientState, type ProgressState } from "./progress-state";
 
 export type StreamStatus = "connecting" | "live" | "reconnecting";
 
@@ -13,11 +14,14 @@ export type StreamStatus = "connecting" | "live" | "reconnecting";
 export function useDashboardStream(onUnauthorized?: () => void): {
   snapshot: DashboardSnapshot | null;
   status: StreamStatus;
-  progressByThread: Record<string, ProgressEvent>;
+  progressByThread: ProgressState;
 } {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [status, setStatus] = useState<StreamStatus>("connecting");
-  const [progressByThread, setProgressByThread] = useState<Record<string, ProgressEvent>>({});
+  const [progressState, setProgressState] = useState<ProgressClientState>({
+    progressByThread: {},
+    terminalAttempts: {},
+  });
   const onUnauthRef = useRef(onUnauthorized);
   onUnauthRef.current = onUnauthorized;
 
@@ -32,9 +36,7 @@ export function useDashboardStream(onUnauthorized?: () => void): {
       try {
         const next = JSON.parse((ev as MessageEvent).data) as DashboardSnapshot;
         setSnapshot(next);
-        setProgressByThread(Object.fromEntries(
-          next.activeSessionList.flatMap((session) => session.currentProgress ? [[session.threadKey, session.currentProgress]] as const : []),
-        ));
+        setProgressState((current) => progressStateFromSnapshot(next, current));
         setStatus("live");
       } catch {
         // ignore malformed frame
@@ -43,14 +45,7 @@ export function useDashboardStream(onUnauthorized?: () => void): {
     es.addEventListener("progress", (ev) => {
       try {
         const event = JSON.parse((ev as MessageEvent).data) as ProgressEvent;
-        setProgressByThread((current) => {
-          if (["completed", "failed", "cancelled"].includes(event.phase)) {
-            const next = { ...current };
-            delete next[event.threadKey];
-            return next;
-          }
-          return { ...current, [event.threadKey]: event };
-        });
+        setProgressState((current) => applyProgressEvent(current, event));
       } catch {
         // ignore malformed frame
       }
@@ -73,5 +68,5 @@ export function useDashboardStream(onUnauthorized?: () => void): {
     };
   }, []);
 
-  return { snapshot, status, progressByThread };
+  return { snapshot, status, progressByThread: progressState.progressByThread };
 }

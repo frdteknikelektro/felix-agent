@@ -29,6 +29,36 @@ export const SourceMessageAnchorSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Harness progress domain — turns/progress.ndjson
+// ---------------------------------------------------------------------------
+
+export const HarnessNameSchema = z.enum(["codex", "opencode", "claude-code"]);
+
+export const ProgressPhaseSchema = z.enum([
+  "started",
+  "thinking",
+  "tool_started",
+  "tool_finished",
+  "waiting_permission",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export const ProgressEventSchema = z.object({
+  threadKey: z.string().min(1),
+  harness: HarnessNameSchema,
+  sessionId: z.string().min(1).optional(),
+  attempt: z.number().int().positive(),
+  sequence: z.number().int().positive(),
+  at: z.string().datetime({ offset: true }),
+  phase: ProgressPhaseSchema,
+  status: z.string().min(1).max(240),
+  tool: z.string().min(1).max(80).optional(),
+  elapsedMs: z.number().int().nonnegative(),
+});
+
+// ---------------------------------------------------------------------------
 // Session domain — thread.json + session.json
 // ---------------------------------------------------------------------------
 
@@ -168,6 +198,7 @@ export const UsageRecordSchema = z.object({
 export type SourceSender = z.infer<typeof SourceSenderSchema>;
 export type SourceThreadRef = z.infer<typeof SourceThreadSchema>;
 export type SourceMessageAnchor = z.infer<typeof SourceMessageAnchorSchema>;
+export type ProgressEventRecord = z.infer<typeof ProgressEventSchema>;
 export type ThreadState = z.infer<typeof ThreadStateSchema>;
 export type SessionQueueItem = z.infer<typeof SessionQueueItemSchema>;
 export type SessionPermissionRequest = z.infer<

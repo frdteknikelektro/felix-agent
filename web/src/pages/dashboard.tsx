@@ -18,7 +18,7 @@ import { SourceBadge } from "@/components/source-badge";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { useDashboardStream, type StreamStatus } from "@/lib/sse";
-import { compactNumber, threadLabel, timeAgo } from "@/lib/format";
+import { compactNumber, formatElapsed, threadLabel, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { DashboardActiveSession, DashboardActivityItem } from "@/lib/types";
 
@@ -156,11 +156,6 @@ function SessionRow({ session, onOpen }: { session: DashboardActiveSession; onOp
       </span>
     </button>
   );
-}
-
-function formatElapsed(elapsedMs?: number): string {
-  if (elapsedMs === undefined) return "—";
-  return `${Math.max(0, Math.round(elapsedMs / 1000))}s`;
 }
 
 const ACTIVITY_ICON = {

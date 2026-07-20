@@ -26,6 +26,14 @@ export const codexAuthForTest = {
   spawnSync,
 };
 
+const CODEX_ITEM_LABELS: Record<string, string> = {
+  command_execution: "command execution",
+  file_change: "file change",
+  mcp_tool_call: "MCP tool",
+  web_search: "web search",
+  computer_call: "computer use",
+};
+
 export function codexProgressUpdate(event: Record<string, unknown>): ProgressUpdate | null {
   const type = typeof event.type === "string" ? event.type : "";
   const sessionId = typeof event.thread_id === "string" ? event.thread_id : undefined;
@@ -36,9 +44,8 @@ export function codexProgressUpdate(event: Record<string, unknown>): ProgressUpd
   if (!type.startsWith("item.")) return null;
   const item = event.item as Record<string, unknown> | undefined;
   const itemType = typeof item?.type === "string" ? item.type : "";
-  const tool = typeof item?.name === "string"
-    ? item.name
-    : typeof item?.tool === "string" ? item.tool : itemType.startsWith("tool") ? itemType : undefined;
+  const tool = CODEX_ITEM_LABELS[itemType]
+    ?? (itemType.startsWith("tool") ? "tool" : undefined);
   if (type === "item.started") {
     return tool
       ? { phase: "tool_started", status: `Running ${tool}`, tool, sessionId }

@@ -54,6 +54,12 @@ export function compactNumber(n: number): string {
   return COMPACT_FORMAT.format(Math.round(n));
 }
 
+/** Human-friendly elapsed duration for live progress. */
+export function formatElapsed(elapsedMs?: number): string {
+  if (elapsedMs === undefined) return "—";
+  return `${Math.max(0, Math.round(elapsedMs / 1000))}s`;
+}
+
 /** A readable name for a thread: the channel/conversation part of the key. */
 export function threadLabel(threadKey: string): string {
   const parts = threadKey.split(":");

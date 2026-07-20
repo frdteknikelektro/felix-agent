@@ -8,7 +8,7 @@ import { SourceBadge } from "@/components/source-badge";
 import { api, getList } from "@/lib/api";
 import { useApiData } from "@/lib/use-api";
 import { useDashboardStream } from "@/lib/sse";
-import { clockTime, fullTime, threadLabel } from "@/lib/format";
+import { clockTime, formatElapsed, fullTime, threadLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, SessionDetail } from "@/lib/types";
 
@@ -17,8 +17,12 @@ export function Thread() {
   const encoded = encodeURIComponent(threadKey);
   const detail = useApiData(() => api.get<SessionDetail>(`/api/sessions/${encoded}`), [threadKey]);
   const messages = useApiData(() => getList<ChatMessage>(`/api/sessions/${encoded}/messages`), [threadKey]);
-  const { progressByThread } = useDashboardStream();
-  const progress = progressByThread[threadKey] ?? detail.data?.summary.currentProgress;
+  const { progressByThread, snapshot } = useDashboardStream();
+  const progress = threadKey in progressByThread
+    ? progressByThread[threadKey]
+    : snapshot
+      ? undefined
+      : detail.data?.summary.currentProgress;
 
   return (
     <div className="space-y-4">
@@ -32,9 +36,13 @@ export function Thread() {
         {detail.data && <Badge variant="outline">{detail.data.summary.harness}</Badge>}
         {detail.data?.summary.busy && <Badge variant="success">active</Badge>}
         {progress && (
-          <Badge variant="primary">
-            {progress.status} · {formatElapsed(progress.elapsedMs)} · attempt {progress.attempt}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline">{progress.phase}</Badge>
+            <Badge variant="primary">{progress.status}</Badge>
+            <span className="text-xs text-muted-foreground">
+              {formatElapsed(progress.elapsedMs)} · attempt {progress.attempt}
+            </span>
+          </div>
         )}
       </div>
 
@@ -89,11 +97,6 @@ export function Thread() {
       )}
     </div>
   );
-}
-
-function formatElapsed(elapsedMs?: number): string {
-  if (elapsedMs === undefined) return "—";
-  return `${Math.max(0, Math.round(elapsedMs / 1000))}s`;
 }
 
 function Bubble({ message }: { message: ChatMessage }) {

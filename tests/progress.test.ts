@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProgressStore } from "../src/slices/progress/index.js";
+import { ProgressEventSchema } from "../src/core/schemas.js";
 
 describe("ProgressStore", () => {
   it("publishes ordered redacted events, writes the CLI artifact, and clears terminal state", async () => {
@@ -88,5 +89,67 @@ describe("ProgressStore", () => {
     reporter.emit({ phase: "thinking", status: "Late provider event" });
 
     expect(store.current("t")).toBeUndefined();
+  });
+
+  it("allocates a fresh attempt after a completed turn", () => {
+    const store = new ProgressStore(vi.fn(async () => undefined));
+    const firstAttempt = store.beginAttempt("t");
+    const first = store.createReporter({
+      threadKey: "t",
+      harness: "opencode",
+      attempt: firstAttempt,
+      artifactPath: "/thread/turns/progress.ndjson",
+    });
+    first.emit({ phase: "completed", status: "Done" });
+
+    const secondAttempt = store.beginAttempt("t");
+    const second = store.createReporter({
+      threadKey: "t",
+      harness: "opencode",
+      attempt: secondAttempt,
+      artifactPath: "/thread/turns/progress.ndjson",
+    });
+    second.emit({ phase: "started", status: "Starting next turn" });
+
+    expect(secondAttempt).toBe(2);
+    expect(store.current("t")).toMatchObject({ attempt: 2, phase: "started" });
+  });
+
+  it("defines the persisted event contract with the shared Zod schema", () => {
+    expect(ProgressEventSchema.safeParse({
+      threadKey: "t",
+      harness: "codex",
+      attempt: 1,
+      sequence: 1,
+      at: "2026-07-20T12:00:00.000Z",
+      phase: "thinking",
+      status: "Thinking",
+      elapsedMs: 0,
+    }).success).toBe(true);
+    expect(ProgressEventSchema.safeParse({
+      threadKey: "t",
+      harness: "codex",
+      attempt: 0,
+      sequence: 1,
+      at: "not-a-date",
+      phase: "unknown",
+      status: "Thinking",
+    }).success).toBe(false);
+  });
+
+  it("keeps execution state healthy when artifact writing fails", async () => {
+    const store = new ProgressStore(vi.fn(async () => {
+      throw new Error("disk full");
+    }));
+    const reporter = store.createReporter({
+      threadKey: "t",
+      harness: "codex",
+      attempt: store.beginAttempt("t"),
+      artifactPath: "/thread/turns/progress.ndjson",
+    });
+
+    expect(() => reporter.emit({ phase: "thinking", status: "Still running" })).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.current("t")).toMatchObject({ status: "Still running" });
   });
 });

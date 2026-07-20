@@ -3,10 +3,47 @@ import path from "node:path";
 import os from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
 import { parseAgentOutput, buildTurnPrompt } from "../src/core/harness-common.js";
+import { codexProgressUpdate } from "../src/adapters/codex/index.js";
 import { buildWorkspacePaths } from "../src/workspace.js";
 import { mattermostThreadRef } from "./helpers/workspace.js";
 
 describe("codex output parser", () => {
+  it.each([
+    ["command_execution", "command execution"],
+    ["file_change", "file change"],
+    ["mcp_tool_call", "MCP tool"],
+    ["web_search", "web search"],
+  ])("maps %s activity to a safe tool label", (itemType, tool) => {
+    expect(codexProgressUpdate({
+      type: "item.started",
+      thread_id: "thread-1",
+      item: { type: itemType, command: "secret command", input: { secret: "value" } },
+    })).toEqual({
+      phase: "tool_started",
+      status: `Running ${tool}`,
+      tool,
+      sessionId: "thread-1",
+    });
+  });
+
+  it("maps completed operational activity without exposing its result", () => {
+    expect(codexProgressUpdate({
+      type: "item.completed",
+      item: { type: "file_change", output: "secret file contents" },
+    })).toEqual({
+      phase: "tool_finished",
+      status: "Finished file change",
+      tool: "file change",
+    });
+  });
+
+  it("does not expose arbitrary Codex item names as tool labels", () => {
+    expect(codexProgressUpdate({
+      type: "item.started",
+      item: { type: "unknown_item", name: "rm -rf /secret", tool: "--danger" },
+    })).toEqual({ phase: "thinking", status: "Working" });
+  });
+
   it("parses reply blocks", () => {
     const parsed = parseAgentOutput("FELIX_REPLY\nhello\nEND_FELIX_REPLY");
     expect(parsed.kind).toBe("reply");

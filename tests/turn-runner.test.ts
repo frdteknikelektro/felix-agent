@@ -187,7 +187,7 @@ describe("TurnRunner", () => {
     expect(ports.postThreadReply).toHaveBeenCalledWith(expect.anything(), expect.anything(), "new-session", "fresh");
     expect(progressEvents).toEqual([
       { phase: "started", status: "Resuming harness turn" },
-      { phase: "failed", status: "Resume failed; retrying fresh" },
+      { phase: "failed", status: "Retrying with a fresh harness attempt" },
       { phase: "started", status: "Starting harness turn" },
       { phase: "completed", status: "Turn completed", sessionId: "new-session" },
     ]);
@@ -210,5 +210,25 @@ describe("TurnRunner", () => {
     expect(retryCounts.get(input.item.source_event_id)).toBe(1);
     expect(ports.requeueEvent).toHaveBeenCalledWith(input.thread, input.item);
     expect(ports.postThreadError).toHaveBeenCalledWith(input.thread, input.event, "boom. ");
+  });
+
+  it("uses a new progress attempt for format correction", async () => {
+    const inputs: TurnInput[] = [];
+    const harness: Harness = {
+      run: vi.fn(async (input) => {
+        inputs.push(input);
+        return inputs.length === 1
+          ? makeResult({ parsed: { kind: "format_error", text: "missing marker" } })
+          : makeResult({ parsed: { kind: "reply", text: "corrected" } });
+      }),
+    };
+    const ports = makePorts();
+    ports.progressReporter = vi.fn(() => ({ emit: vi.fn() }));
+    const runner = new TurnRunner(harness, ports);
+
+    await runner.run(makeInput());
+
+    expect(ports.progressReporter).toHaveBeenCalledTimes(2);
+    expect(inputs[0]?.progress).not.toBe(inputs[1]?.progress);
   });
 });

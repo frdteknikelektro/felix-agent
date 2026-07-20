@@ -27,7 +27,7 @@ export interface TurnRunnerPorts extends Omit<
   "runFormatCorrection"
 > {
   sourceAdapter(source: string): TurnSourceAdapter;
-  progressReporter?(thread: ThreadHandle, attempt: number): ProgressReporter | undefined;
+  progressReporter?(thread: ThreadHandle): ProgressReporter | undefined;
 }
 
 export interface TurnRunnerInput {
@@ -59,7 +59,6 @@ export class TurnRunner {
     const sourceContext = await adapter.getTurnContext({ event: input.event });
     let resumed = Boolean(input.session.harness_session_id);
     let retriedFreshStart = false;
-    let attempt = 0;
 
     while (true) {
       if (this.ports.isStopRequested(input.thread.state.thread_key)) {
@@ -67,12 +66,20 @@ export class TurnRunner {
       }
 
       let result: TurnResult;
-      attempt += 1;
-      const progress = this.ports.progressReporter?.(input.thread, attempt);
+      const progress = this.ports.progressReporter?.(input.thread);
+      let terminalProgress = progress;
       progress?.emit({
         phase: "started",
         status: resumed ? "Resuming harness turn" : "Starting harness turn",
       });
+      const outcomePorts = this.outcomePorts(
+        input,
+        sourceContext,
+        progress,
+        (correctionProgress) => {
+          terminalProgress = correctionProgress;
+        },
+      );
       try {
         result = await this.runWithTyping(
           input,
@@ -95,7 +102,7 @@ export class TurnRunner {
           item: input.item,
           error,
           retryCounts: input.retryCounts,
-          ports: this.outcomePorts(input, sourceContext, progress),
+          ports: outcomePorts,
         });
         return this.resultFromOutcome(outcome, undefined, false);
       }
@@ -115,16 +122,20 @@ export class TurnRunner {
         resumed,
         retriedFreshStart,
         retryCounts: input.retryCounts,
-        ports: this.outcomePorts(input, sourceContext, progress),
+        ports: outcomePorts,
       });
       if (outcome.kind === "retry_fresh") {
-        progress?.emit({ phase: "failed", status: "Resume failed; retrying fresh" });
+        terminalProgress?.emit({ phase: "failed", status: "Retrying with a fresh harness attempt" });
         resumed = outcome.resumed;
         retriedFreshStart = outcome.retriedFreshStart;
         continue;
       }
+      if (outcome.kind === "stopped") {
+        terminalProgress?.emit({ phase: "cancelled", status: "Turn cancelled" });
+        return { kind: "stopped" };
+      }
       const finalResult = outcome.result ?? result;
-      progress?.emit({
+      terminalProgress?.emit({
         phase: finalResult.parsed.kind === "permission_required" ? "waiting_permission" : finalResult.success ? "completed" : "failed",
         status: finalResult.parsed.kind === "permission_required"
           ? "Waiting for permission"
@@ -164,14 +175,22 @@ export class TurnRunner {
     input: TurnRunnerInput,
     sourceContext: SourceTurnContext,
     progress?: ProgressReporter,
+    onCorrectionProgress?: (progress: ProgressReporter) => void,
   ): TurnOutcomePorts {
     return {
       ...this.ports,
-      runFormatCorrection: async (promptOverride) =>
-        this.harness.run({
-          ...this.turnInput(input, sourceContext, true, progress),
+      runFormatCorrection: async (promptOverride) => {
+        progress?.emit({ phase: "failed", status: "Format error; retrying correction" });
+        const correctionProgress = this.ports.progressReporter?.(input.thread);
+        if (correctionProgress) {
+          onCorrectionProgress?.(correctionProgress);
+          correctionProgress.emit({ phase: "started", status: "Correcting harness output" });
+        }
+        return this.harness.run({
+          ...this.turnInput(input, sourceContext, true, correctionProgress),
           promptOverride,
-        }),
+        });
+      },
     };
   }
 

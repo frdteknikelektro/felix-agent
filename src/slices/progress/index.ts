@@ -1,31 +1,11 @@
 import path from "node:path";
 import { appendText, ensureDir } from "../../lib/fs.js";
 import { log } from "../../lib/log.js";
+import { ProgressEventSchema, type ProgressEventRecord } from "../../core/schemas.js";
 
-export type HarnessName = "codex" | "opencode" | "claude-code";
-
-export type ProgressPhase =
-  | "started"
-  | "thinking"
-  | "tool_started"
-  | "tool_finished"
-  | "waiting_permission"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-export interface ProgressEvent {
-  threadKey: string;
-  harness: HarnessName;
-  sessionId?: string;
-  attempt: number;
-  sequence: number;
-  at: string;
-  phase: ProgressPhase;
-  status: string;
-  tool?: string;
-  elapsedMs?: number;
-}
+export type ProgressEvent = ProgressEventRecord;
+export type HarnessName = ProgressEvent["harness"];
+export type ProgressPhase = ProgressEvent["phase"];
 
 export interface ProgressUpdate {
   phase: ProgressPhase;
@@ -58,7 +38,8 @@ const MAX_TOOL_LENGTH = 80;
 
 async function appendProgressArtifact(artifactPath: string, event: ProgressEvent): Promise<void> {
   await ensureDir(path.dirname(artifactPath));
-  await appendText(artifactPath, `${JSON.stringify(event)}\n`);
+  const validated = ProgressEventSchema.parse(event);
+  await appendText(artifactPath, `${JSON.stringify(validated)}\n`);
 }
 
 function sanitize(value: string, maxLength: number): string {
@@ -68,10 +49,17 @@ function sanitize(value: string, maxLength: number): string {
 export class ProgressStore {
   private readonly currentEvents = new Map<string, ProgressEvent>();
   private readonly terminalEvents = new Map<string, ProgressEvent>();
+  private readonly attemptCounters = new Map<string, number>();
   private readonly listeners = new Set<ProgressListener>();
   private readonly artifactWrites = new Map<string, Promise<void>>();
 
   constructor(private readonly writeArtifact: ProgressArtifactWriter = appendProgressArtifact) {}
+
+  beginAttempt(threadKey: string): number {
+    const attempt = (this.attemptCounters.get(threadKey) ?? 0) + 1;
+    this.attemptCounters.set(threadKey, attempt);
+    return attempt;
+  }
 
   createReporter(context: ProgressReporterContext): ProgressReporter {
     let sequence = 0;

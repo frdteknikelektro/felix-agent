@@ -466,6 +466,7 @@ async function loadSessionArtifacts(thread: ThreadHandle): Promise<SessionArtifa
   const turnEntries = await fs.readdir(thread.turnsDir, { withFileTypes: true }).catch(() => []);
   for (const entry of turnEntries) {
     if (!entry.isFile()) continue;
+    if (entry.name === "progress.ndjson") continue;
     const file = path.join(thread.turnsDir, entry.name);
     const raw = await readText(file, "");
     const truncated = raw.length > 50_000;
