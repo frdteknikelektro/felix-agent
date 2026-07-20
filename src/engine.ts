@@ -14,6 +14,7 @@ import { TurnRunner } from "./core/turn-runner.js";
 import { createTurnCancellation } from "./core/turn-cancellation.js";
 import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
+import { startMemoryCron } from "./slices/memory/index.js";
 import { startScheduler } from "./slices/scheduler/index.js";
 import {
   AttachmentRejectedError,
@@ -49,7 +50,8 @@ export class FelixEngine {
   async boot(): Promise<void> {
     await this.refreshSkills();
     await this.recoverThreads();
-    startScheduler(this.cfg, this.harness, (source) => this.requireAdapter(source));
+    startMemoryCron(this.cfg, this.harness);
+    startScheduler(this.cfg, this.harness);
   }
 
   abortThread(threadKey: string): void {

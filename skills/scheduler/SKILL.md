@@ -1,6 +1,6 @@
 ---
 name: scheduler
-description: Schedule recurring tasks and one-shot reminders with natural language.
+description: Schedule recurring tasks and one-shot reminders from natural-language requests.
 metadata:
   author: felix-agent
   kind: operational
@@ -11,47 +11,32 @@ metadata:
 
 # Scheduler
 
-Use the scheduler for recurring work and one-shot alarms. Interpret natural language,
-resolve it to a valid cron expression or positive interval, and preserve the original
-thread reference when creating a job.
+Manage recurring jobs and one-shot alarms by editing scheduler job files. Read
+`references/job-schema.md` before creating, updating, or deleting a job.
 
-## Permission boundary
+## Permissions
 
-- `scheduler:list`: list jobs.
-- `scheduler:read`: inspect one job and its execution history.
-- `scheduler:write`: create, edit, pause, resume, delete, or manually run a job.
+- `scheduler:list` — list jobs and execution history.
+- `scheduler:read` — inspect a job or execution log.
+- `scheduler:write` — create, update, pause, resume, or delete jobs.
 
-Always resolve the permission boundary before operating. A job inherits the creator's
-currently granted permissions; never add permissions during scheduling.
+## Execution
 
-Use the bundled CLI as the single writer for `${WORKSPACE_DIR}/scheduler`:
+1. Resolve the requester's permissions and identify the current source/thread.
+   Completion: the required scheduler permission and original thread key are known.
+2. Convert the request into a valid five-field cron expression or positive interval.
+   Validate `next_run_at`, prompt detail, output mode, and timezone.
+   Completion: the complete job object is ready and no schedule is guessed.
+3. Show the task, resolved schedule, inherited permissions, and output mode. Ask for
+   confirmation before creating or deleting; schedule edits also require confirmation.
+   Completion: the user explicitly confirmed the requested mutation.
+4. Read the reference, then write the UUID-named JSON file atomically under
+   `scheduler/jobs/`. For updates, preserve fields that are not being changed.
+   Completion: the file exists and parses against the documented schema.
+5. Re-read the file and report the saved status and next run. For history, read
+   `scheduler/logs/<job-id>/`; never claim success without a log record.
+   Completion: the response accounts for the mutation or exact failure.
 
-```bash
-SCHEDULER_CLI="${WORKSPACE_DIR}/.agents/skills/scheduler/scheduler.mjs"
-node "$SCHEDULER_CLI" list [active|paused|failed|completed]
-node "$SCHEDULER_CLI" show "<id>"
-node "$SCHEDULER_CLI" run-now "<id>"
-```
-
-For `create` and `update`, send JSON on stdin. Resolve natural language first and include
-`schedule`, `next_run_at`, `source_thread_key`, and `source_thread_ref`; never guess an
-original thread. Use `delete` only after confirmation.
-
-## Conversation rules
-
-Always confirm before creating or deleting. Before confirmation, show the full prompt,
-resolved schedule, timezone, output mode, and inherited permissions. Ask for details when
-the task is vague (for example, "jadwalkan backup" or "cek server").
-
-Examples:
-
-- `jadwalkan laporan harian setiap jam 8 pagi`
-- `jadwalkan cek https://example.test setiap 30 menit`
-- `alarm 15 menit lagi untuk meeting`
-- `lihat semua jadwal`, `jeda jadwal <id>`, `lanjutkan jadwal <id>`
-- `ubah jadwal <id> ke setiap jam 9 pagi`, `jalankan jadwal <id> sekarang`
-
-Recurring jobs use `run_once: false`; alarms use `run_once: true`. One-shot jobs become
-`completed` only after a successful execution. Failed jobs retry up to three attempts
-with exponential backoff, then become `failed`. Preserve `ringkas`, `detail`, or
-`silent` output selection and route non-silent results to the original thread.
+Recurring jobs use `run_once: false`; alarms use `run_once: true`. Keep prompts specific
+enough for an independent agent turn. If a task changes, delete and recreate it; edit
+only the schedule so the authorized work cannot change silently.

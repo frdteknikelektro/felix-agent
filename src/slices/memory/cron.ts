@@ -15,13 +15,59 @@ function memorizingModel(cfg: AppConfig): string {
   return claudeCodeModelForMemorizing(cfg);
 }
 
+interface CronState {
+  locked: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const state: CronState = { locked: false, timer: null };
+
 const SCHEDULE_HOURS = [0, 6, 12, 18];
 
-export function memoryCycleSlot(now = new Date()): string {
-  const hour = SCHEDULE_HOURS.slice().reverse().find((candidate) => candidate <= now.getUTCHours()) ?? 0;
-  const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour));
-  if (hour === 0 && now.getUTCHours() < SCHEDULE_HOURS[0]) day.setUTCDate(day.getUTCDate() - 1);
-  return day.toISOString().slice(0, 13);
+function nextScheduleMs(): number {
+  const now = Date.now();
+  for (const h of SCHEDULE_HOURS) {
+    const target = new Date();
+    target.setUTCHours(h, 0, 0, 0);
+    if (target.getTime() > now) return target.getTime() - now;
+  }
+  const tomorrow = new Date();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  tomorrow.setUTCHours(SCHEDULE_HOURS[0], 0, 0, 0);
+  return tomorrow.getTime() - now;
+}
+
+function scheduleNext(cfg: AppConfig, harness: Harness): void {
+  const delay = nextScheduleMs();
+  log.info("memory: next cycle scheduled", { at: new Date(Date.now() + delay).toISOString() });
+
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (state.locked) return scheduleNext(cfg, harness);
+    state.locked = true;
+    runCycle(cfg, harness)
+      .catch((err) => {
+        log.error("memory: cycle failed", { err: err instanceof Error ? err.message : String(err) });
+      })
+      .finally(() => {
+        state.locked = false;
+        scheduleNext(cfg, harness);
+      });
+  }, delay);
+
+  state.timer.unref();
+}
+
+export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
+  if (state.timer) return;
+  scheduleNext(cfg, harness);
+}
+
+export function stopMemoryCron(): void {
+  if (state.timer) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
 }
 
 async function memorySystemThread(cfg: AppConfig): Promise<ThreadHandle> {
@@ -33,7 +79,7 @@ async function memorySystemThread(cfg: AppConfig): Promise<ThreadHandle> {
   });
 }
 
-export async function runMemoryCycle(cfg: AppConfig, harness: Harness): Promise<void> {
+async function runCycle(cfg: AppConfig, harness: Harness): Promise<void> {
   let dirty = false;
 
   dirty = await runIngest(cfg, harness) || dirty;
