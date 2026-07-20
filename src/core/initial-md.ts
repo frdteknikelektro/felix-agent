@@ -9,11 +9,6 @@ interface InitialMdInput {
   harnessType: string;
   threadDir: string;
   behaviorInstructions: string[];
-  owner?: {
-    displayName?: string;
-    username?: string;
-    userId?: string;
-  };
 }
 
 /**
@@ -47,23 +42,6 @@ export async function buildInitialMd(input: InitialMdInput): Promise<string> {
       sections.push(instruction);
       sections.push("");
     }
-  }
-
-  if (input.owner) {
-    sections.push("## Owner Information", "");
-    const parts: string[] = [];
-    parts.push("You are the owner's personal assistant.");
-    if (input.owner.displayName) {
-      parts.push(`The owner's name is ${input.owner.displayName}.`);
-    }
-    if (input.owner.username) {
-      parts.push(`Their username is @${input.owner.username}.`);
-    }
-    if (input.owner.userId) {
-      parts.push(`Their user ID is ${input.owner.userId}.`);
-    }
-    sections.push(parts.join(" "));
-    sections.push("");
   }
 
   sections.push("---");

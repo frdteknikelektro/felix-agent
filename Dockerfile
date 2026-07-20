@@ -39,7 +39,7 @@ RUN npm --prefix web run build
 
 COPY src ./src
 RUN npm run build:server \
-    && cp src/AGENTS.md src/WORKSPACE_FOLDER_STRUCTURE.md dist/
+    && cp src/AGENTS.md src/PERSONALITY.md src/WORKSPACE_FOLDER_STRUCTURE.md dist/
 
 # Prod-only node_modules for the runtime image, pruned from the build stage's install
 # (in its own stage so the setup target below can still reuse the full dev install).

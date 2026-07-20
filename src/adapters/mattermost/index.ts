@@ -194,15 +194,7 @@ class MattermostAdapter implements SourceAdapter {
     const channelId = input.event.source_thread_ref.conversation_id;
     const ownerIdentity = await this.ensureOwnerIdentity();
     const ownerMentionToken = mattermostMentionToken(ownerIdentity?.username ?? this.cfg.MATTERMOST_OWNER_USERNAME);
-    const isOwner = this.ownerUserId !== undefined && this.ownerUserId === input.event.sender.id;
-
     return {
-      isOwner,
-      owner: {
-        displayName: ownerIdentity?.displayName || this.cfg.MATTERMOST_OWNER_DISPLAY || "Owner",
-        username: ownerIdentity?.username || this.cfg.MATTERMOST_OWNER_USERNAME,
-        userId: this.ownerUserId,
-      },
       behaviorInstructions: [
         `M1. Thread context: The local transcript may not contain all prior messages from Mattermost. Consider fetching the thread history for context before answering, especially when the request refers to something discussed earlier. Use a read-only shell script like this:`,
         `M2. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions ${botMentionText}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,

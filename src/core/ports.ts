@@ -47,17 +47,6 @@ export type SourceEventStatus = "processing" | "replied" | "permission_required"
 
 export interface SourceTurnContext {
   behaviorInstructions: string[];
-  /** Whether the current sender is the owner of this source. */
-  isOwner?: boolean;
-  /** Owner information for this source. */
-  owner?: {
-    /** Owner's display name. */
-    displayName?: string;
-    /** Owner's username on this source. */
-    username?: string;
-    /** Owner's user ID on this source. */
-    userId?: string;
-  };
 }
 
 // ─── Harness port ─────────────────────────────────────────────────────────────

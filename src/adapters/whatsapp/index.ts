@@ -977,14 +977,7 @@ class WhatsAppAdapter implements SourceAdapter {
       ownerJid && !this.sameNumber
         ? `W7. Exception to the mention-target rule above: if you emit PERMISSION_REQUIRED, you MUST also call \`wacli send text --to "${chatJid}" --message "@${ownerJid.split("@")[0]} approval needed" --mention "${ownerJid}"\` to notify the owner — this is the one case where mentioning the owner JID is expected and required. Do not use this for any other purpose.`
         : undefined;
-    const isOwner = ownerJid !== undefined && ownerJid === input.event.sender.id;
-
     return {
-      isOwner,
-      owner: {
-        displayName: this.cfg.WHATSAPP_OWNER_DISPLAY || "Owner",
-        userId: ownerJid,
-      },
       behaviorInstructions: [
         `W1. Answer when @mentioned by name ${mentionHow} or when a user replies directly to one of your messages. If neither condition is met, output nothing — no FELIX_REPLY, no explanation.`,
         "W2. Fetch WhatsApp chat context if needed before answering:",

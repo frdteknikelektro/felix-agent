@@ -19,6 +19,7 @@ import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
 import { ClaudeCodeHarness, ensureClaudeCodeAuth } from "./adapters/claude-code/index.js";
 import { ninerouterEnabled } from "./core/harness-settings.js";
+import { copyTextFileIfAbsent } from "./core/bundled-files.js";
 
 // ---------------------------------------------------------------------------
 // Supervisor — restarts a subsystem with exponential backoff on failure
@@ -183,17 +184,9 @@ async function main(): Promise<void> {
   // Unlike AGENTS.md, we skip the copy if the file already exists in the
   // workspace to preserve user customizations.
   const personalityMdSrc = path.resolve(import.meta.dirname, "PERSONALITY.md");
-  const personalityMd = await fs.readFile(personalityMdSrc, "utf-8").catch(() => null);
-  if (personalityMd) {
-    const personalityMdDst = path.join(cfg.paths.root, "PERSONALITY.md");
-    const exists = await fs.stat(personalityMdDst).then((s) => s.isFile()).catch(() => false);
-    if (!exists) {
-      await writeTextAtomic(personalityMdDst, personalityMd);
-      log.info("personality.written", { path: personalityMdDst, bytes: personalityMd.length });
-    } else {
-      log.info("personality.skipped", { path: personalityMdDst, reason: "already_exists" });
-    }
-  }
+  const personalityMdDst = path.join(cfg.paths.root, "PERSONALITY.md");
+  const personalityCopy = await copyTextFileIfAbsent(personalityMdSrc, personalityMdDst);
+  log.info(`personality.${personalityCopy}`, { path: personalityMdDst });
 
   // Write WORKSPACE_FOLDER_STRUCTURE.md — the authoritative directory layout.
   const structSrc = path.resolve(import.meta.dirname, "WORKSPACE_FOLDER_STRUCTURE.md");
