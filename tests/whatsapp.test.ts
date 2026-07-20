@@ -311,6 +311,27 @@ describe("detectsWhatsappMention", () => {
     expect(detectsWhatsappMention("@Felix hi", "FelixBot")).toBe(false);
   });
 
+  it("matches a resolved phone-number mention when botJid is provided", () => {
+    const botJid = "6281234567890@s.whatsapp.net";
+    expect(detectsWhatsappMention("@6281234567890 hello", "FelixBot", [], botJid)).toBe(true);
+    expect(detectsWhatsappMention("hey @6281234567890!", "FelixBot", [], botJid)).toBe(true);
+  });
+
+  it("does not match a partial phone-number mention", () => {
+    expect(
+      detectsWhatsappMention(
+        "@62812345678901 hello",
+        "FelixBot",
+        [],
+        "6281234567890@s.whatsapp.net",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not use an empty botJid as a phone-number mention", () => {
+    expect(detectsWhatsappMention("@6281234567890 hi", "FelixBot", [], "")).toBe(false);
+  });
+
   it("does not match when followed by word characters", () => {
     expect(detectsWhatsappMention("@FelixBot2 hi", "FelixBot")).toBe(false);
     expect(detectsWhatsappMention("@FelixBot_extra hi", "FelixBot")).toBe(false);
