@@ -99,6 +99,12 @@ describe("agent runtime image contract", () => {
     expect(dockerfile).toContain("scripts/setup-owner-discovery.mjs ./scripts/setup-owner-discovery.mjs");
   });
 
+  it("packages the boot-written behavior files into the server bundle", async () => {
+    const dockerfile = await read("Dockerfile");
+
+    expect(dockerfile).toContain("cp src/AGENTS.md src/PERSONALITY.md src/WORKSPACE_FOLDER_STRUCTURE.md dist/");
+  });
+
   it("installs whisper-cli and piper TTS binaries", async () => {
     const dockerfile = await read("Dockerfile");
 

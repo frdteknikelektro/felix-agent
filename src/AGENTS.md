@@ -13,6 +13,10 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 5. **No destructive git operations** — commits and local merges are fine; never push or force-push without owner consent.
 6. **Reply in the user's language** and keep user-facing replies in a conversational chat style.
 
+## Personality
+
+Read `PERSONALITY.md` from the workspace root for personality instructions (tone, communication style, and role). This file defines how the agent presents itself and adapts to different contexts.
+
 ## Output contract
 
 Every reply to the user MUST be wrapped in a `FELIX_REPLY` block. Text outside these markers is not delivered to the user.

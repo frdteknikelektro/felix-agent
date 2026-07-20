@@ -19,6 +19,7 @@ import { CodexHarness, ensureCodexAuth } from "./adapters/codex/index.js";
 import { OpencodeHarness, ensureOpencodeAuth } from "./adapters/opencode/index.js";
 import { ClaudeCodeHarness, ensureClaudeCodeAuth } from "./adapters/claude-code/index.js";
 import { ninerouterEnabled } from "./core/harness-settings.js";
+import { copyTextFileIfAbsent } from "./core/bundled-files.js";
 
 // ---------------------------------------------------------------------------
 // Supervisor — restarts a subsystem with exponential backoff on failure
@@ -178,6 +179,14 @@ async function main(): Promise<void> {
     if (!ok) throw new Error(`Behavior contract was not written to ${dst} — refusing to start.`);
   }
   log.info("contract.written", { agents_md: agentsMdDst, claude_md: claudeMdDst, bytes: agentsMd.length });
+
+  // Write PERSONALITY.md — the personality configuration.
+  // Unlike AGENTS.md, we skip the copy if the file already exists in the
+  // workspace to preserve user customizations.
+  const personalityMdSrc = path.resolve(import.meta.dirname, "PERSONALITY.md");
+  const personalityMdDst = path.join(cfg.paths.root, "PERSONALITY.md");
+  const personalityCopy = await copyTextFileIfAbsent(personalityMdSrc, personalityMdDst);
+  log.info(`personality.${personalityCopy}`, { path: personalityMdDst });
 
   // Write WORKSPACE_FOLDER_STRUCTURE.md — the authoritative directory layout.
   const structSrc = path.resolve(import.meta.dirname, "WORKSPACE_FOLDER_STRUCTURE.md");
