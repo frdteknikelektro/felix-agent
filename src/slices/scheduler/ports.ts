@@ -7,7 +7,7 @@ export interface SchedulerExecutionRequest {
 }
 
 export interface SchedulerExecutionResult {
-  status: "success" | "failed" | "paused";
+  status: "success" | "failed" | "paused" | "cancelled";
   sessionId?: string;
   exitCode?: number;
   logPath?: string;

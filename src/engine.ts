@@ -463,7 +463,12 @@ export class FelixEngine {
     return this.enqueueThreadExecution(
       request.job.origin.thread_key,
       "scheduled",
-      () => this.runScheduledJobInternal(request),
+      async () => {
+        if (request.signal.aborted) {
+          return { status: "cancelled", error: "scheduler stopped" };
+        }
+        return this.runScheduledJobInternal(request);
+      },
     );
   }
 
@@ -471,7 +476,6 @@ export class FelixEngine {
     request: SchedulerExecutionRequest,
   ): Promise<SchedulerExecutionResult> {
     const { job } = request;
-    await this.refreshSkills();
 
     const event: UniversalEvent = {
       source: job.origin.source,
@@ -492,93 +496,117 @@ export class FelixEngine {
     };
 
     const thread = await createOrLoadThread(this.cfg, event);
-    const eventFile = await appendEventToThread(thread, event);
-    const contact = await loadContact(
-      this.cfg,
-      job.created_by.source,
-      job.created_by.user_id,
-    );
-    const missingAtStart = job.permissions.filter((permission) => {
-      const separator = permission.indexOf(":");
-      const skillId = separator === -1 ? "" : permission.slice(0, separator);
-      const declared =
-        this.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
-      return !permissionSatisfied(
-        contact.allowed_permissions,
-        permission,
-        declared,
-      );
-    });
-    if (missingAtStart.length > 0) {
-      await this.postThreadReply(
-        thread,
-        event,
-        undefined,
-        `Scheduled job "${job.name}" was paused because it no longer has: ${missingAtStart.join(", ")}`,
-      );
-      return { status: "paused", missingPermissions: missingAtStart };
-    }
+    await setThreadBusy(thread, true);
+    const signal = this.cancellation.begin(thread.state.thread_key);
+    const onSchedulerAbort = () =>
+      this.cancellation.request(thread.state.thread_key);
+    if (request.signal.aborted) onSchedulerAbort();
+    else
+      request.signal.addEventListener("abort", onSchedulerAbort, {
+        once: true,
+      });
 
-    const session = await loadSessionState(thread);
-    const item: SessionQueueItem = {
-      received_at: event.received_at,
-      event_file: eventFile,
-      source_event_id: event.event_id,
-      model_override: job.model,
-    };
-    let missingPermissions: string[] = [];
-    const turnRunner = this.createTurnRunner({
-      scheduledJob: job,
-      onMissingPermission: (permissions) => {
-        missingPermissions = permissions;
-      },
-    });
-    const result = await turnRunner.run({
-      thread,
-      item,
-      session,
-      event,
-      contact: { ...contact, allowed_permissions: job.permissions },
-      skills: this.skills,
-      precedingEvents: [],
-      signal: request.signal,
-      retryCounts: new Map(),
-      modelOverride: job.model,
-      propagateRunErrors: true,
-    });
-
-    if (missingPermissions.length > 0) {
-      if (job.output === "silent") {
+    try {
+      await this.refreshSkills();
+      const eventFile = await appendEventToThread(thread, event);
+      const contact = await loadContact(
+        this.cfg,
+        job.created_by.source,
+        job.created_by.user_id,
+      );
+      const missingAtStart = job.permissions.filter((permission) => {
+        const separator = permission.indexOf(":");
+        const skillId = separator === -1 ? "" : permission.slice(0, separator);
+        const declared =
+          this.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
+        return !permissionSatisfied(
+          contact.allowed_permissions,
+          permission,
+          declared,
+        );
+      });
+      if (missingAtStart.length > 0) {
+        if (signal.aborted) {
+          return { status: "cancelled", error: "scheduler stopped" };
+        }
         await this.postThreadReply(
           thread,
           event,
-          result.result?.sessionId,
-          `Scheduled job "${job.name}" was paused because it requested: ${missingPermissions.join(", ")}`,
+          undefined,
+          `Scheduled job "${job.name}" was paused because it no longer has: ${missingAtStart.join(", ")}`,
         );
+        return { status: "paused", missingPermissions: missingAtStart };
+      }
+
+      const session = await loadSessionState(thread);
+      const item: SessionQueueItem = {
+        received_at: event.received_at,
+        event_file: eventFile,
+        source_event_id: event.event_id,
+        model_override: job.model,
+      };
+      let missingPermissions: string[] = [];
+      const turnRunner = this.createTurnRunner({
+        scheduledJob: job,
+        onMissingPermission: (permissions) => {
+          missingPermissions = permissions;
+        },
+      });
+      const result = await turnRunner.run({
+        thread,
+        item,
+        session,
+        event,
+        contact: { ...contact, allowed_permissions: job.permissions },
+        skills: this.skills,
+        precedingEvents: [],
+        signal,
+        retryCounts: new Map(),
+        modelOverride: job.model,
+        propagateRunErrors: true,
+      });
+
+      if (result.kind === "stopped" || signal.aborted) {
+        return { status: "cancelled", error: "scheduled turn stopped" };
+      }
+
+      if (missingPermissions.length > 0) {
+        if (job.output === "silent") {
+          await this.postThreadReply(
+            thread,
+            event,
+            result.result?.sessionId,
+            `Scheduled job "${job.name}" was paused because it requested: ${missingPermissions.join(", ")}`,
+          );
+        }
+        return {
+          status: "paused",
+          sessionId: result.result?.sessionId,
+          exitCode: result.result?.exitCode,
+          logPath: result.result?.logPath,
+          output: result.result?.parsed.text,
+          missingPermissions,
+        };
+      }
+
+      if (!result.result) {
+        return {
+          status: "failed",
+          error: "scheduled turn completed without a result",
+        };
       }
       return {
-        status: "paused",
-        sessionId: result.result?.sessionId,
-        exitCode: result.result?.exitCode,
-        logPath: result.result?.logPath,
-        output: result.result?.parsed.text,
-        missingPermissions,
+        status: result.result.success ? "success" : "failed",
+        sessionId: result.result.sessionId,
+        exitCode: result.result.exitCode,
+        logPath: result.result.logPath,
+        output: result.result.parsed.text,
       };
+    } finally {
+      request.signal.removeEventListener("abort", onSchedulerAbort);
+      this.cancellation.end(thread.state.thread_key);
+      await setThreadBusy(thread, false);
     }
-
-    if (!result.result) {
-      return {
-        status: "failed",
-        error: "scheduled turn completed without a result",
-      };
-    }
-    return {
-      status: result.result.success ? "success" : "failed",
-      sessionId: result.result.sessionId,
-      exitCode: result.result.exitCode,
-      logPath: result.result.logPath,
-      output: result.result.parsed.text,
-    };
   }
 
   private async postThreadReply(

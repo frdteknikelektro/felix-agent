@@ -325,4 +325,63 @@ describe("scheduled engine execution", () => {
       );
     });
   });
+
+  it("allows /stop to cancel an active scheduled turn", async () => {
+    const cfg = await makeTestConfig("scheduler-stop-");
+    await saveContact(cfg, {
+      source: "mattermost",
+      user_id: "user-1",
+      allowed_permissions: ["scheduler:read"],
+    });
+    const calls = { sendThreadReply: vi.fn(), updateEventStatus: vi.fn() };
+    let aborted = false;
+    const run = vi.fn(async (input: TurnInput) => {
+      await new Promise<void>((resolve) => {
+        input.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      return makeResult({ success: false, exitCode: 143 });
+    });
+    const engine = new FelixEngine(cfg, [makeAdapter(calls)], { run });
+    await makeScheduledJob(cfg);
+
+    const stopEvent: UniversalEvent = {
+      source: "mattermost",
+      event_id: "stop-event",
+      thread_key: "mattermost:channel:root",
+      received_at: new Date().toISOString(),
+      visibility: "channel",
+      mentions_bot: true,
+      sender: { source: "mattermost", id: "user-1" },
+      text: "/stop",
+      attachments: [],
+      raw_path: "",
+      source_thread_ref: {
+        source: "mattermost",
+        conversation_id: "channel",
+        thread_id: "root",
+        root_message_id: "root",
+        message_id: "stop-event",
+      },
+    };
+
+    await engine.boot();
+    await tick();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await engine.ingest(stopEvent);
+
+    expect(aborted).toBe(true);
+    expect(calls.sendThreadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Stopped." }),
+    );
+    expect(calls.sendThreadReply).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Nothing running." }),
+    );
+  });
 });

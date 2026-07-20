@@ -419,6 +419,14 @@ export async function executeJob(
       };
     }
 
+    if (signal.aborted) {
+      execution.status = "cancelled";
+      execution.error = "scheduler stopped";
+      execution.completed_at = new Date().toISOString();
+      await writeExecution(cfg, job, execution);
+      return;
+    }
+
     execution.status = result.status;
     execution.completed_at = new Date().toISOString();
     execution.exit_code = result.exitCode;
@@ -427,6 +435,8 @@ export async function executeJob(
     execution.error = result.error;
     execution.missing_permissions = result.missingPermissions;
     await writeExecution(cfg, job, execution);
+
+    if (result.status === "cancelled") return;
 
     if (result.status === "success") {
       if (job.run_once) await updateJobStatus(filePath, "completed");
