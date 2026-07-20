@@ -78,8 +78,8 @@ For any required permission **not** present, emit `PERMISSION_REQUIRED` for that
 
 ## Workspace layout
 
-- `workspace/` → `$HOME` — persistent agent state (catalog, sessions, memory, tasks, projects, runtime/)
-- `skills/` — bundled skills shipped in the image (synced to `.agents/skills/` at boot)
+- Workspace root = `$HOME` — persistent agent state lives at the root level (catalog/, sessions/, memory/, tasks/, projects/, runtime/)
+- `.agents/skills/` — bundled skills shipped in the image
 - `src/` — Felix source code (harness adapters, adapters, server, engine) · `web/` — owner console SPA (React + Vite + Tailwind) · `tests/` — vitest unit tests
 
 ## Key paths
