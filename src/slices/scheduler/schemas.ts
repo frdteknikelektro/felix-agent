@@ -73,7 +73,7 @@ export const SchedulerJobSchema = z
     schedule: ScheduleSchema,
     run_once: z.boolean(),
     status: z.enum(["active", "paused", "failed", "completed"]),
-    output: z.enum(["ringkas", "detail", "silent"]),
+    output: z.enum(["summary", "detail", "silent"]),
     retry: z.object({
       max_attempts: z.number().int().min(1).max(10),
       backoff_ms: z.number().int().nonnegative().max(86_400_000),

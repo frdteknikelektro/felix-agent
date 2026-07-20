@@ -28,7 +28,7 @@ write.
   "schedule": { "type": "cron", "expression": "0 8 * * *" },
   "run_once": false,
   "status": "active",
-  "output": "ringkas",
+  "output": "summary",
   "retry": { "max_attempts": 3, "backoff_ms": 5000 },
   "permissions": ["software-development:repo.write"],
   "created_by": { "source": "telegram", "user_id": "1706579477" },
@@ -38,7 +38,7 @@ write.
 }
 ```
 
-`status` is `active`, `paused`, `failed`, or `completed`. `output` is `ringkas`,
+`status` is `active`, `paused`, `failed`, or `completed`. `output` is `summary`,
 `detail`, or `silent`. Permissions use the `skill:permission` form and are a snapshot
 of grants present when the job is created. A one-shot job becomes `completed` only after
 a successful run. If a snapshot grant is revoked, the job pauses before execution.

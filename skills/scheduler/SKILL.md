@@ -41,7 +41,7 @@ Manage recurring jobs and one-shot alarms by editing scheduler job files. Read
 
 Recurring jobs use `run_once: false`; alarms use `run_once: true`. Keep prompts specific
 enough for an independent agent turn. Successful output is delivered to the originating
-thread: `ringkas` is concise, `detail` is complete, and `silent` suppresses routine
+thread: `summary` is concise, `detail` is complete, and `silent` suppresses routine
 output. Permission revocation pauses the job and reports the missing grant. If a task
 changes, delete and recreate it; edit only the schedule so the authorized work cannot
 change silently. Different jobs may run concurrently; the same job never overlaps itself.

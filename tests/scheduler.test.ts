@@ -45,7 +45,7 @@ function makeJob(overrides: Partial<SchedulerJob> = {}): SchedulerJob {
     schedule: { type: "cron", expression: "0 8 * * *" },
     run_once: false,
     status: "active",
-    output: "ringkas",
+    output: "summary",
     retry: { max_attempts: 3, backoff_ms: 5000 },
     permissions: ["scheduler:read"],
     created_by: { source: "mattermost", user_id: "user-1" },

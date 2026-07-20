@@ -70,7 +70,7 @@ async function makeScheduledJob(
     schedule: { type: "interval", intervalMs: 1 },
     run_once: true,
     status: "active",
-    output: "ringkas",
+    output: "summary",
     retry: { max_attempts: 1, backoff_ms: 0 },
     permissions: ["scheduler:read"],
     created_by: { source: "mattermost", user_id: "user-1" },
@@ -84,13 +84,35 @@ async function makeScheduledJob(
   return { job, filePath };
 }
 
+function makeHumanEvent(text: string, eventId: string): UniversalEvent {
+  return {
+    source: "mattermost",
+    event_id: eventId,
+    thread_key: "mattermost:channel:root",
+    received_at: new Date().toISOString(),
+    visibility: "channel",
+    mentions_bot: true,
+    sender: { source: "mattermost", id: "user-1" },
+    text,
+    attachments: [],
+    raw_path: "",
+    source_thread_ref: {
+      source: "mattermost",
+      conversation_id: "channel",
+      thread_id: "root",
+      root_message_id: "root",
+      message_id: eventId,
+    },
+  };
+}
+
 afterEach(() => {
   stopScheduler();
   stopMemoryCron();
 });
 
 describe("scheduled engine execution", () => {
-  it("uses the origin adapter, persists the turn, and delivers ringkas output", async () => {
+  it("uses the origin adapter, persists the turn, and delivers summary output", async () => {
     const cfg = await makeTestConfig("scheduler-engine-");
     await saveContact(cfg, {
       source: "mattermost",
@@ -326,6 +348,98 @@ describe("scheduled engine execution", () => {
     });
   });
 
+  it("drains human events queued during a scheduled turn", async () => {
+    const cfg = await makeTestConfig("scheduler-drain-queued-human-");
+    await saveContact(cfg, {
+      source: "mattermost",
+      user_id: "user-1",
+      allowed_permissions: ["scheduler:read"],
+    });
+    const calls = { sendThreadReply: vi.fn(), updateEventStatus: vi.fn() };
+    const started: string[] = [];
+    let releaseScheduled!: () => void;
+    const scheduledFinished = new Promise<void>((resolve) => {
+      releaseScheduled = resolve;
+    });
+    let signalScheduledStarted!: () => void;
+    const scheduledStarted = new Promise<void>((resolve) => {
+      signalScheduledStarted = resolve;
+    });
+    const harness: Harness = {
+      run: async (input) => {
+        if (input.event.event_id.startsWith("scheduler-")) {
+          started.push("scheduled");
+          signalScheduledStarted();
+          await scheduledFinished;
+        } else {
+          started.push("human");
+        }
+        return makeResult();
+      },
+    };
+    const engine = new FelixEngine(cfg, [makeAdapter(calls)], harness);
+    const { filePath } = await makeScheduledJob(cfg);
+    await engine.boot();
+    await tick();
+    await scheduledStarted;
+    await engine.ingest(
+      makeHumanEvent("Run this after the scheduled turn.", "queued-human"),
+    );
+    expect(started).toEqual(["scheduled"]);
+    releaseScheduled();
+    await vi.waitFor(() => expect(started).toEqual(["scheduled", "human"]));
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await fs.readFile(filePath, "utf8")).status).toBe(
+        "completed",
+      );
+    });
+  });
+
+  it("serializes /new behind a scheduled turn", async () => {
+    const cfg = await makeTestConfig("scheduler-command-lock-");
+    await saveContact(cfg, {
+      source: "mattermost",
+      user_id: "user-1",
+      allowed_permissions: ["scheduler:read"],
+    });
+    const calls = { sendThreadReply: vi.fn(), updateEventStatus: vi.fn() };
+    let releaseScheduled!: () => void;
+    const scheduledFinished = new Promise<void>((resolve) => {
+      releaseScheduled = resolve;
+    });
+    let signalScheduledStarted!: () => void;
+    const scheduledStarted = new Promise<void>((resolve) => {
+      signalScheduledStarted = resolve;
+    });
+    const harness: Harness = {
+      run: async (input) => {
+        if (input.event.event_id.startsWith("scheduler-")) {
+          signalScheduledStarted();
+          await scheduledFinished;
+        }
+        return makeResult();
+      },
+    };
+    const engine = new FelixEngine(cfg, [makeAdapter(calls)], harness);
+    await makeScheduledJob(cfg);
+    await engine.boot();
+    await tick();
+    await scheduledStarted;
+    let settled = false;
+    const newCommand = engine
+      .ingest(makeHumanEvent("/new", "new-command"))
+      .then(() => {
+        settled = true;
+      });
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 10));
+    expect(settled).toBe(false);
+    releaseScheduled();
+    await newCommand;
+    expect(calls.sendThreadReply).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Starting fresh session..." }),
+    );
+  });
+
   it("allows /stop to cancel an active scheduled turn", async () => {
     const cfg = await makeTestConfig("scheduler-stop-");
     await saveContact(cfg, {
@@ -351,25 +465,7 @@ describe("scheduled engine execution", () => {
     const engine = new FelixEngine(cfg, [makeAdapter(calls)], { run });
     await makeScheduledJob(cfg);
 
-    const stopEvent: UniversalEvent = {
-      source: "mattermost",
-      event_id: "stop-event",
-      thread_key: "mattermost:channel:root",
-      received_at: new Date().toISOString(),
-      visibility: "channel",
-      mentions_bot: true,
-      sender: { source: "mattermost", id: "user-1" },
-      text: "/stop",
-      attachments: [],
-      raw_path: "",
-      source_thread_ref: {
-        source: "mattermost",
-        conversation_id: "channel",
-        thread_id: "root",
-        root_message_id: "root",
-        message_id: "stop-event",
-      },
-    };
+    const stopEvent = makeHumanEvent("/stop", "stop-event");
 
     await engine.boot();
     await tick();

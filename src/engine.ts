@@ -172,81 +172,85 @@ export class FelixEngine {
     }
 
     if (FelixEngine.isCompactCommand(event)) {
-      if (event.mentions_bot || event.visibility === "dm") {
-        await adapter.updateEventStatus({ event, status: "processing" });
-      }
-      const session = await loadSessionState(thread);
-      if (session.harness_session_id && this.harness.compact) {
-        await this.postThreadReply(
-          thread,
-          event,
-          undefined,
-          "Compacting context...",
-        );
-        const result = await this.harness.compact(
-          session.harness_session_id,
-          thread.dir,
-        );
-        if (result.success) {
-          if (result.sessionId) {
-            await recordTurn(thread, result.sessionId);
-          } else {
-            await clearHarnessSession(thread);
-          }
+      await this.runThreadCommand(thread, async () => {
+        if (event.mentions_bot || event.visibility === "dm") {
+          await adapter.updateEventStatus({ event, status: "processing" });
+        }
+        const session = await loadSessionState(thread);
+        if (session.harness_session_id && this.harness.compact) {
           await this.postThreadReply(
             thread,
             event,
             undefined,
-            "Context compacted successfully. Starting new session.",
+            "Compacting context...",
           );
+          const result = await this.harness.compact(
+            session.harness_session_id,
+            thread.dir,
+          );
+          if (result.success) {
+            if (result.sessionId) {
+              await recordTurn(thread, result.sessionId);
+            } else {
+              await clearHarnessSession(thread);
+            }
+            await this.postThreadReply(
+              thread,
+              event,
+              undefined,
+              "Context compacted successfully. Starting new session.",
+            );
+          } else {
+            await this.postThreadReply(
+              thread,
+              event,
+              undefined,
+              "Failed to compact context.",
+            );
+          }
         } else {
           await this.postThreadReply(
             thread,
             event,
             undefined,
-            "Failed to compact context.",
+            "No active session to compact.",
           );
         }
-      } else {
-        await this.postThreadReply(
-          thread,
-          event,
-          undefined,
-          "No active session to compact.",
-        );
-      }
-      if (event.mentions_bot || event.visibility === "dm") {
-        await adapter.updateEventStatus({ event, status: "replied" });
-      }
+        if (event.mentions_bot || event.visibility === "dm") {
+          await adapter.updateEventStatus({ event, status: "replied" });
+        }
+      });
       return;
     }
 
     if (FelixEngine.isNewCommand(event)) {
-      if (event.mentions_bot || event.visibility === "dm") {
-        await adapter.updateEventStatus({ event, status: "processing" });
-      }
-      await this.postThreadReply(
-        thread,
-        event,
-        undefined,
-        "Starting fresh session...",
-      );
-      await clearHarnessSession(thread);
-      // Clear INITIAL.md so next turn generates fresh context
-      const initialMdPath = path.join(thread.dir, "INITIAL.md");
-      await fs.unlink(initialMdPath).catch(() => {});
-      // Clear transcript
-      const transcriptPath = path.join(thread.dir, "transcript.md");
-      await fs.unlink(transcriptPath).catch(() => {});
-      await this.postThreadReply(
-        thread,
-        event,
-        undefined,
-        "Session cleared. Starting fresh.",
-      );
-      if (event.mentions_bot || event.visibility === "dm") {
-        await adapter.updateEventStatus({ event, status: "replied" });
-      }
+      await this.runThreadCommand(thread, async () => {
+        if (event.mentions_bot || event.visibility === "dm") {
+          await adapter.updateEventStatus({ event, status: "processing" });
+        }
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Starting fresh session...",
+        );
+        await clearHarnessSession(thread);
+        // Clear INITIAL.md so next turn generates fresh context
+        const initialMdPath = path.join(thread.dir, "INITIAL.md");
+        await fs.unlink(initialMdPath).catch(() => {});
+        // Clear transcript
+        const transcriptPath = path.join(thread.dir, "transcript.md");
+        await fs.unlink(transcriptPath).catch(() => {});
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Session cleared. Starting fresh.",
+        );
+        if (event.mentions_bot || event.visibility === "dm") {
+          await adapter.updateEventStatus({ event, status: "replied" });
+        }
+      });
       return;
     }
 
@@ -311,6 +315,32 @@ export class FelixEngine {
     await clearThreadQueue(thread);
   }
 
+  private async drainQueuedThreadEvents(thread: ThreadHandle): Promise<void> {
+    const session = await loadSessionState(thread).catch(() => null);
+    if (session && session.queue.length > 0 && !session.busy) {
+      await this.processThread(thread);
+    }
+  }
+
+  private async runThreadCommand(
+    thread: ThreadHandle,
+    command: () => Promise<void>,
+  ): Promise<void> {
+    await this.enqueueThreadExecution(
+      thread.state.thread_key,
+      "normal",
+      async () => {
+        await setThreadBusy(thread, true);
+        try {
+          await command();
+        } finally {
+          await setThreadBusy(thread, false);
+        }
+      },
+      () => this.drainQueuedThreadEvents(thread),
+    );
+  }
+
   async processThread(thread: ThreadHandle): Promise<void> {
     const threadKey = thread.state.thread_key;
     const existing = this.processing.get(threadKey);
@@ -321,12 +351,7 @@ export class FelixEngine {
       threadKey,
       "normal",
       () => this.processThreadInternal(thread),
-      async () => {
-        const session = await loadSessionState(thread).catch(() => null);
-        if (session && session.queue.length > 0 && !session.busy) {
-          await this.processThread(thread);
-        }
-      },
+      () => this.drainQueuedThreadEvents(thread),
     );
   }
 
@@ -468,6 +493,13 @@ export class FelixEngine {
           return { status: "cancelled", error: "scheduler stopped" };
         }
         return this.runScheduledJobInternal(request);
+      },
+      async () => {
+        const thread = await findThreadHandle(
+          this.cfg,
+          request.job.origin.thread_key,
+        );
+        if (thread) await this.drainQueuedThreadEvents(thread);
       },
     );
   }
