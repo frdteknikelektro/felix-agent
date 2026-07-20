@@ -32,7 +32,11 @@ describe("ThreadStateSchema persistence", () => {
     const file = await tempFile();
     const state: ThreadState = { ...baseState(), blocked: true };
     await writeJsonAtomic(file, state);
-    const reloaded = await readJsonParsed(file, ThreadStateSchema, null as unknown as ThreadState);
+    const reloaded = await readJsonParsed(
+      file,
+      ThreadStateSchema,
+      null as unknown as ThreadState,
+    );
     expect(reloaded).not.toBeNull();
     expect(reloaded?.blocked).toBe(true);
   });
@@ -42,7 +46,11 @@ describe("ThreadStateSchema persistence", () => {
     const old: ThreadState = baseState();
     // No `blocked` key on the persisted JSON.
     await writeJsonAtomic(file, old);
-    const reloaded = await readJsonParsed(file, ThreadStateSchema, null as unknown as ThreadState);
+    const reloaded = await readJsonParsed(
+      file,
+      ThreadStateSchema,
+      null as unknown as ThreadState,
+    );
     expect(reloaded).not.toBeNull();
     expect(reloaded?.blocked).toBeUndefined();
   });
