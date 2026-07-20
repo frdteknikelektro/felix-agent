@@ -1,140 +1,57 @@
 ---
 name: scheduler
-description: Schedule recurring tasks and one-shot alarms/reminders via natural language
-kind: builtin
-permissions:
-  - scheduler:list
-  - scheduler:read
-  - scheduler:write
-match:
-  - jadwalkan
-  - schedule
-  - periodik
-  - otomatis
-  - alarm
-  - reminder
-  - scheduler
-  - timer
+description: Schedule recurring tasks and one-shot reminders with natural language.
+metadata:
+  author: felix-agent
+  kind: operational
+  version: "1.0.0"
+  permissions: list, read, write
+  match: jadwalkan, schedule, periodik, otomatis, alarm, reminder, scheduler, timer
 ---
 
-# Scheduler Skill
+# Scheduler
 
-This skill manages scheduled tasks and one-shot alarms/reminders for Felix Agent.
+Use the scheduler for recurring work and one-shot alarms. Interpret natural language,
+resolve it to a valid cron expression or positive interval, and preserve the original
+thread reference when creating a job.
 
-## Capabilities
+## Permission boundary
 
-- Create recurring tasks ("jadwalkan")
-- Create one-shot alarms/reminders ("alarm")
-- List all scheduled jobs
-- View job details and execution history
-- Pause/resume jobs
-- Delete jobs
-- Manually trigger jobs
+- `scheduler:list`: list jobs.
+- `scheduler:read`: inspect one job and its execution history.
+- `scheduler:write`: create, edit, pause, resume, delete, or manually run a job.
 
-## Natural Language Interface
+Always resolve the permission boundary before operating. A job inherits the creator's
+currently granted permissions; never add permissions during scheduling.
 
-### Creating Recurring Tasks
+Use the bundled CLI as the single writer for `${WORKSPACE_DIR}/scheduler`:
 
-Use "jadwalkan" followed by the task description and schedule:
+```bash
+SCHEDULER_CLI="${WORKSPACE_DIR}/.agents/skills/scheduler/scheduler.mjs"
+node "$SCHEDULER_CLI" list [active|paused|failed|completed]
+node "$SCHEDULER_CLI" show "<id>"
+node "$SCHEDULER_CLI" run-now "<id>"
+```
 
-**Examples:**
-- "jadwalkan daily report setiap jam 8 pagi"
-- "jadwalkan backup database setiap malam jam 2"
-- "jadwalkan cek status server setiap 30 menit"
+For `create` and `update`, send JSON on stdin. Resolve natural language first and include
+`schedule`, `next_run_at`, `source_thread_key`, and `source_thread_ref`; never guess an
+original thread. Use `delete` only after confirmation.
 
-### Creating One-Shot Alarms/Reminders
+## Conversation rules
 
-Use "alarm" followed by the task description and time:
+Always confirm before creating or deleting. Before confirmation, show the full prompt,
+resolved schedule, timezone, output mode, and inherited permissions. Ask for details when
+the task is vague (for example, "jadwalkan backup" or "cek server").
 
-**Examples:**
-- "alarm jam 3 sore untuk ingatkan meeting"
-- "alarm 15 menit lagi untuk break"
+Examples:
 
-### Listing Jobs
+- `jadwalkan laporan harian setiap jam 8 pagi`
+- `jadwalkan cek https://example.test setiap 30 menit`
+- `alarm 15 menit lagi untuk meeting`
+- `lihat semua jadwal`, `jeda jadwal <id>`, `lanjutkan jadwal <id>`
+- `ubah jadwal <id> ke setiap jam 9 pagi`, `jalankan jadwal <id> sekarang`
 
-- "lihat semua jadwal"
-- "lihat jadwal aktif"
-- "lihat jadwal yang pause"
-
-### Managing Jobs
-
-- "hapus jadwal [name/id]"
-- "jeda jadwal [name/id]"
-- "lanjutkan jadwal [name/id]"
-- "ubah jadwal [name/id] ke setiap jam 9 pagi"
-- "jalankan jadwal [name/id] sekarang"
-
-## Permission Model
-
-Three permission levels:
-
-1. **scheduler:list** - View all jobs
-2. **scheduler:read** - View 1 job detail
-3. **scheduler:write** - Create, edit, delete, pause/resume jobs
-
-### Inherited Permissions
-
-Each job stores the creator's permissions at creation time. These permissions are used when the job executes an agent turn, allowing scheduled tasks to access the same resources as the creator.
-
-## Confirmation Flow
-
-Always confirm before creating a job. Show:
-1. Task description (full prompt)
-2. Schedule (resolved to cron expression + human-readable)
-3. Permissions that will be inherited
-
-User can confirm, cancel, or modify before final save.
-
-## Prompt Validation
-
-Before creating a job, validate that the prompt is detailed enough:
-
-**Too vague (ask for clarification):**
-- "jadwalkan backup"
-- "cek server"
-
-**Detailed enough (proceed):**
-- "jadwalkan backup database PostgreSQL ke /backups setiap malam jam 2"
-- "cek status server https://api.example.com setiap 30 menit"
-
-## Execution Output
-
-Configurable per-job:
-- **ringkas** (default): success/fail status + 1-2 sentence summary
-- **detail**: success/fail + full agent output
-- **silent**: no delivery (file-only logging)
-
-User specifies during creation: "dengan output detail" atau "silent aja"
-
-## List Format
-
-Grouped by status:
-1. Active jobs
-2. Paused jobs
-3. Failed/completed jobs
-
-Format per job: name, schedule, status, next run
-
-## Edit Flow
-
-Edit only schedule - user can change timing but not the task itself.
-If user wants to change the task, they should delete and recreate.
-
-Edit command: "ubah jadwal [job] ke setiap jam 9 pagi"
-
-## Delete Behavior
-
-Always confirm before delete. Show job details:
-- Name
-- Schedule
-- Last run
-
-User confirms with "ya" or cancels. Hard delete (no soft delete for MVP).
-
-## One-Shot Mode
-
-For alarms/reminders:
-- "alarm jam 3 sore untuk ingatkan meeting" → `run_once: true`
-- "jadwalkan backup setiap malam jam 2" → `run_once: false`
-
-After successful execution, auto-mark as "completed" and don't reschedule.
+Recurring jobs use `run_once: false`; alarms use `run_once: true`. One-shot jobs become
+`completed` only after a successful execution. Failed jobs retry up to three attempts
+with exponential backoff, then become `failed`. Preserve `ringkas`, `detail`, or
+`silent` output selection and route non-silent results to the original thread.

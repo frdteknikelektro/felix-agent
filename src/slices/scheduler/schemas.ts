@@ -2,15 +2,15 @@ import { z } from "zod";
 
 export const ScheduleSchema = z.object({
   type: z.enum(["cron", "interval", "natural"]),
-  expression: z.string().optional(),
-  intervalMs: z.number().optional(),
+  expression: z.string().trim().min(1).optional(),
+  intervalMs: z.number().int().positive().optional(),
   naturalLanguage: z.string().optional(),
-  timezone: z.string().optional(),
+  timezone: z.string().trim().min(1).optional(),
 });
 
 export const RetryConfigSchema = z.object({
-  max_attempts: z.number(),
-  backoff_ms: z.number(),
+  max_attempts: z.number().int().positive(),
+  backoff_ms: z.number().int().nonnegative(),
 });
 
 export const SchedulerJobSchema = z.object({
@@ -25,10 +25,14 @@ export const SchedulerJobSchema = z.object({
   }),
   source_thread_ref: z.object({
     source: z.string(),
-    conversation_id: z.string(),
-    thread_id: z.string(),
+    conversation_id: z.string().optional(),
+    thread_id: z.string().optional(),
     root_message_id: z.string().optional(),
+    message_id: z.string().optional(),
+    team_id: z.string().optional(),
+    raw: z.record(z.unknown()).optional(),
   }),
+  source_thread_key: z.string(),
   permissions: z.array(z.string()),
   output: z.enum(["ringkas", "detail", "silent"]),
   retry: RetryConfigSchema,
@@ -43,9 +47,9 @@ export const SchedulerExecutionSchema = z.object({
   id: z.string(),
   job_id: z.string(),
   started_at: z.string(),
-  completed_at: z.string().nullable().default(null),
+  completed_at: z.string().nullable(),
   status: z.enum(["running", "success", "failed", "retrying"]),
-  attempt: z.number().default(1),
+  attempt: z.number(),
   result: z
     .object({
       success: z.boolean(),

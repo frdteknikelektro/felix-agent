@@ -49,7 +49,7 @@ export class FelixEngine {
   async boot(): Promise<void> {
     await this.refreshSkills();
     await this.recoverThreads();
-    startScheduler(this.cfg, this.harness);
+    startScheduler(this.cfg, this.harness, (source) => this.requireAdapter(source));
   }
 
   abortThread(threadKey: string): void {
