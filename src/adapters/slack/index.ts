@@ -223,7 +223,6 @@ class SlackAdapter implements SourceAdapter {
       input.event.event_id;
     const channelId = input.event.source_thread_ref.conversation_id;
     const ownerMentionToken = slackMentionToken(this.cfg.SLACK_OWNER_USER_ID);
-
     return {
       behaviorInstructions: [
         `S1. For Slack channel messages (visibility: channel), only answer when the post explicitly mentions ${botMention}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
