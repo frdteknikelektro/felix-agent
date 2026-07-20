@@ -11,6 +11,7 @@ import { findThreadHandle, listThreadHandles, loadSessionState, type ThreadHandl
 import { loadSkills } from "./slices/skills/index.js";
 import type { ApprovalRecord } from "./slices/approvals/index.js";
 import { listApprovalRecords } from "./slices/approvals/index.js";
+import { progressStore, type HarnessName, type ProgressEvent } from "./slices/progress/index.js";
 import { tokensToday } from "./slices/usage/index.js";
 import { tzDateKey } from "./lib/time.js";
 import {
@@ -27,7 +28,7 @@ import {
 export interface SessionSummary {
   threadKey: string;
   source: string;
-  harness: "Codex";
+  harness: HarnessName;
   createdAt: string;
   updatedAt: string;
   managedByFelix: boolean;
@@ -38,6 +39,7 @@ export interface SessionSummary {
   lastTurnAt?: string;
   pendingPermissionId?: string;
   pendingPermissionSkillId?: string;
+  currentProgress?: ProgressEvent;
 }
 
 export interface SessionHistoryItem {
@@ -86,12 +88,14 @@ export interface DashboardActivityItem {
 export interface DashboardActiveSession {
   threadKey: string;
   source: string;
+  harness: HarnessName;
   busy: boolean;
   queueLength: number;
   updatedAt: string;
   lastEventAt?: string;
   lastTurnAt?: string;
   pendingPermissionSkillId?: string;
+  currentProgress?: ProgressEvent;
 }
 
 /** The full snapshot pushed to dashboard clients over SSE. */
@@ -112,7 +116,7 @@ const RECENT_ACTIVITY_LIMIT = 40;
 
 export async function listSessionSummaries(cfg: AppConfig): Promise<SessionSummary[]> {
   const threads = await listThreadHandles(cfg);
-  const summaries = await Promise.all(threads.map(async (thread) => buildSessionSummary(thread)));
+  const summaries = await Promise.all(threads.map(async (thread) => buildSessionSummary(thread, undefined, cfg.HARNESS)));
   return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -120,7 +124,7 @@ export async function loadSessionDetail(cfg: AppConfig, threadKey: string): Prom
   const thread = await findThreadHandle(cfg, threadKey);
   if (!thread) return null;
   const session = await loadSessionState(thread);
-  const summary = await buildSessionSummary(thread, session);
+  const summary = await buildSessionSummary(thread, session, cfg.HARNESS);
   const history = await loadSessionHistory(thread);
   const artifacts = await loadSessionArtifacts(thread);
   return {
@@ -248,12 +252,14 @@ export function buildDashboardSnapshot(
     .map((s) => ({
       threadKey: s.threadKey,
       source: s.source,
+      harness: s.harness,
       busy: s.busy,
       queueLength: s.queueLength,
       updatedAt: s.updatedAt,
       lastEventAt: s.lastEventAt,
       lastTurnAt: s.lastTurnAt,
       pendingPermissionSkillId: s.pendingPermissionSkillId,
+      currentProgress: s.currentProgress,
     }));
 
   const activity: DashboardActivityItem[] = [];
@@ -390,12 +396,12 @@ export async function addApprovalAudit(
   });
 }
 
-async function buildSessionSummary(thread: ThreadHandle, session?: SessionState): Promise<SessionSummary> {
+async function buildSessionSummary(thread: ThreadHandle, session?: SessionState, harness: HarnessName = "codex"): Promise<SessionSummary> {
   const current = session ?? (await loadSessionState(thread));
   return {
     threadKey: thread.state.thread_key,
     source: thread.state.source,
-    harness: "Codex",
+    harness,
     createdAt: thread.state.created_at,
     updatedAt: thread.state.updated_at,
     managedByFelix: thread.state.managed_by_felix,
@@ -406,6 +412,7 @@ async function buildSessionSummary(thread: ThreadHandle, session?: SessionState)
     lastTurnAt: current.last_turn_at,
     pendingPermissionId: current.pending_permission ? approvalIdForPending(thread, current.pending_permission) : undefined,
     pendingPermissionSkillId: current.pending_permission?.skill_id,
+    currentProgress: progressStore.current(thread.state.thread_key),
   };
 }
 

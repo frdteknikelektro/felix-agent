@@ -143,6 +143,12 @@ function SessionRow({ session, onOpen }: { session: DashboardActiveSession; onOp
       />
       <span className="min-w-0 flex-1 truncate text-sm font-medium">{threadLabel(session.threadKey)}</span>
       <SourceBadge source={session.source} />
+      <Badge variant="outline">{session.harness}</Badge>
+      {session.currentProgress && (
+        <Badge variant="primary">
+          {session.currentProgress.status} · {formatElapsed(session.currentProgress.elapsedMs)}
+        </Badge>
+      )}
       {session.queueLength > 0 && <Badge variant="primary">{session.queueLength} queued</Badge>}
       {session.pendingPermissionSkillId && <Badge variant="warning">needs approval</Badge>}
       <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">
@@ -150,6 +156,11 @@ function SessionRow({ session, onOpen }: { session: DashboardActiveSession; onOp
       </span>
     </button>
   );
+}
+
+function formatElapsed(elapsedMs?: number): string {
+  if (elapsedMs === undefined) return "—";
+  return `${Math.max(0, Math.round(elapsedMs / 1000))}s`;
 }
 
 const ACTIVITY_ICON = {

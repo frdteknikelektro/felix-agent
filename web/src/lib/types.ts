@@ -11,7 +11,7 @@ export interface SourceSender {
 export interface SessionSummary {
   threadKey: string;
   source: string;
-  harness: "Codex";
+  harness: HarnessName;
   createdAt: string;
   updatedAt: string;
   managedByFelix: boolean;
@@ -22,6 +22,22 @@ export interface SessionSummary {
   lastTurnAt?: string;
   pendingPermissionId?: string;
   pendingPermissionSkillId?: string;
+  currentProgress?: ProgressEvent;
+}
+
+export type HarnessName = "codex" | "opencode" | "claude-code";
+export type ProgressPhase = "started" | "thinking" | "tool_started" | "tool_finished" | "waiting_permission" | "completed" | "failed" | "cancelled";
+export interface ProgressEvent {
+  threadKey: string;
+  harness: HarnessName;
+  sessionId?: string;
+  attempt: number;
+  sequence: number;
+  at: string;
+  phase: ProgressPhase;
+  status: string;
+  tool?: string;
+  elapsedMs?: number;
 }
 
 export interface SessionHistoryItem {
@@ -118,12 +134,14 @@ export interface DashboardActivityItem {
 export interface DashboardActiveSession {
   threadKey: string;
   source: string;
+  harness: HarnessName;
   busy: boolean;
   queueLength: number;
   updatedAt: string;
   lastEventAt?: string;
   lastTurnAt?: string;
   pendingPermissionSkillId?: string;
+  currentProgress?: ProgressEvent;
 }
 
 export interface DashboardSnapshot {

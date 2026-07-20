@@ -1,0 +1,3 @@
+# Keep a sanitized Progress artifact for CLI observation
+
+The Owner console will receive only transient current Progress, but Felix will also append redacted Progress events to a stable per-thread NDJSON artifact in the existing turn-artifact area. The artifact remains after a turn by default so an Owner can use standard CLI tools such as `tail -F` during execution and inspect the completed operational trace afterward. It is separate from the raw harness log, excludes prompts, private reasoning, tool arguments, command output, and arbitrary model-generated text, and is not part of session conversation history. Cleanup and retention limits are deferred to a separate policy.

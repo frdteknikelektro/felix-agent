@@ -7,6 +7,7 @@ import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.j
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
+import type { ProgressReporter, ProgressUpdate } from "../../slices/progress/index.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -43,6 +44,32 @@ export interface RunResult {
 export interface OpencodeRunOptions {
   /** Override the spawn function (for testing). */
   spawnFn?: typeof spawn;
+  progress?: ProgressReporter;
+}
+
+export function opencodeProgressUpdate(event: Record<string, unknown>): ProgressUpdate | null {
+  const eventType = typeof event.type === "string" ? event.type : "";
+  const sessionId = typeof event.sessionID === "string" ? event.sessionID : undefined;
+  if (eventType === "step_start") return { phase: "thinking", status: "Starting model step", sessionId };
+  if (eventType === "step_finish") return { phase: "thinking", status: "Finished model step", sessionId };
+  if (eventType === "text") return { phase: "thinking", status: "Generating response", sessionId };
+  if (eventType === "reasoning") return { phase: "thinking", status: "Thinking", sessionId };
+  if (eventType === "error") return { phase: "failed", status: "Harness error", sessionId };
+  if (eventType !== "tool_use" && eventType !== "tool") return null;
+  const part = event.part as Record<string, unknown> | undefined;
+  const tool = typeof part?.name === "string"
+    ? part.name
+    : typeof part?.tool === "string" ? part.tool : undefined;
+  if (!tool) return { phase: "thinking", status: "Using a tool", sessionId };
+  const state = part?.state as Record<string, unknown> | undefined;
+  const stateStatus = typeof state?.status === "string" ? state.status : "";
+  const finished = ["completed", "finished", "error"].includes(stateStatus.toLowerCase());
+  return {
+    phase: finished ? "tool_finished" : "tool_started",
+    status: finished ? `Finished ${tool}` : `Running ${tool}`,
+    tool,
+    sessionId,
+  };
 }
 
 export async function opencodeRun(
@@ -174,10 +201,10 @@ export async function opencodeRun(
             textParts.push(part.text);
           }
         }
-        if (eventType === "tool" && typeof event.part === "object" && event.part !== null) {
+        if ((eventType === "tool" || eventType === "tool_use") && typeof event.part === "object" && event.part !== null) {
           const part = event.part as Record<string, unknown>;
           if (part.type === "tool_use" && typeof part.name === "string") {
-            if (lastEventType !== null && lastEventType !== "tool") {
+            if (lastEventType !== null && lastEventType !== "tool" && lastEventType !== "tool_use") {
               textParts.push("\n\n");
             }
             textParts.push("Tool: " + part.name);
@@ -185,6 +212,8 @@ export async function opencodeRun(
             textParts.push("\n\n" + String(part.result));
           }
         }
+        const progressUpdate = opencodeProgressUpdate(event);
+        if (progressUpdate) options?.progress?.emit(progressUpdate);
         if (eventType) lastEventType = eventType;
       } catch {
         // not JSON — ignore
@@ -243,7 +272,15 @@ export class OpencodeHarness implements Harness {
       : [...baseArgs, prompt];
 
     const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
-      await opencodeRun(this.cfg.OPENCODE_BIN, args, this.cfg.paths.root, await this.buildEnv(), logPath, input.signal);
+      await opencodeRun(
+        this.cfg.OPENCODE_BIN,
+        args,
+        this.cfg.paths.root,
+        await this.buildEnv(),
+        logPath,
+        input.signal,
+        { progress: input.progress },
+      );
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;

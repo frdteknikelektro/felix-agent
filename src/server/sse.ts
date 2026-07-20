@@ -2,6 +2,7 @@ import type http from "node:http";
 import type { AppConfig } from "../config.js";
 import { log } from "../lib/log.js";
 import { dashboardSnapshot, type DashboardSnapshot } from "../owner-data.js";
+import { progressStore, type ProgressEvent } from "../slices/progress/index.js";
 
 /**
  * Server-Sent Events feed for the live dashboard. One shared poller computes a
@@ -13,6 +14,7 @@ import { dashboardSnapshot, type DashboardSnapshot } from "../owner-data.js";
 const POLL_INTERVAL_MS = 1000;
 
 const clients = new Set<http.ServerResponse>();
+const progressSubscriptions = new Map<http.ServerResponse, () => void>();
 let timer: NodeJS.Timeout | null = null;
 let ticking = false;
 let cfgRef: AppConfig | null = null;
@@ -35,11 +37,15 @@ export function addDashboardClient(
   res.write("retry: 2000\n\n");
   clients.add(res);
   if (lastSnapshot) writeSnapshot(res, lastSnapshot);
+  for (const event of progressStore.allCurrent()) writeProgress(res, event);
+  progressSubscriptions.set(res, progressStore.subscribe((event) => writeProgress(res, event)));
 
   startPolling();
 
   const cleanup = (): void => {
     if (!clients.delete(res)) return;
+    progressSubscriptions.get(res)?.();
+    progressSubscriptions.delete(res);
     if (clients.size === 0) stopPolling();
   };
   req.on("close", cleanup);
@@ -57,6 +63,8 @@ export function closeDashboardClients(): void {
     }
   }
   clients.clear();
+  for (const unsubscribe of progressSubscriptions.values()) unsubscribe();
+  progressSubscriptions.clear();
   stopPolling();
 }
 
@@ -93,6 +101,14 @@ async function tick(): Promise<void> {
 function writeSnapshot(res: http.ServerResponse, snapshot: DashboardSnapshot): void {
   try {
     res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`);
+  } catch {
+    // ignore — connection cleanup will remove it
+  }
+}
+
+function writeProgress(res: http.ServerResponse, event: ProgressEvent): void {
+  try {
+    res.write(`event: progress\ndata: ${JSON.stringify(event)}\n\n`);
   } catch {
     // ignore — connection cleanup will remove it
   }

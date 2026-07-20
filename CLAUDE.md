@@ -1,5 +1,19 @@
 # Felix Agent — Agent Guide
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in `frdteknikelektro/felix-agent`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
 Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp, or Telegram) through skill-gated LLM turns.
 
 ## Project layout

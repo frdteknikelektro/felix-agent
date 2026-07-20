@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseAgentOutput } from "../src/core/harness-common.js";
-import { buildClaudeTurnArgs, parseClaudeStdout } from "../src/adapters/claude-code/index.js";
+import { buildClaudeTurnArgs, claudeProgressUpdate, parseClaudeStdout } from "../src/adapters/claude-code/index.js";
 
 describe("claude-code stdout parser", () => {
+  it("maps stream-json lifecycle events without exposing tool input", () => {
+    expect(claudeProgressUpdate({
+      type: "assistant",
+      session_id: "sess-1",
+      message: { content: [{ type: "tool_use", name: "bash", input: { command: "secret" } }] },
+    })).toEqual({ phase: "tool_started", status: "Running bash", tool: "bash", sessionId: "sess-1" });
+  });
   // Exact top-level shape emitted by `claude -p --output-format json` (claude 2.1.161).
   const jsonModeLine = JSON.stringify({
     type: "result",

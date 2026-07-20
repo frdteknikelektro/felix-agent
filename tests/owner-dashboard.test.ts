@@ -84,7 +84,7 @@ describe("buildDashboardSnapshot", () => {
     return {
       threadKey: "mattermost:c1:r1",
       source: "mattermost",
-      harness: "Codex",
+      harness: "codex",
       createdAt: "2026-06-22T08:00:00.000Z",
       updatedAt: "2026-06-22T11:00:00.000Z",
       managedByFelix: true,

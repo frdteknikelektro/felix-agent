@@ -1,6 +1,7 @@
 import type { ContactRecord, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
 import type { PlatformIdentity } from "./platform-identity.js";
+import type { ProgressReporter } from "../slices/progress/index.js";
 
 // ─── Source port ──────────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ export interface TurnInput {
   promptOverride?: string;
   modelOverride?: string;
   signal?: AbortSignal;
+  progress?: ProgressReporter;
 }
 
 /** Normalized per-turn token usage, extracted from the harness CLI's JSON stream. */

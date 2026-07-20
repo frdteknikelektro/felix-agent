@@ -3,6 +3,7 @@ import { TurnRunner, type TurnRunnerPorts } from "../src/core/turn-runner.js";
 import type { Harness, SourceTurnContext, TurnInput, TurnResult } from "../src/core/ports.js";
 import type { ThreadHandle } from "../src/slices/sessions/index.js";
 import type { ContactRecord, SessionQueueItem, SessionState, SkillRecord, UniversalEvent } from "../src/types.js";
+import type { ProgressReporter, ProgressUpdate } from "../src/slices/progress/index.js";
 
 function makeThread(session: SessionState = { busy: false, queue: [], pending_permission: null }): ThreadHandle {
   return {
@@ -122,6 +123,9 @@ describe("TurnRunner", () => {
       }),
     };
     const ports = makePorts();
+    const progressEvents: unknown[] = [];
+    const progress: ProgressReporter = { emit: (event) => progressEvents.push(event) };
+    ports.progressReporter = vi.fn(() => progress);
     const preceding = [{ event: makeEvent(), eventFile: "/tmp/thread/events/previous.md" }];
     const runner = new TurnRunner(harness, ports);
 
@@ -132,6 +136,11 @@ describe("TurnRunner", () => {
     expect(inputs[0].sourceContext.behaviorInstructions).toEqual(["source rule"]);
     expect(inputs[0].precedingEvents).toEqual(preceding);
     expect(inputs[0].resumed).toBe(false);
+    expect(inputs[0].progress).toBe(progress);
+    expect(progressEvents).toEqual([
+      { phase: "started", status: "Starting harness turn" },
+      { phase: "completed", status: "Turn completed", sessionId: "session-1" },
+    ]);
     expect(ports.recordTurnWithUsage).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ sessionId: "session-1" }));
     expect(ports.postThreadReply).toHaveBeenCalledWith(expect.anything(), expect.anything(), "session-1", "done");
   });
@@ -164,6 +173,8 @@ describe("TurnRunner", () => {
       }),
     };
     const ports = makePorts();
+    const progressEvents: unknown[] = [];
+    ports.progressReporter = vi.fn(() => ({ emit: (event: ProgressUpdate) => progressEvents.push(event) }));
     const session: SessionState = { busy: false, queue: [], pending_permission: null, harness_session_id: "old-session" };
     const runner = new TurnRunner(harness, ports);
 
@@ -174,6 +185,12 @@ describe("TurnRunner", () => {
     expect(ports.clearHarnessSession).toHaveBeenCalledTimes(1);
     expect(ports.warn).toHaveBeenCalledWith("harness.resume_fallback", expect.objectContaining({ exit_code: 1 }));
     expect(ports.postThreadReply).toHaveBeenCalledWith(expect.anything(), expect.anything(), "new-session", "fresh");
+    expect(progressEvents).toEqual([
+      { phase: "started", status: "Resuming harness turn" },
+      { phase: "failed", status: "Resume failed; retrying fresh" },
+      { phase: "started", status: "Starting harness turn" },
+      { phase: "completed", status: "Turn completed", sessionId: "new-session" },
+    ]);
   });
 
   it("hands harness run errors to Turn outcome retry handling", async () => {

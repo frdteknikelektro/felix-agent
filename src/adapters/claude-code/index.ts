@@ -7,6 +7,7 @@ import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.j
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
+import type { ProgressReporter, ProgressUpdate } from "../../slices/progress/index.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -29,6 +30,37 @@ export interface RunResult {
   usage: TurnUsage | null;
 }
 
+export function claudeProgressUpdate(event: Record<string, unknown>): ProgressUpdate | null {
+  const type = typeof event.type === "string" ? event.type : "";
+  const sessionId = typeof event.session_id === "string" ? event.session_id : undefined;
+  if (type === "system") return { phase: "thinking", status: "Claude session started", sessionId };
+  if (type === "assistant") {
+    const message = event.message as Record<string, unknown> | undefined;
+    const content = Array.isArray(message?.content) ? message.content : [];
+    const toolUse = content.find((block) => (
+      typeof block === "object" && block !== null && (block as Record<string, unknown>).type === "tool_use"
+    )) as Record<string, unknown> | undefined;
+    if (toolUse) {
+      const tool = typeof toolUse.name === "string" ? toolUse.name : "tool";
+      return { phase: "tool_started", status: `Running ${tool}`, tool, sessionId };
+    }
+    return { phase: "thinking", status: "Thinking", sessionId };
+  }
+  if (type === "user") {
+    const message = event.message as Record<string, unknown> | undefined;
+    const content = Array.isArray(message?.content) ? message.content : [];
+    const toolResult = content.some((block) => (
+      typeof block === "object" && block !== null && (block as Record<string, unknown>).type === "tool_result"
+    ));
+    return toolResult ? { phase: "tool_finished", status: "Finished tool", sessionId } : null;
+  }
+  if (type === "result" && event.subtype && event.subtype !== "success") {
+    return { phase: "failed", status: "Harness error", sessionId };
+  }
+  if (type === "result") return { phase: "thinking", status: "Preparing response", sessionId };
+  return null;
+}
+
 export async function claudeCodeRun(
   bin: string,
   args: string[],
@@ -36,6 +68,7 @@ export async function claudeCodeRun(
   env: Record<string, string | undefined>,
   logPath: string,
   signal?: AbortSignal,
+  progress?: ProgressReporter,
 ): Promise<RunResult> {
   await ensureDir(path.dirname(logPath));
 
@@ -65,7 +98,14 @@ export async function claudeCodeRun(
       const lines = buf.split(/\r?\n/);
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        if (line) stdoutLines.push(line);
+        if (!line) continue;
+        stdoutLines.push(line);
+        try {
+          const update = claudeProgressUpdate(JSON.parse(line) as Record<string, unknown>);
+          if (update) progress?.emit(update);
+        } catch {
+          // parseClaudeStdout handles malformed lines defensively.
+        }
       }
       await appendText(logPath, chunk.toString("utf8"));
     });
@@ -76,7 +116,15 @@ export async function claudeCodeRun(
       await appendText(`${logPath}.stderr`, text);
     });
     child.on("close", (code) => {
-      if (buf.trim()) stdoutLines.push(buf);
+      if (buf.trim()) {
+        stdoutLines.push(buf);
+        try {
+          const update = claudeProgressUpdate(JSON.parse(buf) as Record<string, unknown>);
+          if (update) progress?.emit(update);
+        } catch {
+          // ignore malformed trailing output
+        }
+      }
       resolve(code ?? -1);
     });
     child.on("error", (error) => {
@@ -269,7 +317,15 @@ export class ClaudeCodeHarness implements Harness {
     });
 
     const { exitCode, sessionId: capturedSessionId, assistantText, usage } =
-      await claudeCodeRun(this.cfg.CLAUDE_CODE_BIN, args, this.cfg.paths.root, this.buildEnv(), logPath, input.signal);
+      await claudeCodeRun(
+        this.cfg.CLAUDE_CODE_BIN,
+        args,
+        this.cfg.paths.root,
+        this.buildEnv(),
+        logPath,
+        input.signal,
+        input.progress,
+      );
 
     if (capturedSessionId && capturedSessionId !== sessionState.harness_session_id) {
       input.thread.session.harness_session_id = capturedSessionId;

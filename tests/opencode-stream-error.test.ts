@@ -17,7 +17,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, ensureDir: vi.fn(async () => {}), open: vi.fn(async () => ({ close: vi.fn(async () => {}) })) };
 });
 
-import { opencodeRun } from "../src/adapters/opencode/index.js";
+import { opencodeProgressUpdate, opencodeRun } from "../src/adapters/opencode/index.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -56,6 +56,18 @@ async function waitReady(stdout: EventEmitter) {
 // ─── Stream error → fail fast ─────────────────────────────────────────────
 
 describe("opencodeRun: stream error → fail fast", () => {
+  it("maps tool_use events to a safe tool progress label", () => {
+    expect(opencodeProgressUpdate({
+      type: "tool_use",
+      sessionID: "sess-1",
+      part: { name: "shell", state: { status: "running" } },
+    })).toEqual({
+      phase: "tool_started",
+      status: "Running shell",
+      tool: "shell",
+      sessionId: "sess-1",
+    });
+  });
   it("detects type:error on stdout, kills child, and throws", async () => {
     const { proc, stdout } = createMockChild();
     const run = opencodeRun("opencode", ["run"], "/tmp", {}, "/tmp/t.log", undefined, {

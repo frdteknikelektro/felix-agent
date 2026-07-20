@@ -40,6 +40,7 @@ import type {
 import { loadSkills, permissionSatisfied } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
+import { progressStore } from "./slices/progress/index.js";
 import {
   shouldAcceptEvent,
   isOwnMessage,
@@ -591,6 +592,13 @@ export class FelixEngine {
   ): TurnRunner {
     return new TurnRunner(this.harness, {
       sourceAdapter: (source) => this.requireAdapter(source),
+      progressReporter: (targetThread, attempt) => progressStore.createReporter({
+        threadKey: targetThread.state.thread_key,
+        harness: this.cfg.HARNESS,
+        attempt,
+        sessionId: targetThread.session.harness_session_id,
+        artifactPath: path.join(targetThread.turnsDir, "progress.ndjson"),
+      }),
       clearHarnessSession: async (targetThread) => {
         await clearHarnessSession(targetThread);
       },

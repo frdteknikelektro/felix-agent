@@ -8,6 +8,7 @@ import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.j
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
 import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
+import type { ProgressReporter, ProgressUpdate } from "../../slices/progress/index.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,
@@ -24,6 +25,32 @@ export type { ParsedAgentOutput, PermissionRequiredOutput } from "../../core/por
 export const codexAuthForTest = {
   spawnSync,
 };
+
+export function codexProgressUpdate(event: Record<string, unknown>): ProgressUpdate | null {
+  const type = typeof event.type === "string" ? event.type : "";
+  const sessionId = typeof event.thread_id === "string" ? event.thread_id : undefined;
+  if (type === "thread.started") return { phase: "thinking", status: "Codex session started", sessionId };
+  if (type === "turn.started") return { phase: "thinking", status: "Thinking", sessionId };
+  if (type === "turn.completed") return { phase: "thinking", status: "Finished model turn", sessionId };
+  if (type === "error" || type === "turn.failed") return { phase: "failed", status: "Harness error", sessionId };
+  if (!type.startsWith("item.")) return null;
+  const item = event.item as Record<string, unknown> | undefined;
+  const itemType = typeof item?.type === "string" ? item.type : "";
+  const tool = typeof item?.name === "string"
+    ? item.name
+    : typeof item?.tool === "string" ? item.tool : itemType.startsWith("tool") ? itemType : undefined;
+  if (type === "item.started") {
+    return tool
+      ? { phase: "tool_started", status: `Running ${tool}`, tool, sessionId }
+      : { phase: "thinking", status: "Working", sessionId };
+  }
+  if (type === "item.completed") {
+    return tool
+      ? { phase: "tool_finished", status: `Finished ${tool}`, tool, sessionId }
+      : { phase: "thinking", status: "Working", sessionId };
+  }
+  return { phase: "thinking", status: "Working", sessionId };
+}
 
 export class CodexHarness implements Harness {
   constructor(private readonly cfg: AppConfig) {}
@@ -83,16 +110,22 @@ export class CodexHarness implements Harness {
     const logStream = await fs.open(logPath, "a");
 
     let ebuf = "";
+    let stdoutBuf = "";
 
     const exitCode = await new Promise<number>((resolve) => {
       child.stdout.on("data", async (chunk: Buffer) => {
         const text = chunk.toString("utf8");
         await appendText(logPath, text);
-        for (const line of text.split(/\r?\n/)) {
+        stdoutBuf += text;
+        const lines = stdoutBuf.split(/\r?\n/);
+        stdoutBuf = lines.pop() ?? "";
+        for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed.startsWith("{")) continue;
           try {
             const event = JSON.parse(trimmed) as Record<string, unknown>;
+            const progressUpdate = codexProgressUpdate(event);
+            if (progressUpdate) input.progress?.emit(progressUpdate);
             if (event.type === "thread.started" && typeof event.thread_id === "string") {
               capturedSessionId = event.thread_id;
             }
@@ -124,6 +157,18 @@ export class CodexHarness implements Harness {
         await appendText(`${logPath}.stderr`, text);
       });
       child.on("close", (code) => {
+        if (stdoutBuf.trim()) {
+          try {
+            const event = JSON.parse(stdoutBuf.trim()) as Record<string, unknown>;
+            const progressUpdate = codexProgressUpdate(event);
+            if (progressUpdate) input.progress?.emit(progressUpdate);
+            if (event.type === "thread.started" && typeof event.thread_id === "string") {
+              capturedSessionId = event.thread_id;
+            }
+          } catch {
+            // keep going
+          }
+        }
         resolve(code ?? -1);
       });
       child.on("error", (error) => {
