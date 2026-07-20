@@ -132,6 +132,38 @@ describe("scheduled engine execution", () => {
     expect(session.harness_session_id).toBe("scheduled-session");
   });
 
+  it("honors declared wildcard grants when revalidating permissions", async () => {
+    const cfg = await makeTestConfig("scheduler-wildcard-");
+    const skillDir = path.join(cfg.paths.skills, "database");
+    await fs.mkdir(skillDir, { recursive: true });
+    await fs.writeFile(
+      path.join(skillDir, "SKILL.md"),
+      "---\nname: database\nmetadata:\n  permissions: read.*\n---\n# Database\n",
+    );
+    await saveContact(cfg, {
+      source: "mattermost",
+      user_id: "user-1",
+      allowed_permissions: ["database:read.*"],
+    });
+    const calls = { sendThreadReply: vi.fn(), updateEventStatus: vi.fn() };
+    const engine = new FelixEngine(cfg, [makeAdapter(calls)], {
+      run: async () => makeResult(),
+    });
+    const { filePath } = await makeScheduledJob(cfg, {
+      permissions: ["database:read.prod"],
+    });
+
+    await engine.boot();
+    await tick();
+    await vi.waitFor(async () => {
+      expect(JSON.parse(await fs.readFile(filePath, "utf8")).status).toBe(
+        "completed",
+      );
+    });
+
+    expect(calls.sendThreadReply).toHaveBeenCalled();
+  });
+
   it("does not deliver silent output and pauses when a grant is revoked", async () => {
     const cfg = await makeTestConfig("scheduler-silent-");
     await saveContact(cfg, {

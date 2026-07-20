@@ -36,7 +36,7 @@ import type {
   UniversalAttachment,
   UniversalEvent,
 } from "./types.js";
-import { loadSkills } from "./slices/skills/index.js";
+import { loadSkills, permissionSatisfied } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
 import { shouldAcceptEvent, isOwnMessage } from "./core/routing.js";
@@ -470,9 +470,17 @@ export class FelixEngine {
       job.created_by.source,
       job.created_by.user_id,
     );
-    const missingAtStart = job.permissions.filter(
-      (permission) => !contact.allowed_permissions.includes(permission),
-    );
+    const missingAtStart = job.permissions.filter((permission) => {
+      const separator = permission.indexOf(":");
+      const skillId = separator === -1 ? "" : permission.slice(0, separator);
+      const declared =
+        this.skills.find((skill) => skill.id === skillId)?.permissions ?? [];
+      return !permissionSatisfied(
+        contact.allowed_permissions,
+        permission,
+        declared,
+      );
+    });
     if (missingAtStart.length > 0) {
       await this.postThreadReply(
         thread,
