@@ -20,7 +20,11 @@ type Calls = {
   downloadAttachment: ReturnType<typeof vi.fn>;
 };
 
-function makeAdapter(calls: Calls, ownerUserId?: string): SourceAdapter {
+function makeAdapter(
+  calls: Calls,
+  ownerUserId?: string,
+  downloadAttachment?: SourceAdapter["downloadAttachment"],
+): SourceAdapter {
   return {
     source: "mattermost",
     botUserId: undefined,
@@ -46,6 +50,7 @@ function makeAdapter(calls: Calls, ownerUserId?: string): SourceAdapter {
     },
     downloadAttachment: async (input) => {
       calls.downloadAttachment(input);
+      if (downloadAttachment) return downloadAttachment(input);
       return input.attachment;
     },
     formatOwnerNotification: async (input) =>
@@ -146,6 +151,53 @@ describe("FelixEngine blocked-thread", () => {
     expect(session.queue.map((item) => item.source_event_id)).toEqual([
       "evt-blocked",
     ]);
+    expect(
+      calls.updateEventStatus.mock.calls.filter(
+        ([input]) => input.event.event_id === "evt-blocked",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("serializes blocking with an event already being ingested", async () => {
+    const cfg = await makeTestConfig("felix-block-race-");
+    const calls = freshCalls();
+    let signalDownloadStarted!: () => void;
+    let releaseDownload!: () => void;
+    const downloadStarted = new Promise<void>((resolve) => {
+      signalDownloadStarted = resolve;
+    });
+    const downloadReleased = new Promise<void>((resolve) => {
+      releaseDownload = resolve;
+    });
+    const engine = new FelixEngine(
+      cfg,
+      [
+        makeAdapter(calls, undefined, async (input) => {
+          signalDownloadStarted();
+          await downloadReleased;
+          return input.attachment;
+        }),
+      ],
+      new FakeHarness(),
+    );
+    const threadKey = "mattermost:channel:block-race";
+    await engine.ingest(seedThread(cfg, threadKey));
+    await engine.drain();
+
+    const event = {
+      ...eventAfterBlock(cfg, threadKey, "evt-race", "during race"),
+      attachments: [{ file_id: "file-race", filename: "race.txt" }],
+    };
+    const ingestPromise = engine.ingest(event);
+    await downloadStarted;
+    const blockPromise = engine.setBlocked(threadKey, true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseDownload();
+    await Promise.all([ingestPromise, blockPromise]);
+
+    const thread = await findThreadHandle(cfg, threadKey);
+    expect(thread).not.toBeNull();
+    expect((await loadThreadState(thread!)).blocked).toBe(true);
   });
 
   it("deduplicates a redelivered event while the thread is blocked", async () => {

@@ -66,6 +66,7 @@ export class FelixEngine {
   private readonly sourceAdapters = new Map<string, SourceAdapter>();
   private readonly approvalLifecycle: ApprovalRequestLifecycle;
   private processing = new Map<string, Promise<void>>();
+  private threadMutationLocks = new Map<string, Promise<unknown>>();
   private ownerDecisionLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
   private readonly cancellation = createTurnCancellation();
@@ -104,35 +105,40 @@ export class FelixEngine {
   }
 
   async ingest(event: UniversalEvent): Promise<void> {
-    const adapter = this.requireAdapter(event.source);
-    const thread = await findThreadHandle(this.cfg, event.thread_key);
-    // /block and /unblock are owner escape hatches — they bypass the
-    // block-state check so an Owner can recover a silenced thread. They
-    // still need a real thread on disk to be meaningful.
-    const isBlockEscape =
-      !!thread && FelixEngine.isBlockOrUnblockCommand(event);
-    if (!this.shouldAccept(thread, event) && !isBlockEscape) {
-      // Blocked-thread events are queued silently (no reply, no process
-      // call) and replayed in order when the thread is unblocked. Anything
-      // else that shouldAccept rejected is just not for us.
-      if (thread?.state.blocked) {
-        if (await hasThreadEvent(thread, event.source, event.event_id)) {
-          log.info("thread.event_duplicate", {
-            thread_key: thread.state.thread_key,
-            event_id: event.event_id,
-            source: event.source,
+    return this.withThreadMutationLock(event.thread_key, async () => {
+      const adapter = this.requireAdapter(event.source);
+      const thread = await findThreadHandle(this.cfg, event.thread_key);
+      // /block and /unblock are owner escape hatches — they bypass the
+      // block-state check so an Owner can recover a silenced thread. They
+      // still need a real thread on disk to be meaningful.
+      const isBlockEscape =
+        !!thread && FelixEngine.isBlockOrUnblockCommand(event);
+      if (!this.shouldAccept(thread, event) && !isBlockEscape) {
+        // Blocked-thread events are queued silently (no reply, no process
+        // call) and replayed in order when the thread is unblocked. Anything
+        // else that shouldAccept rejected is just not for us.
+        if (thread?.state.blocked) {
+          if (await hasThreadEvent(thread, event.source, event.event_id)) {
+            log.info("thread.event_duplicate", {
+              thread_key: thread.state.thread_key,
+              event_id: event.event_id,
+              source: event.source,
+            });
+            return;
+          }
+          await this.persistAndQueueEvent(thread, event, adapter, {
+            markProcessing: false,
           });
           return;
         }
-        await this.persistAndQueueEvent(thread, event, adapter);
+        await this.persistRawIgnored(event);
         return;
       }
-      await this.persistRawIgnored(event);
-      return;
-    }
-    const isNew = !thread;
-    const threadHandle = thread ?? (await createOrLoadThread(this.cfg, event));
-    await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
+      const isNew = !thread;
+      const threadHandle =
+        thread ?? (await createOrLoadThread(this.cfg, event));
+      await this.handleEventAcceptance(threadHandle, event, adapter, { isNew });
+    });
   }
 
   /**
@@ -144,19 +150,38 @@ export class FelixEngine {
    */
   async setBlocked(threadKey: string, blocked: boolean): Promise<void> {
     const source = sourceFromThreadKey(threadKey);
-    let thread = await findThreadHandle(this.cfg, threadKey);
-    if (!thread) {
-      thread = await createOrLoadThread(this.cfg, {
-        source,
-        thread_key: threadKey,
-        source_thread_ref: { source },
-        received_at: new Date().toISOString(),
-      });
-    }
-    await updateThreadState(thread, { blocked });
-    if (!blocked) {
-      this.kickProcessThread(thread);
-    }
+    return this.withThreadMutationLock(threadKey, async () => {
+      let thread = await findThreadHandle(this.cfg, threadKey);
+      if (!thread) {
+        thread = await createOrLoadThread(this.cfg, {
+          source,
+          thread_key: threadKey,
+          source_thread_ref: { source },
+          received_at: new Date().toISOString(),
+        });
+      }
+      await updateThreadState(thread, { blocked });
+      if (!blocked) {
+        this.kickProcessThread(thread);
+      }
+    });
+  }
+
+  private async withThreadMutationLock<T>(
+    threadKey: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const previous =
+      this.threadMutationLocks.get(threadKey) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(task);
+    let tracked!: Promise<T>;
+    tracked = current.finally(() => {
+      if (this.threadMutationLocks.get(threadKey) === tracked) {
+        this.threadMutationLocks.delete(threadKey);
+      }
+    });
+    this.threadMutationLocks.set(threadKey, tracked);
+    return tracked;
   }
 
   private async handleEventAcceptance(
@@ -369,6 +394,7 @@ export class FelixEngine {
     thread: ThreadHandle,
     event: UniversalEvent,
     adapter: SourceAdapter,
+    options: { markProcessing?: boolean } = {},
   ): Promise<void> {
     event.attachments = await this.prepareAttachments(thread, event, adapter);
     const eventFile = await appendEventToThread(thread, event);
@@ -377,7 +403,10 @@ export class FelixEngine {
       updated_at: new Date().toISOString(),
     });
 
-    if (event.mentions_bot || event.visibility === "dm") {
+    if (
+      options.markProcessing !== false &&
+      (event.mentions_bot || event.visibility === "dm")
+    ) {
       await adapter.updateEventStatus({ event, status: "processing" });
     }
 
