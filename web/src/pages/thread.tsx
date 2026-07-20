@@ -33,7 +33,7 @@ export function Thread() {
         {detail.data?.summary.busy && <Badge variant="success">active</Badge>}
         {progress && (
           <Badge variant="primary">
-            {progress.status} · {formatElapsed(progress.elapsedMs)}
+            {progress.status} · {formatElapsed(progress.elapsedMs)} · attempt {progress.attempt}
           </Badge>
         )}
       </div>
