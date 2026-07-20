@@ -18,7 +18,12 @@ function stubSend() {
   return { send, calls };
 }
 
-function makeCtx(cfg: import("../src/config.js").AppConfig, engine: FelixEngine, threadKey: string, action: "block" | "unblock") {
+function makeCtx(
+  cfg: import("../src/config.js").AppConfig,
+  engine: FelixEngine,
+  threadKey: string,
+  action: "block" | "unblock",
+) {
   return {
     cfg,
     engine,
@@ -39,7 +44,10 @@ describe("REST route /api/threads/:threadKey/{block,unblock}", () => {
     const engine = new FelixEngine(cfg, [], new FakeHarness());
     const threadKey = "mattermost:c1:root";
 
-    const { route, params } = findRoute("POST", `/api/threads/${threadKey}/block`);
+    const { route, params } = findRoute(
+      "POST",
+      `/api/threads/${threadKey}/block`,
+    );
     const ctx = makeCtx(cfg, engine, threadKey, "block");
     await route.handler({ ...ctx, params });
 
@@ -52,7 +60,10 @@ describe("REST route /api/threads/:threadKey/{block,unblock}", () => {
     const threadKey = "mattermost:c2:root";
     await engine.setBlocked(threadKey, true);
 
-    const { route, params } = findRoute("POST", `/api/threads/${threadKey}/unblock`);
+    const { route, params } = findRoute(
+      "POST",
+      `/api/threads/${threadKey}/unblock`,
+    );
     const ctx = makeCtx(cfg, engine, threadKey, "unblock");
     await route.handler({ ...ctx, params });
 
@@ -63,8 +74,29 @@ describe("REST route /api/threads/:threadKey/{block,unblock}", () => {
     // Spot-check that the two routes resolve to distinct handlers but use
     // the same body shape. If either diverges (e.g., adds a body field)
     // this assertion forces the divergence to be intentional.
-    const blockRoute = findRoute("POST", "/api/threads/mattermost:c3:root/block");
-    const unblockRoute = findRoute("POST", "/api/threads/mattermost:c3:root/unblock");
+    const blockRoute = findRoute(
+      "POST",
+      "/api/threads/mattermost:c3:root/block",
+    );
+    const unblockRoute = findRoute(
+      "POST",
+      "/api/threads/mattermost:c3:root/unblock",
+    );
     expect(blockRoute.route).not.toBe(unblockRoute.route);
+  });
+
+  it("rejects an encoded path traversal thread key", async () => {
+    const cfg = await makeTestConfig("felix-route-invalid-key-");
+    const engine = new FelixEngine(cfg, [], new FakeHarness());
+    const encodedKey = "%2E%2E%2Foutside%3Aroot";
+    const { route, params } = findRoute(
+      "POST",
+      `/api/threads/${encodedKey}/block`,
+    );
+    const ctx = makeCtx(cfg, engine, params["threadKey"] ?? "", "block");
+
+    await route.handler({ ...ctx, params });
+
+    expect(ctx.send).toHaveBeenCalledWith(400, { error: "invalid_thread_key" });
   });
 });

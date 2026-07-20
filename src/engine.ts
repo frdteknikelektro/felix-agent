@@ -1,18 +1,58 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AppConfig } from "./config.js";
-import { ApprovalRequestLifecycle, hasPendingApproval } from "./slices/approvals/index.js";
+import {
+  ApprovalRequestLifecycle,
+  hasPendingApproval,
+} from "./slices/approvals/index.js";
 import { loadContact } from "./slices/contacts/index.js";
 import { log } from "./lib/log.js";
-import { appendEventToThread, appendFelixReply, clearThreadQueue, createOrLoadThread, filterThreadQueue, findThreadHandle, hasThreadEvent, loadSessionState, loadThreadState, queueThreadEvent, recordTurnUsage, setThreadBusy, shiftNextEvent, requeueEvent, recordTurn, clearHarnessSession, updateThreadState, type ThreadHandle, listThreadHandles } from "./slices/sessions/index.js";
-import type { ContactRecord, OwnerDecision, SessionQueueItem, SessionState, SkillRecord, UniversalAttachment, UniversalEvent } from "./types.js";
+import {
+  appendEventToThread,
+  appendFelixReply,
+  clearThreadQueue,
+  createOrLoadThread,
+  filterThreadQueue,
+  findThreadHandle,
+  hasThreadEvent,
+  loadSessionState,
+  loadThreadState,
+  queueThreadEvent,
+  recordTurnUsage,
+  setThreadBusy,
+  shiftNextEvent,
+  requeueEvent,
+  recordTurn,
+  clearHarnessSession,
+  updateThreadState,
+  type ThreadHandle,
+  listThreadHandles,
+} from "./slices/sessions/index.js";
+import type {
+  ContactRecord,
+  OwnerDecision,
+  SessionQueueItem,
+  SessionState,
+  SkillRecord,
+  UniversalAttachment,
+  UniversalEvent,
+} from "./types.js";
 import { loadSkills } from "./slices/skills/index.js";
 import { appendUsageRecord } from "./slices/usage/index.js";
 import type { Harness, SourceAdapter } from "./core/ports.js";
-import { shouldAcceptEvent, isOwnMessage, isOwnerMessage } from "./core/routing.js";
+import {
+  shouldAcceptEvent,
+  isOwnMessage,
+  isOwnerMessage,
+} from "./core/routing.js";
 import { TurnRunner } from "./core/turn-runner.js";
 import { createTurnCancellation } from "./core/turn-cancellation.js";
-import { writeTextAtomic, readText, ensureDir } from "./lib/fs.js";
+import {
+  writeTextAtomic,
+  readText,
+  ensureDir,
+  safeFileName,
+} from "./lib/fs.js";
 import { parseEventFile, toUniversalEvent } from "./slices/events/index.js";
 import { startMemoryCron } from "./slices/memory/index.js";
 import {
@@ -40,9 +80,12 @@ export class FelixEngine {
     }
     this.approvalLifecycle = new ApprovalRequestLifecycle(cfg, {
       sourceAdapter: (source) => this.requireAdapter(source),
-      generateDecisionNotification: async (input) => this.harness.generateDecisionNotification?.(input),
+      generateDecisionNotification: async (input) =>
+        this.harness.generateDecisionNotification?.(input),
       ownerDisplayForSource: (source) => this.ownerDisplayForSource(source),
-      warn: (message, data) => { log.warn(message, data); },
+      warn: (message, data) => {
+        log.warn(message, data);
+      },
     });
   }
 
@@ -66,12 +109,21 @@ export class FelixEngine {
     // /block and /unblock are owner escape hatches — they bypass the
     // block-state check so an Owner can recover a silenced thread. They
     // still need a real thread on disk to be meaningful.
-    const isBlockEscape = !!thread && FelixEngine.isBlockOrUnblockCommand(event);
+    const isBlockEscape =
+      !!thread && FelixEngine.isBlockOrUnblockCommand(event);
     if (!this.shouldAccept(thread, event) && !isBlockEscape) {
       // Blocked-thread events are queued silently (no reply, no process
       // call) and replayed in order when the thread is unblocked. Anything
       // else that shouldAccept rejected is just not for us.
       if (thread?.state.blocked) {
+        if (await hasThreadEvent(thread, event.source, event.event_id)) {
+          log.info("thread.event_duplicate", {
+            thread_key: thread.state.thread_key,
+            event_id: event.event_id,
+            source: event.source,
+          });
+          return;
+        }
         await this.persistAndQueueEvent(thread, event, adapter);
         return;
       }
@@ -91,10 +143,9 @@ export class FelixEngine {
    * before any events arrive.
    */
   async setBlocked(threadKey: string, blocked: boolean): Promise<void> {
+    const source = sourceFromThreadKey(threadKey);
     let thread = await findThreadHandle(this.cfg, threadKey);
     if (!thread) {
-      const source = threadKey.split(":")[0];
-      if (!source) throw new Error(`Cannot parse source from thread key ${threadKey}`);
       thread = await createOrLoadThread(this.cfg, {
         source,
         thread_key: threadKey,
@@ -150,7 +201,12 @@ export class FelixEngine {
         await this.drainThreadQueue(thread);
         await this.postThreadReply(thread, event, undefined, "Stopped.");
       } else {
-        await this.postThreadReply(thread, event, undefined, "Nothing running.");
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Nothing running.",
+        );
       }
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
@@ -164,20 +220,43 @@ export class FelixEngine {
       }
       const session = await loadSessionState(thread);
       if (session.harness_session_id && this.harness.compact) {
-        await this.postThreadReply(thread, event, undefined, "Compacting context...");
-        const result = await this.harness.compact(session.harness_session_id, thread.dir);
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "Compacting context...",
+        );
+        const result = await this.harness.compact(
+          session.harness_session_id,
+          thread.dir,
+        );
         if (result.success) {
           if (result.sessionId) {
             await recordTurn(thread, result.sessionId);
           } else {
             await clearHarnessSession(thread);
           }
-          await this.postThreadReply(thread, event, undefined, "Context compacted successfully. Starting new session.");
+          await this.postThreadReply(
+            thread,
+            event,
+            undefined,
+            "Context compacted successfully. Starting new session.",
+          );
         } else {
-          await this.postThreadReply(thread, event, undefined, "Failed to compact context.");
+          await this.postThreadReply(
+            thread,
+            event,
+            undefined,
+            "Failed to compact context.",
+          );
         }
       } else {
-        await this.postThreadReply(thread, event, undefined, "No active session to compact.");
+        await this.postThreadReply(
+          thread,
+          event,
+          undefined,
+          "No active session to compact.",
+        );
       }
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
@@ -189,7 +268,12 @@ export class FelixEngine {
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "processing" });
       }
-      await this.postThreadReply(thread, event, undefined, "Starting fresh session...");
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        "Starting fresh session...",
+      );
       await clearHarnessSession(thread);
       // Clear INITIAL.md so next turn generates fresh context
       const initialMdPath = path.join(thread.dir, "INITIAL.md");
@@ -197,7 +281,12 @@ export class FelixEngine {
       // Clear transcript
       const transcriptPath = path.join(thread.dir, "transcript.md");
       await fs.unlink(transcriptPath).catch(() => {});
-      await this.postThreadReply(thread, event, undefined, "Session cleared. Starting fresh.");
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        "Session cleared. Starting fresh.",
+      );
       if (event.mentions_bot || event.visibility === "dm") {
         await adapter.updateEventStatus({ event, status: "replied" });
       }
@@ -215,7 +304,10 @@ export class FelixEngine {
     }
   }
 
-  private shouldAccept(thread: ThreadHandle | null, event: UniversalEvent): boolean {
+  private shouldAccept(
+    thread: ThreadHandle | null,
+    event: UniversalEvent,
+  ): boolean {
     return shouldAcceptEvent(event, thread?.state);
   }
 
@@ -248,7 +340,9 @@ export class FelixEngine {
   }
 
   private static isBlockOrUnblockCommand(event: UniversalEvent): boolean {
-    return FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event);
+    return (
+      FelixEngine.isBlockCommand(event) || FelixEngine.isUnblockCommand(event)
+    );
   }
 
   /**
@@ -258,7 +352,10 @@ export class FelixEngine {
    */
   private kickProcessThread(thread: ThreadHandle): void {
     void this.processThread(thread).catch((error) => {
-      log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+      log.error("thread.process_failed", {
+        thread_key: thread.state.thread_key,
+        error: error.message,
+      });
     });
   }
 
@@ -312,7 +409,9 @@ export class FelixEngine {
 
     const wantsBlock = FelixEngine.isBlockCommand(event);
     if (thread.state.blocked === wantsBlock) {
-      const text = wantsBlock ? "Thread is already blocked." : "Thread is not blocked.";
+      const text = wantsBlock
+        ? "Thread is already blocked."
+        : "Thread is not blocked.";
       await this.postThreadReply(thread, event, undefined, text);
       return;
     }
@@ -338,7 +437,10 @@ export class FelixEngine {
         const session = await loadSessionState(thread).catch(() => null);
         if (session && session.queue.length > 0 && !session.busy) {
           void this.processThread(thread).catch((error) => {
-            log.error("thread.process_failed", { thread_key: thread.state.thread_key, error: error.message });
+            log.error("thread.process_failed", {
+              thread_key: thread.state.thread_key,
+              error: error.message,
+            });
           });
         }
       })();
@@ -353,7 +455,9 @@ export class FelixEngine {
     const retryCounts = new Map<string, number>();
     const turnRunner = new TurnRunner(this.harness, {
       sourceAdapter: (source) => this.requireAdapter(source),
-      clearHarnessSession: async (targetThread) => { await clearHarnessSession(targetThread); },
+      clearHarnessSession: async (targetThread) => {
+        await clearHarnessSession(targetThread);
+      },
       logUsage: async (targetThread, targetEvent, targetResult) => {
         await this.logUsage(targetThread, targetEvent, targetResult);
       },
@@ -380,11 +484,19 @@ export class FelixEngine {
           sessionId,
         });
       },
-      requeueEvent: async (targetThread, targetItem) => { await requeueEvent(targetThread, targetItem); },
+      requeueEvent: async (targetThread, targetItem) => {
+        await requeueEvent(targetThread, targetItem);
+      },
       isStopRequested: (threadKey) => this.cancellation.isRequested(threadKey),
-      clearStopRequested: (threadKey) => { this.cancellation.clear(threadKey); },
-      warn: (message, data) => { log.warn(message, data); },
-      error: (message, data) => { log.error(message, data); },
+      clearStopRequested: (threadKey) => {
+        this.cancellation.clear(threadKey);
+      },
+      warn: (message, data) => {
+        log.warn(message, data);
+      },
+      error: (message, data) => {
+        log.error(message, data);
+      },
     });
     try {
       await this.refreshSkills();
@@ -400,7 +512,11 @@ export class FelixEngine {
         if (!trigger) break;
         const { item, session, event } = trigger;
         await this.refreshSkills();
-        const contact = await loadContact(this.cfg, event.sender.source, event.sender.id);
+        const contact = await loadContact(
+          this.cfg,
+          event.sender.source,
+          event.sender.id,
+        );
         const result = await turnRunner.run({
           thread,
           item,
@@ -466,7 +582,12 @@ export class FelixEngine {
       });
 
       // After deltaing, a duplicate cumulative snapshot yields nothing to record.
-      if (perTurn.input === 0 && perTurn.output === 0 && perTurn.cache_write === 0 && perTurn.total === 0) {
+      if (
+        perTurn.input === 0 &&
+        perTurn.output === 0 &&
+        perTurn.cache_write === 0 &&
+        perTurn.total === 0
+      ) {
         return;
       }
 
@@ -517,7 +638,10 @@ export class FelixEngine {
 
     return Promise.all(
       event.attachments.map(async (attachment) => {
-        const oversized = rejectOversizedAttachment(attachment, this.cfg.ATTACHMENT_MAX_BYTES);
+        const oversized = rejectOversizedAttachment(
+          attachment,
+          this.cfg.ATTACHMENT_MAX_BYTES,
+        );
         if (oversized) return oversized;
         try {
           const downloaded = await adapter.downloadAttachment({
@@ -541,13 +665,18 @@ export class FelixEngine {
             file_id: attachment.file_id,
             error: error instanceof Error ? error.message : String(error),
           });
-          return rejectedAttachment(attachment, "File could not be downloaded.");
+          return rejectedAttachment(
+            attachment,
+            "File could not be downloaded.",
+          );
         }
       }),
     );
   }
 
-  async hasPendingPermission(target: OwnerDecision["target"]): Promise<boolean> {
+  async hasPendingPermission(
+    target: OwnerDecision["target"],
+  ): Promise<boolean> {
     return hasPendingApproval(this.cfg, target);
   }
 
@@ -565,9 +694,12 @@ export class FelixEngine {
   private async withOwnerDecisionLock<T>(task: () => Promise<T>): Promise<T> {
     const previous = this.ownerDecisionLock;
     let release!: () => void;
-    const current = previous.then(() => new Promise<void>((resolve) => {
-      release = resolve;
-    }));
+    const current = previous.then(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
     this.ownerDecisionLock = current;
 
     await previous;
@@ -603,7 +735,10 @@ export class FelixEngine {
       const sanitized = await loadSessionState(thread);
       if (sanitized.queue.length > 0 && !sanitized.busy) {
         void this.processThread(thread).catch((error) => {
-          log.error("thread.recover_failed", { thread_key: thread.state.thread_key, error: error.message });
+          log.error("thread.recover_failed", {
+            thread_key: thread.state.thread_key,
+            error: error.message,
+          });
         });
       }
     }
@@ -653,13 +788,21 @@ export class FelixEngine {
   private async dequeueTriggerEvent(
     thread: ThreadHandle,
     preceding: { event: UniversalEvent; eventFile: string }[],
-  ): Promise<{ item: SessionQueueItem; session: SessionState; event: UniversalEvent } | null> {
+  ): Promise<{
+    item: SessionQueueItem;
+    session: SessionState;
+    event: UniversalEvent;
+  } | null> {
     while (true) {
       const next = await shiftNextEvent(thread);
       if (!next) return null;
       const event = await this.readEventFromPath(next.item.event_file);
       if (this.isOwnMessage(event)) continue;
-      if (event.mentions_bot || event.visibility === "dm" || event.sender.id === "system") {
+      if (
+        event.mentions_bot ||
+        event.visibility === "dm" ||
+        event.sender.id === "system"
+      ) {
         return { item: next.item, session: next.session, event };
       }
       preceding.push({ event, eventFile: next.item.event_file });
@@ -692,8 +835,11 @@ export class FelixEngine {
       ? `${event.sender.display} (${event.sender.id})`
       : event.sender.id;
     const preview = event.text?.trim() || "[media]";
-    const truncated = preview.length > 100 ? `${preview.slice(0, 100)}...` : preview;
-    const threadLink = await adapter.getThreadLink(thread.state.thread_key).catch(() => undefined);
+    const truncated =
+      preview.length > 100 ? `${preview.slice(0, 100)}...` : preview;
+    const threadLink = await adapter
+      .getThreadLink(thread.state.thread_key)
+      .catch(() => undefined);
     const linkPart = threadLink ? `\n${threadLink}` : "";
     const text = `New thread by ${mention}.\n"${truncated}"${linkPart}`;
 
@@ -706,4 +852,20 @@ export class FelixEngine {
       });
     }
   }
+}
+
+function sourceFromThreadKey(threadKey: string): string {
+  if (!threadKey || /[\\/\0]/.test(threadKey)) {
+    throw new Error(`Invalid thread key: ${threadKey}`);
+  }
+  const source = threadKey.split(":", 1)[0] ?? "";
+  if (
+    !source ||
+    source === "." ||
+    source === ".." ||
+    safeFileName(source) !== source
+  ) {
+    throw new Error(`Invalid thread key source: ${source}`);
+  }
+  return source;
 }

@@ -22,10 +22,17 @@ export function shouldAcceptEvent(
  * as self; other prefixes may mark human/system roles such as WhatsApp's
  * shared-number `owner:<jid>` sender.
  */
-export function isOwnMessage(event: UniversalEvent, source: string, botUserId?: string): boolean {
+export function isOwnMessage(
+  event: UniversalEvent,
+  source: string,
+  botUserId?: string,
+): boolean {
   if (event.source !== source) return false;
   if (!botUserId) return false;
-  return event.sender.id === botUserId || event.sender.id === `${source}:${botUserId}`;
+  return (
+    event.sender.id === botUserId ||
+    event.sender.id === `${source}:${botUserId}`
+  );
 }
 
 /**
@@ -34,8 +41,16 @@ export function isOwnMessage(event: UniversalEvent, source: string, botUserId?: 
  * commands like `/block` and `/unblock`. When `ownerUserId` is unset the
  * owner identity is unknown and the check returns false (closed by default).
  */
-export function isOwnerMessage(event: UniversalEvent, source: string, ownerUserId?: string): boolean {
+export function isOwnerMessage(
+  event: UniversalEvent,
+  source: string,
+  ownerUserId?: string,
+): boolean {
   if (event.source !== source) return false;
   if (!ownerUserId) return false;
-  return event.sender.id === ownerUserId || event.sender.id === `${source}:${ownerUserId}`;
+  return (
+    event.sender.id === ownerUserId ||
+    event.sender.id === `${source}:${ownerUserId}` ||
+    event.sender.id === `owner:${ownerUserId}`
+  );
 }
