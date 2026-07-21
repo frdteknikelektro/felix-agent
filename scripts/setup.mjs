@@ -5,7 +5,12 @@ import { randomUUID, randomBytes } from "node:crypto";
 import os from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { input, select, checkbox, confirm } from "@inquirer/prompts";
+import {
+  input as rawInput,
+  select as rawSelect,
+  checkbox as rawCheckbox,
+  confirm as rawConfirm,
+} from "@inquirer/prompts";
 import {
   displayEnvValue,
   maskSecretInput,
@@ -38,29 +43,153 @@ const c = {
   magenta: "\x1b[35m",
   cyan: "\x1b[36m",
   white: "\x1b[37m",
+  orange: "\x1b[38;5;208m",
 };
+
+// OSC 8 terminal hyperlink. The visible text stays the plain URL, so a
+// terminal that doesn't support it (ignoring the unknown escape sequence)
+// still shows exactly what it does today — this is purely additive.
+const link = (url) => `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`;
+
+// Strip CSI escape sequences (colors, cursor moves) so a value extracted from a
+// TUI's raw output isn't polluted by an adjacent reset code. A trailing
+// `\x1b[0m` abutting a matched token would otherwise be swallowed by `\S+`.
+const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+
+// ── Prompts ────────────────────────────────────────────────────────────────
+
+// inquirer's default prefix is a bare "?", which reads as unexplained noise.
+// Swap it for an arrow (matches the "›" used elsewhere in this wizard's output)
+// so every question is self-evidently a question without a legend to explain it.
+const PROMPT_THEME = {
+  prefix: {
+    idle: `${c.cyan}${c.bold}›${c.reset}`,
+    done: `${c.green}${c.bold}✓${c.reset}`,
+  },
+};
+const withTheme = (opts) => ({ ...opts, theme: { ...PROMPT_THEME, ...opts.theme } });
+const input = (opts) => rawInput(withTheme(opts));
+const select = (opts) => rawSelect(withTheme(opts));
+const checkbox = (opts) => rawCheckbox(withTheme(opts));
+const confirm = (opts) => rawConfirm(withTheme(opts));
+
+// ── Logo ───────────────────────────────────────────────────────────────────
+
+// 5×7 block glyphs, just enough letters to spell FELIX. Each "on" pixel is
+// rendered as a 2×2 block below, so the logo reads big and bold in a terminal.
+const LOGO_FONT = {
+  F: ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
+  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
+  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
+  I: ["01110", "00100", "00100", "00100", "00100", "00100", "01110"],
+  X: ["10001", "10001", "01010", "00100", "01010", "10001", "10001"],
+};
+
+// Boolean pixel grid for `text`, each font pixel expanded to a `scale`×`scale` block.
+function buildLogoGrid(text, { gap = 1, scale = 2 } = {}) {
+  const grid = Array.from({ length: 7 * scale }, () => []);
+  for (const ch of text) {
+    const glyph = LOGO_FONT[ch];
+    for (let gr = 0; gr < 7; gr++) {
+      for (let gc = 0; gc < 5; gc++) {
+        const on = glyph[gr][gc] === "1";
+        for (let sr = 0; sr < scale; sr++) {
+          for (let sc = 0; sc < scale; sc++) grid[gr * scale + sr].push(on);
+        }
+      }
+    }
+    for (let r = 0; r < grid.length; r++) {
+      for (let g = 0; g < gap * scale; g++) grid[r].push(false);
+    }
+  }
+  return grid;
+}
+
+// Orange → gold, true 24-bit RGB (interpolated per column, not a fixed 256-color ramp).
+const LOGO_GRADIENT = [
+  [255, 140, 0],
+  [255, 209, 102],
+];
+const lerpRgb = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const rgbFg = ([r, g, b]) => `\x1b[38;2;${r};${g};${b}m`;
+
+// COLORFGBG is set by many terminals as "fg;bg" color indices; treat a high bg
+// index as a light background so the shadow blends toward white instead of black.
+function terminalHasLightBackground() {
+  const value = process.env.COLORFGBG;
+  if (!value) return false;
+  const bg = Number(value.split(";").pop());
+  return Number.isInteger(bg) && bg >= 7;
+}
+
+// state: 0 = background, 1 = shadow, 2 = fill. Resolves to an RGB triple or
+// null (background) for the given column, blending the shadow toward the
+// terminal background instead of a fixed dark color.
+function logoPixelColor(state, col, width, bgTarget) {
+  if (state === 0) return null;
+  const fill = lerpRgb(LOGO_GRADIENT[0], LOGO_GRADIENT[1], col / width);
+  return state === 2 ? fill : lerpRgb(fill, bgTarget, 0.55);
+}
+
+// Renders the grid with a drop shadow (copy offset down-right, blended toward
+// the terminal background) under the gradient fill, then packs every two
+// pixel-rows into one terminal line via ▀/▄ half-blocks — halves the printed
+// height instead of one pixel-row per line.
+function renderLogo(text, shadowOffset = 1) {
+  const grid = buildLogoGrid(text);
+  const rows = grid.length;
+  const cols = grid[0].length;
+  const canvas = Array.from({ length: rows + shadowOffset }, () => new Array(cols + shadowOffset).fill(0));
+
+  for (let r = 0; r < rows; r++) {
+    for (let cc = 0; cc < cols; cc++) {
+      if (grid[r][cc]) canvas[r + shadowOffset][cc + shadowOffset] ||= 1; // shadow layer
+    }
+  }
+  for (let r = 0; r < rows; r++) {
+    for (let cc = 0; cc < cols; cc++) {
+      if (grid[r][cc]) canvas[r][cc] = 2; // fill layer, drawn on top
+    }
+  }
+
+  const width = canvas[0].length;
+  const bgTarget = terminalHasLightBackground() ? [255, 255, 255] : [0, 0, 0];
+  const lines = [];
+  for (let r = 0; r < canvas.length; r += 2) {
+    const top = canvas[r];
+    const bottom = canvas[r + 1] || new Array(width).fill(0);
+    let out = "";
+    for (let i = 0; i < width; i++) {
+      const topColor = logoPixelColor(top[i], i, width, bgTarget);
+      const bottomColor = logoPixelColor(bottom[i], i, width, bgTarget);
+      const bold = top[i] === 2 || bottom[i] === 2 ? c.bold : "";
+      if (topColor && bottomColor) {
+        out += `${bold}${rgbFg(topColor)}\x1b[48;2;${bottomColor[0]};${bottomColor[1]};${bottomColor[2]}m▀`;
+      } else if (topColor) {
+        out += `${bold}${rgbFg(topColor)}▀`;
+      } else if (bottomColor) {
+        out += `${bold}${rgbFg(bottomColor)}▄`;
+      } else {
+        out += " ";
+      }
+      out += c.reset;
+    }
+    lines.push(out);
+  }
+  return lines;
+}
+
+function printLogo() {
+  console.log();
+  console.log(renderLogo("FELIX").join("\n"));
+  console.log();
+  console.log(`  Configure your environment interactively.`);
+  console.log(`  Press ${c.bold}Ctrl+C${c.reset} to cancel at any time.`);
+  console.log();
+}
 
 function clear() {
   process.stdout.write("\x1b[2J\x1b[H");
-}
-
-function stripAnsi(str) {
-  return str.replace(/\x1b\[\d+(;\d+)*m/g, "");
-}
-
-function box(text, color = c.cyan) {
-  const lines = text.split("\n");
-  const maxW = Math.max(...lines.map((l) => stripAnsi(l).length));
-  const top = `${color}${c.bold}╔${"═".repeat(maxW + 4)}╗${c.reset}`;
-  const bottom = `${color}${c.bold}╚${"═".repeat(maxW + 4)}╝${c.reset}`;
-  console.log(top);
-  for (const line of lines) {
-    const vis = stripAnsi(line).length;
-    const left = Math.floor((maxW - vis) / 2);
-    const right = maxW - vis - left;
-    console.log(`${color}${c.bold}║${c.reset}  ${" ".repeat(left)}${line}${" ".repeat(right)}  ${color}${c.bold}║${c.reset}`);
-  }
-  console.log(bottom);
 }
 
 function step(n, total, label) {
@@ -92,19 +221,19 @@ function reqTag(required) {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const SOURCE_DEFS = {
-  mattermost: {
-    label: "Mattermost",
-    required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
+  telegram: {
+    label: "Telegram",
+    required: ["TELEGRAM_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["MATTERMOST_OWNER_USER_ID"],
-    ownerHint: "Enter your Mattermost username with or without @. Felix stores only the resolved user ID.",
+    ownerKeys: ["TELEGRAM_OWNER_USER_ID"],
+    ownerHint: "Felix securely discovers the owner from a one-time private claim message.",
   },
-  discord: {
-    label: "Discord",
-    required: ["DISCORD_BOT_TOKEN"],
+  whatsapp: {
+    label: "WhatsApp",
+    required: [],
     optional: {},
-    ownerKeys: ["DISCORD_OWNER_USER_ID"],
-    ownerHint: "Felix securely discovers the owner from a one-time direct message.",
+    ownerKeys: ["WHATSAPP_OWNER_JID"],
+    ownerHint: "Enter your WhatsApp phone number with country code. Felix derives the JID automatically.",
   },
   slack: {
     label: "Slack",
@@ -113,20 +242,30 @@ const SOURCE_DEFS = {
     ownerKeys: ["SLACK_OWNER_USER_ID"],
     ownerHint: "Felix securely discovers the owner from a one-time direct message.",
   },
-  whatsapp: {
-    label: "WhatsApp (via wacli)",
-    required: [],
+  discord: {
+    label: "Discord",
+    required: ["DISCORD_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["WHATSAPP_OWNER_JID"],
-    ownerHint: "Enter your WhatsApp phone number with country code. Felix derives the JID automatically.",
+    ownerKeys: ["DISCORD_OWNER_USER_ID"],
+    ownerHint: "Felix securely discovers the owner from a one-time direct message.",
   },
-  telegram: {
-    label: "Telegram",
-    required: ["TELEGRAM_BOT_TOKEN"],
+  mattermost: {
+    label: "Mattermost",
+    required: ["MATTERMOST_URL", "MATTERMOST_BOT_TOKEN"],
     optional: {},
-    ownerKeys: ["TELEGRAM_OWNER_USER_ID"],
-    ownerHint: "Felix securely discovers the owner from a one-time private claim message.",
+    ownerKeys: ["MATTERMOST_OWNER_USER_ID"],
+    ownerHint: "Enter your Mattermost username with or without @. Felix stores only the resolved user ID.",
   },
+};
+
+// Where each channel's required token/URL comes from — shown before its prompt.
+const CHANNEL_TOKEN_HINTS = {
+  MATTERMOST_URL: "Your Mattermost server's base URL, e.g. https://mattermost.example.com.",
+  MATTERMOST_BOT_TOKEN: `Personal access token for a bot account (System Console → Integrations → Bot Accounts). ${c.dim}${link("https://developers.mattermost.com/integrate/reference/bot-accounts/")}${c.reset}`,
+  DISCORD_BOT_TOKEN: `From the Discord Developer Portal → your application → Bot → Reset Token. ${c.dim}${link("https://discord.com/developers/applications")}${c.reset}`,
+  SLACK_BOT_TOKEN: `Bot token (starts with xoxb-), from OAuth & Permissions in your Slack app. ${c.dim}${link("https://api.slack.com/apps")}${c.reset}`,
+  SLACK_APP_TOKEN: `App-level token (starts with xapp-), from Basic Information → App-Level Tokens. ${c.dim}${link("https://api.slack.com/apps")}${c.reset}`,
+  TELEGRAM_BOT_TOKEN: `Bot token (looks like 123456789:AA...), from @BotFather — send /newbot. ${c.dim}${link("https://t.me/BotFather")}${c.reset}`,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -182,6 +321,44 @@ function existingHint(existing, key) {
     return `  ${c.dim}(current: ${displayEnvValue(key, existing[key])} — Enter to keep)${c.reset}`;
   }
   return "";
+}
+
+// ── Model validation ──────────────────────────────────────────────────────
+
+// Fetches a provider's model list and returns the set of model IDs, or null
+// if the request fails (bad key, offline, endpoint down). A null result means
+// "couldn't verify" — never treated as "no valid models".
+async function fetchModelIds(url, headers) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch(url, { headers, signal: controller.signal });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const ids = (json?.data ?? []).map((m) => m?.id).filter((id) => typeof id === "string");
+    return ids.length > 0 ? new Set(ids) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Prompts for a model name, checking it against a provider's model list when
+// possible. `check(value)` resolves to "valid" | "invalid" | "unknown" — only
+// "invalid" interrupts the flow, since a failed/unavailable check must never
+// block setup.
+async function promptModelWithValidation({ message, default: def, check, providerLabel }) {
+  for (;;) {
+    const value = await input({ message, default: def });
+    const trimmed = value.trim();
+    if (!trimmed || !check) return value;
+    const result = await check(trimmed);
+    if (result !== "invalid") return value;
+    warn(`"${trimmed}" wasn't found in ${providerLabel}'s current model list.`);
+    const keep = await confirm({ message: "Use it anyway?", default: true });
+    if (keep) return value;
+  }
 }
 
 function ownerDiscoveryPrompts() {
@@ -363,17 +540,7 @@ export async function main() {
     wizard.GID = existing.GID || hostGid;
 
     clear();
-
-    box(
-      [
-        "",
-        `${c.bold}Felix Agent Setup${c.reset}`,
-        "",
-        `Configure your environment interactively.`,
-        `Press ${c.bold}Ctrl+C${c.reset} to cancel at any time.`,
-        "",
-      ].join("\n"),
-    );
+    printLogo();
 
     if (existingExists) {
       console.log();
@@ -383,8 +550,9 @@ export async function main() {
 
     // ═══ Step 1: Agent Identity ═════════════════════════════════════════════
 
-    step(1, 8, "Agent Identity");
+    step(1, 7, "Agent Identity");
 
+    info("Give the agent a name — used to get its attention in group chats and shown in the owner console.");
     const agentName = await input({
       message: `FELIX_NAME  ${reqTag(true)}:`,
       default: existing.FELIX_NAME || "Felix",
@@ -394,28 +562,30 @@ export async function main() {
 
     // ═══ Step 2: Harness ═══════════════════════════════════════════════════
 
-    step(2, 8, "Harness");
+    step(2, 7, "Harness");
 
+    info("Harness that powers the agent's reasoning and tool use.");
     const harness = await select({
-      message: "Select LLM backend:",
+      message: `HARNESS  ${reqTag(true)}:`,
       choices: [
-        { value: "codex", name: "codex — OpenAI Codex CLI" },
-        { value: "opencode", name: "opencode — OpenCode CLI" },
-        { value: "claude-code", name: "claude-code — Claude Code CLI by Anthropic" },
+        { value: "codex", name: "codex — Codex CLI by OpenAI", description: `${c.dim}${link("https://github.com/openai/codex")}${c.reset}` },
+        { value: "claude-code", name: "claude-code — Claude Code CLI by Anthropic", description: `${c.dim}${link("https://claude.com/claude-code")}${c.reset}` },
+        { value: "opencode", name: "opencode — OpenCode CLI", description: `${c.dim}${link("https://opencode.ai")}${c.reset}` },
       ],
       default: existing.HARNESS || "codex",
     });
     wizard.HARNESS = harness;
 
+    console.log();
+    info(`9router — auto-fallback across paid, cheap, and free models to cut cost. ${c.dim}${link("https://github.com/decolua/9router")}${c.reset}`);
     const ninerouterEnabled = await confirm({
-      message: "Enable 9router override for the selected harness?",
+      message: `NINEROUTER_ENABLED  ${reqTag(false)}:`,
       default: existing.NINEROUTER_ENABLED === "true",
     });
     wizard.NINEROUTER_ENABLED = ninerouterEnabled ? "true" : "false";
 
     if (ninerouterEnabled) {
       console.log();
-      info("9router will override the active harness API key, base URL, and model.");
       info("Enter the bare gateway base, e.g. https://host.example (no /v1).");
       info("Codex/Opencode append /v1; Claude Code appends /v1/messages.");
       console.log();
@@ -457,34 +627,29 @@ export async function main() {
       if (existing.NINEROUTER_MODEL_FOR_MEMORIZING) wizard.NINEROUTER_MODEL_FOR_MEMORIZING = existing.NINEROUTER_MODEL_FOR_MEMORIZING;
     }
 
-    // ═══ Step 3: API Keys ═══════════════════════════════════════════════════
+    // ═══ Step 3: Model & API Keys ═══════════════════════════════════════════
 
-    step(3, 8, "API Keys");
+    step(3, 7, "Model & API Keys");
 
     if (harness === "codex") {
-      const codexModel = await input({
-        message: `CODEX_MODEL  ${reqTag(false)}:`,
-        default: existing.CODEX_MODEL || "gpt-5.4-mini",
-      });
-      wizard.CODEX_MODEL = codexModel;
-
-      const codexMemModel = await input({
-        message: `CODEX_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.CODEX_MODEL_FOR_MEMORIZING || codexModel,
-      });
-      wizard.CODEX_MODEL_FOR_MEMORIZING = codexMemModel;
+      // Model validation needs a plain bearer key, so auth/key comes first.
+      // OAuth (ChatGPT Plus session) has no such key — validation is skipped then.
+      let codexApiKey = null;
 
       if (ninerouterEnabled) {
         info("9router is enabled, so Codex will use NINEROUTER_KEY at runtime.");
         console.log();
+        info("Optional fallback OPENAI_API_KEY, only used if 9router is later disabled.");
         const oaiKey = await input({
           message: `OPENAI_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENAI_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
           transformer: maskSecretInput,
         });
         if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+        codexApiKey = oaiKey || existing.OPENAI_API_KEY || null;
       } else {
+        info("How Codex authenticates: a raw API key, or OAuth login with your ChatGPT Plus account.");
         const authMethod = await select({
-          message: "Codex authentication method:",
+          message: `Codex authentication method  ${reqTag(true)}:`,
           choices: [
             { value: "api-key", name: "api-key — Use OpenAI API key" },
             { value: "oauth", name: "oauth — Login with ChatGPT Plus account (device auth)" },
@@ -493,8 +658,11 @@ export async function main() {
         });
 
         if (authMethod === "api-key") {
+          console.log();
+          info(`Get a key at ${c.dim}${link("https://platform.openai.com/api-keys")}${c.reset}`);
           const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
           if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+          codexApiKey = oaiKey || existing.OPENAI_API_KEY || null;
         } else {
           // OAuth: use a temp home under workspace
           const tmpHome = join(WORKSPACE_PATH, `.felix-oauth-${randomUUID().slice(0, 8)}`);
@@ -503,7 +671,8 @@ export async function main() {
           console.log();
           info("Launching device auth...");
           info("A browser window will open. Enter the code shown below.");
-          console.log();
+          // No console.log() here — codex's own CLI output already opens
+          // with a blank line; stacking ours on top doubles the gap.
 
           const child = spawn("codex", ["login", "--device-auth"], {
             env: { ...process.env, CODEX_HOME: tmpHome },
@@ -512,26 +681,63 @@ export async function main() {
           const exitCode = await new Promise((resolve) => {
             child.on("close", (code) => resolve(code ?? -1));
           });
+          console.log();
 
           if (exitCode !== 0) {
             warn("codex login failed. Falling back to API key method.");
+            wizard.OPENAI_CODEX_AUTH_JSON = "";
+            info(`Get a key at ${c.dim}${link("https://platform.openai.com/api-keys")}${c.reset}`);
             const oaiKey = await promptRequired("OPENAI_API_KEY", "codex", existing);
             if (oaiKey) wizard.OPENAI_API_KEY = oaiKey;
+            codexApiKey = oaiKey || existing.OPENAI_API_KEY || null;
           } else {
             const authPath = join(tmpHome, "auth.json");
             const authContent = readFileSync(authPath, "utf8");
             wizard.OPENAI_CODEX_AUTH_JSON = JSON.stringify(JSON.parse(authContent));
             wizard.OPENAI_API_KEY = "";
             succeed("Logged in via ChatGPT OAuth");
+            // codexApiKey stays null — a ChatGPT session isn't a bearer key
+            // the public /v1/models endpoint will accept.
           }
 
           // Clean up temp dir
           try { rmSync(tmpHome, { recursive: true }); } catch {}
         }
       }
+
+      console.log();
+      const codexModelIds = codexApiKey
+        ? await fetchModelIds("https://api.openai.com/v1/models", { Authorization: `Bearer ${codexApiKey}` })
+        : null;
+      if (codexApiKey && !codexModelIds) {
+        info("Couldn't reach OpenAI to verify model names — skipping that check.");
+      }
+      const checkCodexModel = codexModelIds ? (v) => (codexModelIds.has(v) ? "valid" : "invalid") : null;
+
+      info("Codex model used for normal turns.");
+      const codexModel = await promptModelWithValidation({
+        message: `CODEX_MODEL  ${reqTag(false)}:`,
+        default: existing.CODEX_MODEL || "gpt-5.6-luna",
+        check: checkCodexModel,
+        providerLabel: "OpenAI",
+      });
+      wizard.CODEX_MODEL = codexModel;
+
+      console.log();
+      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to CODEX_MODEL.");
+      const codexMemModel = await promptModelWithValidation({
+        message: `CODEX_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
+        default: existing.CODEX_MODEL_FOR_MEMORIZING || codexModel,
+        check: checkCodexModel,
+        providerLabel: "OpenAI",
+      });
+      wizard.CODEX_MODEL_FOR_MEMORIZING = codexMemModel;
     }
 
     if (harness === "opencode") {
+      info(ninerouterEnabled
+        ? "API key for the OpenCode provider (unused while 9router is enabled, but kept as a fallback)."
+        : "API key for the OpenCode provider.");
       const ocKey = ninerouterEnabled
         ? await input({
             message: `OPENCODE_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENCODE_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
@@ -540,24 +746,39 @@ export async function main() {
         : await promptRequired("OPENCODE_API_KEY", "opencode", existing);
       if (ocKey) wizard.OPENCODE_API_KEY = ocKey;
 
+      console.log();
+      info("Optional: API key for OpenRouter, only needed if OPENCODE_MODEL points at an openrouter/... model.");
+      info(`Get a key at ${c.dim}${link("https://openrouter.ai/keys")}${c.reset}`);
       const orKey = await input({
         message: `OPENROUTER_API_KEY  ${reqTag(false)}:${existingHint(existing, "OPENROUTER_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
         transformer: maskSecretInput,
       });
       if (orKey) wizard.OPENROUTER_API_KEY = orKey;
 
-      const ocModel = await input({
+      // opencode/... routes through OpenCode's own catalog, which has no
+      // public list-models endpoint to verify against — skip validation.
+      console.log();
+      info("OpenCode model, as provider/model — e.g. opencode/... for opencode.ai routing.");
+      const ocModel = await promptModelWithValidation({
         message: `OPENCODE_MODEL  ${reqTag(false)}:`,
         default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
+        check: null,
+        providerLabel: "OpenCode",
       });
       wizard.OPENCODE_MODEL = ocModel;
 
-      const ocMemModel = await input({
+      console.log();
+      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to OPENCODE_MODEL.");
+      const ocMemModel = await promptModelWithValidation({
         message: `OPENCODE_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
         default: existing.OPENCODE_MODEL_FOR_MEMORIZING || ocModel,
+        check: null,
+        providerLabel: "OpenCode",
       });
       wizard.OPENCODE_MODEL_FOR_MEMORIZING = ocMemModel;
 
+      console.log();
+      info("Reasoning effort for OpenCode: low, medium, or high.");
       const ocVariant = await input({
         message: `OPENCODE_VARIANT  ${reqTag(false)}:`,
         default: existing.OPENCODE_VARIANT || "high",
@@ -566,34 +787,187 @@ export async function main() {
     }
 
     if (harness === "claude-code") {
-      const ccKey = ninerouterEnabled
-        ? await input({
-            message: `ANTHROPIC_API_KEY  ${reqTag(false)}:${existingHint(existing, "ANTHROPIC_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
-            transformer: maskSecretInput,
-          })
-        : await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
-      if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
+      // Model validation needs a plain bearer credential, so auth/key comes first.
+      let anthropicApiKey = null;
+      let anthropicOAuthToken = null;
 
-      const ccModel = await input({
-        message: `CLAUDE_CODE_MODEL  ${reqTag(false)}:`,
-        default: existing.CLAUDE_CODE_MODEL || "sonnet",
+      if (ninerouterEnabled) {
+        info("Optional fallback ANTHROPIC_API_KEY, only used if 9router is later disabled.");
+        const ccKey = await input({
+          message: `ANTHROPIC_API_KEY  ${reqTag(false)}:${existingHint(existing, "ANTHROPIC_API_KEY") || `  ${c.dim}(Enter to skip)${c.reset}`}`,
+          transformer: maskSecretInput,
+        });
+        if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
+        anthropicApiKey = ccKey || existing.ANTHROPIC_API_KEY || null;
+      } else {
+        info("How Claude Code authenticates: a raw API key, or OAuth login with your Claude subscription.");
+        const authMethod = await select({
+          message: `Claude Code authentication method  ${reqTag(true)}:`,
+          choices: [
+            { value: "api-key", name: "api-key — Use Anthropic API key" },
+            { value: "oauth", name: "oauth — Login with Claude subscription (Pro/Max/Team)" },
+          ],
+          default: existing.CLAUDE_CODE_OAUTH_TOKEN ? "oauth" : "api-key",
+        });
+
+        if (authMethod === "api-key") {
+          console.log();
+          info(`Get a key at ${c.dim}${link("https://console.anthropic.com/settings/keys")}${c.reset}`);
+          const ccKey = await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
+          if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
+          anthropicApiKey = ccKey || existing.ANTHROPIC_API_KEY || null;
+        } else {
+          console.log();
+          info("Launching device auth...");
+          info("A browser window will open. Approve access, then return here.");
+
+          // `claude setup-token` is an Ink TUI — with stdout piped (not a TTY)
+          // it can't redraw in place, so it reprints its whole splash/spinner
+          // frame on every tick. Forwarding that raw would flood the terminal.
+          // Buffer silently instead, and surface only the sign-in URL — the
+          // one thing the user actually needs — the first time it appears.
+          // stdin stays inherited so a pasted callback code still reaches
+          // `claude` directly, even though we never show its own prompt text.
+          let output = "";
+          let printedUrl = false;
+          let maskLength = 0;
+          const child = spawn("claude", ["setup-token"], {
+            env: { ...process.env },
+            stdio: ["inherit", "pipe", "inherit"],
+          });
+          child.stdout.on("data", (chunk) => {
+            output += chunk.toString("utf8");
+            if (!printedUrl) {
+              const urlMatch = stripAnsi(output).match(/https:\S*oauth\/authorize\S*/);
+              if (urlMatch) {
+                printedUrl = true;
+                info("If the browser didn't open, visit this URL to sign in:");
+                console.log(`\n  ${c.bold}${c.yellow}${urlMatch[0]}${c.reset}\n`);
+                info("If it asks you to paste a code back, type it here and press Enter.");
+              }
+            }
+            // The child masks pasted-code keystrokes with "*", but that only
+            // exists inside the frame-spam we're suppressing above — recreate
+            // it ourselves as a single line that grows in place (\r, no \n).
+            // Runs of 2+ avoid the stray single "*" sparkles in the splash art.
+            const runs = output.match(/\*{2,}/g);
+            const longest = runs ? Math.max(...runs.map((run) => run.length)) : 0;
+            if (longest > maskLength) {
+              maskLength = longest;
+              process.stdout.write(`\r  ${c.dim}Paste code:${c.reset} ${"*".repeat(maskLength)}`);
+            }
+          });
+          const exitCode = await new Promise((resolve) => {
+            // Containers commonly can't reach the local OAuth callback server
+            // (Anthropic's own docs flag this), falling back to a manual
+            // paste-code prompt — without a timeout a stalled flow would hang
+            // the wizard forever with only Ctrl+C as an escape.
+            const timeout = setTimeout(() => {
+              child.kill();
+              resolve(-1);
+            }, 5 * 60 * 1000);
+            child.on("close", (code) => {
+              clearTimeout(timeout);
+              resolve(code ?? -1);
+            });
+          });
+          console.log();
+
+          // \S+ rather than a fixed charset — the exact token alphabet isn't
+          // authoritatively documented, and a too-narrow charset would
+          // silently truncate a valid token instead of failing loudly.
+          const tokenMatch = stripAnsi(output).match(/sk-ant-oat01-\S+/);
+          if (exitCode !== 0 || !tokenMatch) {
+            warn("claude setup-token failed. Falling back to API key method.");
+            wizard.CLAUDE_CODE_OAUTH_TOKEN = "";
+            info(`Get a key at ${c.dim}${link("https://console.anthropic.com/settings/keys")}${c.reset}`);
+            const ccKey = await promptRequired("ANTHROPIC_API_KEY", "claude-code", existing);
+            if (ccKey) wizard.ANTHROPIC_API_KEY = ccKey;
+            anthropicApiKey = ccKey || existing.ANTHROPIC_API_KEY || null;
+          } else {
+            wizard.CLAUDE_CODE_OAUTH_TOKEN = tokenMatch[0];
+            // Claude Code's own auth precedence ranks ANTHROPIC_API_KEY above
+            // CLAUDE_CODE_OAUTH_TOKEN — clear it so the OAuth token actually wins.
+            wizard.ANTHROPIC_API_KEY = "";
+            succeed("Logged in via Claude subscription");
+            anthropicOAuthToken = tokenMatch[0];
+          }
+        }
+      }
+
+      // Claude Code accepts these short aliases directly — they never appear
+      // in /v1/models (which lists full model IDs), so treat them as valid
+      // without a network round-trip.
+      const CLAUDE_CODE_CHOICES = [
+        { value: "sonnet", name: "sonnet — balanced default, best for most tasks" },
+        { value: "opus", name: "opus — most capable, higher cost & latency" },
+        { value: "haiku", name: "haiku — fastest and cheapest" },
+        { value: "fable", name: "fable — alternate Claude model" },
+      ];
+      const CLAUDE_CODE_ALIASES = new Set(CLAUDE_CODE_CHOICES.map((choice) => choice.value));
+      const CLAUDE_CODE_CUSTOM = "__custom__";
+
+      async function pickClaudeModel({ envKey, defaultValue, check }) {
+        const isKnownAlias = CLAUDE_CODE_ALIASES.has(defaultValue);
+        const picked = await select({
+          message: `${envKey}  ${reqTag(false)}:`,
+          choices: [...CLAUDE_CODE_CHOICES, { value: CLAUDE_CODE_CUSTOM, name: "other — enter a full model ID" }],
+          default: isKnownAlias ? defaultValue : CLAUDE_CODE_CUSTOM,
+        });
+        if (picked !== CLAUDE_CODE_CUSTOM) return picked;
+        return promptModelWithValidation({
+          message: `${envKey} (custom)  ${reqTag(false)}:`,
+          default: isKnownAlias ? "" : defaultValue,
+          check,
+          providerLabel: "Anthropic",
+        });
+      }
+
+      console.log();
+      // OAuth tokens authenticate differently from API keys — Bearer, not
+      // x-api-key, plus the oauth beta header (x-api-key returns 401).
+      const anthropicModelIds = anthropicApiKey
+        ? await fetchModelIds("https://api.anthropic.com/v1/models", {
+            "x-api-key": anthropicApiKey,
+            "anthropic-version": "2023-06-01",
+          })
+        : anthropicOAuthToken
+          ? await fetchModelIds("https://api.anthropic.com/v1/models", {
+              Authorization: `Bearer ${anthropicOAuthToken}`,
+              "anthropic-version": "2023-06-01",
+              "anthropic-beta": "oauth-2025-04-20",
+            })
+          : null;
+      if ((anthropicApiKey || anthropicOAuthToken) && !anthropicModelIds) {
+        info("Couldn't reach Anthropic to verify model names — skipping that check.");
+      }
+      const checkClaudeModel = anthropicModelIds
+        ? (v) => (CLAUDE_CODE_ALIASES.has(v) || anthropicModelIds.has(v) ? "valid" : "invalid")
+        : null;
+
+      info("Claude Code model used for normal turns.");
+      const ccModel = await pickClaudeModel({
+        envKey: "CLAUDE_CODE_MODEL",
+        defaultValue: existing.CLAUDE_CODE_MODEL || "sonnet",
+        check: checkClaudeModel,
       });
       wizard.CLAUDE_CODE_MODEL = ccModel;
 
-      const ccMemModel = await input({
-        message: `CLAUDE_CODE_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || ccModel,
+      console.log();
+      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to CLAUDE_CODE_MODEL.");
+      const ccMemModel = await pickClaudeModel({
+        envKey: "CLAUDE_CODE_MODEL_FOR_MEMORIZING",
+        defaultValue: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || ccModel,
+        check: checkClaudeModel,
       });
       wizard.CLAUDE_CODE_MODEL_FOR_MEMORIZING = ccMemModel;
     }
 
     // ═══ Step 4: Owner Console ══════════════════════════════════════════════
 
-    step(4, 8, "Owner Console");
+    step(4, 7, "Owner Console");
 
     info("Enter a secret for the owner web console.");
-    info("Press Enter to auto-generate one.");
-    console.log();
 
     const secret = await input({
       message: `OWNER_UI_SECRET  ${reqTag(false)}:`,
@@ -606,48 +980,35 @@ export async function main() {
     }
     wizard.OWNER_UI_SECRET = secret;
 
-    // ═══ Step 5: Database Encryption ═══════════════════════════════════════
+    // Database encryption key — no need to interrupt setup for this; generate
+    // silently and let the user rotate it later in .env if they ever need to.
+    wizard.DB_ENCRYPTION_KEY = existing.DB_ENCRYPTION_KEY || randomBytes(32).toString("base64");
 
-    step(5, 8, "Database Encryption");
+    // ═══ Step 5: Sources ════════════════════════════════════════════════════
 
-    info("A key is needed to encrypt database connection credentials.");
-    info("Press Enter to auto-generate one.");
-    console.log();
+    step(5, 7, "Sources");
 
-    const dbKey = await input({
-      message: `DB_ENCRYPTION_KEY  ${reqTag(false)}:`,
-      default: existing.DB_ENCRYPTION_KEY || randomBytes(32).toString("base64"),
-      transformer: maskSecretInput,
-    });
-    wizard.DB_ENCRYPTION_KEY = dbKey;
-
-    // ═══ Step 6: Sources ════════════════════════════════════════════════════
-
-    step(6, 8, "Sources");
-
-    info("Select chat sources Felix will listen to.");
-    console.log();
-
+    info("Chat sources Felix will listen to.");
     const listenSources = await checkbox({
       message: "Listening sources:",
       choices: [
-        { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
-        { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
-        { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
+        { value: "telegram", name: "Telegram", checked: !!existing.TELEGRAM_BOT_TOKEN },
         {
           value: "whatsapp",
-          name: "WhatsApp (via wacli)",
+          name: "WhatsApp",
           checked: !!(existing.WHATSAPP_OWNER_JID || existing.WHATSAPP_BOT_ALIASES || existing.WHATSAPP_BOT_NAME),
         },
-        { value: "telegram", name: "Telegram", checked: !!existing.TELEGRAM_BOT_TOKEN },
+        { value: "slack", name: "Slack", checked: !!(existing.SLACK_BOT_TOKEN || existing.SLACK_TOKEN) },
+        { value: "discord", name: "Discord", checked: !!(existing.DISCORD_BOT_TOKEN || existing.DISCORD_TOKEN) },
+        { value: "mattermost", name: "Mattermost", checked: !!(existing.MATTERMOST_BOT_TOKEN || existing.MATTERMOST_TOKEN) },
       ],
     });
 
     if (listenSources.length > 1) {
-      info("Where should permission notifications go?");
       console.log();
+      info("Send every owner approval request to one channel, instead of wherever it originated.");
       const notifyChannel = await select({
-        message: "Permission notification channel:",
+        message: `OWNER_CHANNEL  ${reqTag(false)}:`,
         choices: [
           { value: "", name: "Same as event source (each event notifies its own source)" },
           ...listenSources.map((s) => ({ value: s, name: SOURCE_DEFS[s].label })),
@@ -679,7 +1040,20 @@ export async function main() {
       const def = SOURCE_DEFS[src];
       section(def.label);
 
-      for (const reqKey of def.required) {
+      if (src === "slack") {
+        info(`Create an app at ${c.dim}${link("https://api.slack.com/apps")}${c.reset} with Socket Mode enabled.`);
+        info(`${c.bold}App Home${c.reset} → Messages Tab → check "Allow users to send messages" (off by default — blocks DMs).`);
+        info("Bot scopes: channels:history, groups:history, im:history, mpim:history, chat:write, reactions:write, reactions:read, files:read, users:read.");
+        info("Event Subscriptions → Subscribe to bot events → message.im.");
+        info("App-Level Token needs the connections:write scope.");
+        console.log();
+      }
+
+      for (let i = 0; i < def.required.length; i++) {
+        const reqKey = def.required[i];
+        if (i > 0) console.log();
+        const hint = CHANNEL_TOKEN_HINTS[reqKey];
+        if (hint) info(hint);
         const val = await promptRequired(reqKey, src, existing);
         if (val) wizard[reqKey] = val;
       }
@@ -706,7 +1080,7 @@ export async function main() {
         wizard.MATTERMOST_OWNER_USER_ID = owner.userId;
         succeed("Mattermost owner configured.");
       } else if (src === "whatsapp") {
-        // WHATSAPP_BOT_ALIASES — plain input, optional
+        info(`Optional short mention names, e.g. "f,bot" lets people write @f or @bot instead of @${wizard.FELIX_NAME}.`);
         const aliases = await input({
           message: `WHATSAPP_BOT_ALIASES  ${reqTag(false)}:`,
           default: existing.WHATSAPP_BOT_ALIASES || "",
@@ -747,16 +1121,28 @@ export async function main() {
           }
         }
       } else if (src === "telegram") {
+        console.log();
+        info("How Felix receives Telegram messages.");
         const mode = await select({
-          message: "Telegram transport mode:",
+          message: `TELEGRAM_MODE  ${reqTag(true)}:`,
           choices: [
-            { value: "polling", name: "Polling (no public URL required)" },
-            { value: "webhook", name: "Webhook (requires HTTPS reverse proxy)" },
+            {
+              value: "polling",
+              name: "polling — no public URL required",
+              description: "Felix polls Telegram's servers for updates. Simplest option, works behind NAT/firewalls.",
+            },
+            {
+              value: "webhook",
+              name: "webhook — requires HTTPS reverse proxy",
+              description: "Telegram pushes updates to your own HTTPS endpoint instead. Needs a public URL with valid TLS.",
+            },
           ],
           default: existing.TELEGRAM_MODE === "webhook" ? "webhook" : "polling",
         });
         wizard.TELEGRAM_MODE = mode;
         if (mode === "webhook") {
+          console.log();
+          info("Public HTTPS URL Telegram will push updates to (needs a reverse proxy reachable from the internet).");
           const webhookUrl = await input({
             message: `TELEGRAM_WEBHOOK_URL  ${reqTag(true)}:`,
             default: existing.TELEGRAM_WEBHOOK_URL || "",
@@ -770,6 +1156,9 @@ export async function main() {
             },
           });
           wizard.TELEGRAM_WEBHOOK_URL = webhookUrl;
+
+          console.log();
+          info("Verifies incoming requests really come from Telegram. Auto-generated if left blank.");
           const webhookSecret = await input({
             message: `TELEGRAM_WEBHOOK_SECRET  ${reqTag(true)}:`,
             default: existing.TELEGRAM_WEBHOOK_SECRET || randomBytes(32).toString("hex"),
@@ -811,7 +1200,6 @@ export async function main() {
       } else if (src === "slack") {
         console.log();
         info(def.ownerHint);
-        info("Socket Mode and the message.im event subscription must be enabled for the app.");
         const owner = await resolveSetupOwner({
           source: "slack",
           credentials: {
@@ -837,9 +1225,9 @@ export async function main() {
       warn("No sources selected. You can re-run setup later.");
     }
 
-    // ═══ Step 7: Skill Environment ══════════════════════════════════════════
+    // ═══ Step 6: Skill Environment ══════════════════════════════════════════
 
-    step(7, 8, "Skill Environment");
+    step(6, 7, "Skill Environment");
 
     const skillDirs = [join(ROOT, "skills")];
     const agentsDir = join(WORKSPACE_PATH, ".agents", "skills");
@@ -900,9 +1288,9 @@ export async function main() {
       }
     }
 
-    // ═══ Step 8: Review ═════════════════════════════════════════════════════
+    // ═══ Step 7: Review ═════════════════════════════════════════════════════
 
-    step(8, 8, "Review");
+    step(7, 7, "Review");
 
     if (wizard.NINEROUTER_ENABLED === "true") {
       console.log();
@@ -937,8 +1325,11 @@ export async function main() {
     const maxKey = keyLens.length > 0 ? Math.min(32, Math.max(...keyLens) + 2) : 16;
 
     console.log();
+    let firstSection = true;
     for (const entry of template) {
       if (entry.type === "comment" && /^# ──/.test(entry.raw)) {
+        if (!firstSection) console.log();
+        firstSection = false;
         console.log(`  ${c.dim}${entry.raw.slice(2)}${c.reset}`);
       } else if (entry.type === "setting" && entry.key in final) {
         const rendered = displayEnvValue(entry.key, final[entry.key]);
@@ -952,6 +1343,7 @@ export async function main() {
     }
 
     if (skillExtras.length > 0) {
+      console.log();
       console.log(`  ${c.dim}── Skill environment ───────────────────────────${c.reset}`);
       for (const key of skillExtras.sort()) {
         const rendered = displayEnvValue(key, final[key]);

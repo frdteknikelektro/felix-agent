@@ -136,7 +136,7 @@ Key variables:
 | `ANTHROPIC_API_KEY` | Claude Code harness | Anthropic API key |
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node` |
-| `CODEX_MODEL` | — | default `gpt-5.4-mini` |
+| `CODEX_MODEL` | — | default `gpt-5.6-luna` |
 | `CODEX_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CODEX_MODEL`) |
 | `OPENCODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `OPENCODE_MODEL`) |
 | `CLAUDE_CODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CLAUDE_CODE_MODEL`) |

@@ -130,7 +130,6 @@ export function opencodeSettings(cfg: AppConfig): HarnessSettings {
       OPENAI_API_KEY: cfg.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY,
       OPENCODE_API_KEY: cfg.OPENCODE_API_KEY ?? process.env.OPENCODE_API_KEY,
       OPENROUTER_API_KEY: cfg.OPENROUTER_API_KEY ?? process.env.OPENROUTER_API_KEY,
-      DEEPSEEK_API_KEY: cfg.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
       PATH: buildSpawnPath(cfg),
       ...googleWorkspaceEnv(cfg),
     },
@@ -157,6 +156,7 @@ export function claudeCodeSettings(cfg: AppConfig): HarnessSettings {
     env: {
       WORKSPACE_DIR: cfg.WORKSPACE_DIR,
       ANTHROPIC_API_KEY: cfg.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY,
+      CLAUDE_CODE_OAUTH_TOKEN: cfg.CLAUDE_CODE_OAUTH_TOKEN ?? process.env.CLAUDE_CODE_OAUTH_TOKEN,
       PATH: buildSpawnPath(cfg),
       ...googleWorkspaceEnv(cfg),
     },
@@ -171,13 +171,12 @@ export function hasOpencodeAuth(cfg: AppConfig): boolean {
   return ninerouterEnabled(cfg) || Boolean(
     cfg.OPENAI_API_KEY ||
     cfg.OPENCODE_API_KEY ||
-    cfg.OPENROUTER_API_KEY ||
-    cfg.DEEPSEEK_API_KEY
+    cfg.OPENROUTER_API_KEY
   );
 }
 
 export function hasClaudeCodeAuth(cfg: AppConfig): boolean {
-  return ninerouterEnabled(cfg) || Boolean(cfg.ANTHROPIC_API_KEY);
+  return ninerouterEnabled(cfg) || Boolean(cfg.ANTHROPIC_API_KEY || cfg.CLAUDE_CODE_OAUTH_TOKEN);
 }
 
 export function codexModelForMemorizing(cfg: AppConfig): string {
