@@ -48,6 +48,18 @@ export function progressStateFromSnapshot(
       next[session.threadKey] = session.currentProgress;
     }
   }
+  const snapshotAt = Date.parse(snapshot.at);
+  if (Number.isFinite(snapshotAt)) {
+    for (const [threadKey, previousProgress] of Object.entries(previous.progressByThread)) {
+      if (
+        previousProgress &&
+        !(threadKey in next) &&
+        Date.parse(previousProgress.at) > snapshotAt
+      ) {
+        next[threadKey] = previousProgress;
+      }
+    }
+  }
   for (const [threadKey, snapshotProgress] of Object.entries(next)) {
     if (!snapshotProgress) continue;
     const previousProgress = previous.progressByThread[threadKey];

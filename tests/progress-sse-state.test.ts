@@ -87,4 +87,23 @@ describe("Owner progress SSE state", () => {
       status: "Recovered progress",
     });
   });
+
+  it("preserves newer live progress omitted from a delayed snapshot", () => {
+    const live = {
+      ...event,
+      at: "2026-07-20T12:00:01.000Z",
+      sequence: 2,
+      status: "New turn started",
+    };
+    const snapshot = {
+      at: "2026-07-20T12:00:00.000Z",
+      activeSessionList: [],
+      currentProgressByThread: {},
+    } as unknown as DashboardSnapshot;
+
+    expect(progressStateFromSnapshot(snapshot, {
+      progressByThread: { [event.threadKey]: live },
+      terminalAttempts: {},
+    }).progressByThread[event.threadKey]).toEqual(live);
+  });
 });
