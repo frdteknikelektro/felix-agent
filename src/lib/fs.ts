@@ -42,6 +42,14 @@ export async function appendText(file: string, text: string): Promise<void> {
   await fs.appendFile(file, text, "utf8");
 }
 
+/** Append one complete JSON value as one line to a tail-followable artifact. */
+export async function appendNdjsonLine(file: string, value: unknown): Promise<void> {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error("Cannot serialize undefined as NDJSON");
+  await ensureDir(path.dirname(file));
+  await fs.appendFile(file, `${serialized}\n`, "utf8");
+}
+
 export async function readJson<T>(file: string, fallback: T): Promise<T> {
   try {
     const raw = await fs.readFile(file, "utf8");

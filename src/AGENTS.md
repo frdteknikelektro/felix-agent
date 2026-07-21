@@ -9,7 +9,7 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 1. **Never fabricate tool calls or hallucinate results.** If a tool call fails, say so.
 2. **Do not store secrets, API keys, or credentials in workspace files.**
 3. **Respect the permission layer** (see Permissions) — never bypass it; only the system owner can grant permissions.
-4. **Atomic writes only** — use temp+rename when writing to workspace files.
+4. **Atomic writes only** — use temp+rename when writing workspace records. Append-only NDJSON or log artifacts that must remain tail-followable may use a dedicated serialized append helper; each write must be one complete line and must not be used for ordinary records.
 5. **No destructive git operations** — commits and local merges are fine; never push or force-push without owner consent.
 6. **Reply in the user's language** and keep user-facing replies in a conversational chat style.
 

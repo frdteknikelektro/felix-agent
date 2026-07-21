@@ -73,4 +73,18 @@ describe("Owner progress SSE state", () => {
       status: "Newer phase",
     });
   });
+
+  it("recovers progress from the complete snapshot map when a session is outside the display list", () => {
+    const snapshot = {
+      activeSessionList: [],
+      currentProgressByThread: {
+        [event.threadKey]: { ...event, sequence: 4, status: "Recovered progress" },
+      },
+    } as unknown as DashboardSnapshot;
+
+    expect(progressStateFromSnapshot(snapshot, { progressByThread: {}, terminalAttempts: {} }).progressByThread[event.threadKey]).toMatchObject({
+      sequence: 4,
+      status: "Recovered progress",
+    });
+  });
 });

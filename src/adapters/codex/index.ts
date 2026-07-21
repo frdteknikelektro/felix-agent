@@ -7,8 +7,7 @@ import type { AppConfig } from "../../config.js";
 import { appendText, ensureDir, readText, writeTextAtomic } from "../../lib/fs.js";
 import { fsTimestamp } from "../../lib/time.js";
 import { log } from "../../lib/log.js";
-import type { Harness, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
-import type { ProgressReporter, ProgressUpdate } from "../../slices/progress/index.js";
+import type { Harness, ProgressReporter, ProgressUpdate, TurnInput, TurnResult, TurnUsage, DecisionNotificationInput, CompactResult } from "../../core/ports.js";
 import {
   parseAgentOutput,
   hasRenderableOutput,

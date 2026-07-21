@@ -42,11 +42,12 @@ export function progressStateFromSnapshot(
   snapshot: DashboardSnapshot,
   previous: ProgressClientState,
 ): ProgressClientState {
-  const next: ProgressState = Object.fromEntries(
-    snapshot.activeSessionList.flatMap((session) => (
-      session.currentProgress ? [[session.threadKey, session.currentProgress]] as const : []
-    )),
-  );
+  const next: ProgressState = { ...(snapshot.currentProgressByThread ?? {}) };
+  for (const session of snapshot.activeSessionList) {
+    if (session.currentProgress && !(session.threadKey in next)) {
+      next[session.threadKey] = session.currentProgress;
+    }
+  }
   for (const [threadKey, snapshotProgress] of Object.entries(next)) {
     if (!snapshotProgress) continue;
     const previousProgress = previous.progressByThread[threadKey];

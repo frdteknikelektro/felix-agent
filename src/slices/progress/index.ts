@@ -1,23 +1,10 @@
-import path from "node:path";
-import { appendText, ensureDir } from "../../lib/fs.js";
+import { appendNdjsonLine } from "../../lib/fs.js";
 import { log } from "../../lib/log.js";
 import { ProgressEventSchema, type ProgressEventRecord } from "../../core/schemas.js";
+import type { ProgressPhase, ProgressReporter, ProgressUpdate } from "../../core/ports.js";
 
 export type ProgressEvent = ProgressEventRecord;
 export type HarnessName = ProgressEvent["harness"];
-export type ProgressPhase = ProgressEvent["phase"];
-
-export interface ProgressUpdate {
-  phase: ProgressPhase;
-  status: string;
-  sessionId?: string;
-  tool?: string;
-  elapsedMs?: number;
-}
-
-export interface ProgressReporter {
-  emit(update: ProgressUpdate): void;
-}
 
 export interface ProgressReporterContext {
   threadKey: string;
@@ -37,9 +24,8 @@ const MAX_STATUS_LENGTH = 240;
 const MAX_TOOL_LENGTH = 80;
 
 async function appendProgressArtifact(artifactPath: string, event: ProgressEvent): Promise<void> {
-  await ensureDir(path.dirname(artifactPath));
   const validated = ProgressEventSchema.parse(event);
-  await appendText(artifactPath, `${JSON.stringify(validated)}\n`);
+  await appendNdjsonLine(artifactPath, validated);
 }
 
 function sanitize(value: string, maxLength: number): string {

@@ -1,8 +1,40 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ProgressStore } from "../src/slices/progress/index.js";
 import { ProgressEventSchema } from "../src/core/schemas.js";
 
 describe("ProgressStore", () => {
+  it("writes ordered validated NDJSON lines with the default artifact writer", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "felix-progress-"));
+    const artifactPath = path.join(dir, "turns", "progress.ndjson");
+    const store = new ProgressStore();
+    const reporter = store.createReporter({
+      threadKey: "t",
+      harness: "codex",
+      attempt: 1,
+      artifactPath,
+      now: () => "2026-07-20T12:00:00.000Z",
+    });
+
+    reporter.emit({ phase: "started", status: "Starting" });
+    reporter.emit({ phase: "thinking", status: "Thinking" });
+    reporter.emit({ phase: "completed", status: "Done" });
+
+    let raw = "";
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      raw = await fs.readFile(artifactPath, "utf8").catch(() => "");
+      if (raw.trim().split("\n").length === 3) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    const events = raw.trim().split("\n").map((line) => JSON.parse(line) as { sequence: number; phase: string });
+    expect(events.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(events.map((event) => event.phase)).toEqual(["started", "thinking", "completed"]);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
   it("publishes ordered redacted events, writes the CLI artifact, and clears terminal state", async () => {
     const writeArtifact = vi.fn(async () => undefined);
     const store = new ProgressStore(writeArtifact);

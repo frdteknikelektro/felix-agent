@@ -151,6 +151,7 @@ export interface DashboardSnapshot {
   pendingApprovals: number;
   sessionsToday: number;
   activeSessionList: DashboardActiveSession[];
+  currentProgressByThread?: Record<string, ProgressEvent>;
   pendingApprovalList: ApprovalRecord[];
   recentActivity: DashboardActivityItem[];
   tokensToday: number;

@@ -1,7 +1,21 @@
 import type { ContactRecord, SkillRecord, SourceMessageAnchor, UniversalAttachment, UniversalEvent } from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
 import type { PlatformIdentity } from "./platform-identity.js";
-import type { ProgressReporter } from "../slices/progress/index.js";
+import type { ProgressEventRecord } from "./schemas.js";
+
+export type ProgressPhase = ProgressEventRecord["phase"];
+
+export interface ProgressUpdate {
+  phase: ProgressPhase;
+  status: string;
+  sessionId?: string;
+  tool?: string;
+  elapsedMs?: number;
+}
+
+export interface ProgressReporter {
+  emit(update: ProgressUpdate): void;
+}
 
 // ─── Source port ──────────────────────────────────────────────────────────────
 

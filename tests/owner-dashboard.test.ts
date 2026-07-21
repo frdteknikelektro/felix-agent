@@ -145,6 +145,30 @@ describe("buildDashboardSnapshot", () => {
     expect(snap.activeSessionList[0]!.threadKey).toBe("busy");
   });
 
+  it("keeps current progress for sessions outside the dashboard display limit", () => {
+    const progress = {
+      threadKey: "t15",
+      harness: "codex" as const,
+      attempt: 1,
+      sequence: 2,
+      at: "2026-06-22T11:00:00.000Z",
+      phase: "thinking" as const,
+      status: "Thinking",
+      elapsedMs: 1000,
+    };
+    const summaries = Array.from({ length: 16 }, (_, index) => summary({
+      threadKey: `t${index}`,
+      updatedAt: index === 15 ? "2026-06-22T10:00:00.000Z" : "2026-06-22T11:00:00.000Z",
+      currentProgress: index === 15 ? progress : undefined,
+    }));
+
+    const snap = buildDashboardSnapshot(summaries, [], [], now);
+
+    expect(snap.activeSessionList).toHaveLength(15);
+    expect(snap.activeSessionList.some((session) => session.threadKey === "t15")).toBe(false);
+    expect(snap.currentProgressByThread.t15).toEqual(progress);
+  });
+
   it("merges audit entries and session turn/message activity, newest first", () => {
     const audit: AuditEntry[] = [
       {

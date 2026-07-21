@@ -106,6 +106,7 @@ export interface DashboardSnapshot {
   pendingApprovals: number;
   sessionsToday: number;
   activeSessionList: DashboardActiveSession[];
+  currentProgressByThread: Record<string, ProgressEvent>;
   pendingApprovalList: ApprovalRecord[];
   recentActivity: DashboardActivityItem[];
   tokensToday: number;
@@ -245,6 +246,11 @@ export function buildDashboardSnapshot(
 ): DashboardSnapshot {
   const pending = approvals.filter((a) => a.status === "pending");
   const today = tzDateKey(now, tz);
+  const currentProgressByThread = Object.fromEntries(
+    summaries.flatMap((summary) => (
+      summary.currentProgress ? [[summary.threadKey, summary.currentProgress] as const] : []
+    )),
+  );
 
   const activeSessionList = [...summaries]
     .sort((a, b) => Number(b.busy) - Number(a.busy) || b.updatedAt.localeCompare(a.updatedAt))
@@ -285,6 +291,7 @@ export function buildDashboardSnapshot(
     pendingApprovals: pending.length,
     sessionsToday: summaries.filter((s) => tzDateKey(s.createdAt, tz) === today).length,
     activeSessionList,
+    currentProgressByThread,
     pendingApprovalList: pending,
     recentActivity,
     tokensToday,

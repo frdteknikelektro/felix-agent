@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { TurnRunner, type TurnRunnerPorts } from "../src/core/turn-runner.js";
-import type { Harness, SourceTurnContext, TurnInput, TurnResult } from "../src/core/ports.js";
+import type { Harness, ProgressReporter, ProgressUpdate, SourceTurnContext, TurnInput, TurnResult } from "../src/core/ports.js";
 import type { ThreadHandle } from "../src/slices/sessions/index.js";
 import type { ContactRecord, SessionQueueItem, SessionState, SkillRecord, UniversalEvent } from "../src/types.js";
-import type { ProgressReporter, ProgressUpdate } from "../src/slices/progress/index.js";
 
 function makeThread(session: SessionState = { busy: false, queue: [], pending_permission: null }): ThreadHandle {
   return {
@@ -230,5 +229,28 @@ describe("TurnRunner", () => {
 
     expect(ports.progressReporter).toHaveBeenCalledTimes(2);
     expect(inputs[0]?.progress).not.toBe(inputs[1]?.progress);
+  });
+
+  it("marks the correction attempt failed when correction execution throws", async () => {
+    const harness: Harness = {
+      run: vi.fn(async (input) => {
+        if (input.promptOverride) throw new Error("correction failed");
+        return makeResult({ parsed: { kind: "format_error", text: "missing marker" } });
+      }),
+    };
+    const ports = makePorts();
+    const progressEvents: ProgressUpdate[][] = [];
+    ports.progressReporter = vi.fn(() => {
+      const events: ProgressUpdate[] = [];
+      progressEvents.push(events);
+      return { emit: (event: ProgressUpdate) => events.push(event) };
+    });
+    const runner = new TurnRunner(harness, ports);
+
+    await runner.run(makeInput());
+
+    expect(progressEvents).toHaveLength(2);
+    expect(progressEvents[1]?.map((event) => event.phase)).toEqual(["started", "failed"]);
+    expect(progressEvents[1]?.map((event) => event.status)).not.toContain("Turn completed");
   });
 });

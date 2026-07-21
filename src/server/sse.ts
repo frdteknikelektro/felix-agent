@@ -20,11 +20,22 @@ let ticking = false;
 let cfgRef: AppConfig | null = null;
 let lastSnapshot: DashboardSnapshot | null = null;
 
+export interface DashboardProgressSource {
+  allCurrent(): ProgressEvent[];
+  subscribe(listener: (event: ProgressEvent) => void): () => void;
+}
+
+export interface DashboardSseDependencies {
+  progressSource?: DashboardProgressSource;
+}
+
 export function addDashboardClient(
   cfg: AppConfig,
   req: http.IncomingMessage,
   res: http.ServerResponse,
+  dependencies: DashboardSseDependencies = {},
 ): void {
+  const progressSource = dependencies.progressSource ?? progressStore;
   cfgRef = cfg;
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -36,9 +47,9 @@ export function addDashboardClient(
   // Tell EventSource to wait 2s before reconnecting after a drop.
   res.write("retry: 2000\n\n");
   clients.add(res);
+  progressSubscriptions.set(res, progressSource.subscribe((event) => writeProgress(res, event)));
   if (lastSnapshot) writeSnapshot(res, lastSnapshot);
-  for (const event of progressStore.allCurrent()) writeProgress(res, event);
-  progressSubscriptions.set(res, progressStore.subscribe((event) => writeProgress(res, event)));
+  for (const event of progressSource.allCurrent()) writeProgress(res, event);
 
   startPolling();
 
