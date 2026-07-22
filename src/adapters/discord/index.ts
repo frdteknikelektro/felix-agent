@@ -6,7 +6,6 @@ import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { discordMentionToken } from "./mentions.js";
-import { toDialect } from "../../core/message-dialect.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
   downloadResponseToFile,
@@ -256,10 +255,8 @@ class DiscordAdapter implements SourceAdapter {
       ? { reply: { messageReference: rootMessageId! } }
       : {};
 
-    // Discord renders CommonMark natively, so the "discord" dialect is the
-    // identity — routed through the shared seam for uniformity with the other
-    // adapters rather than special-cased as "the source that skips conversion".
-    const chunks = splitLongDiscordMessage(toDialect(input.text, "discord"), 2000);
+    // Discord renders CommonMark natively, so no dialect conversion is needed.
+    const chunks = splitLongDiscordMessage(input.text, 2000);
     for (let i = 0; i < chunks.length; i++) {
       const options = i === 0 ? replyOptions : {};
       await (channel as any).send({ content: chunks[i], ...options });

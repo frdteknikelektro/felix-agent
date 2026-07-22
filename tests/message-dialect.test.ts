@@ -104,13 +104,6 @@ describe("toDialect", () => {
     });
   });
 
-  describe("Discord is the identity", () => {
-    it("returns CommonMark untouched (Discord renders it natively)", () => {
-      const md = "# Title\n\n**bold**, *italic*, `code`, [x](https://y.com)\n- a\n- b";
-      expect(toDialect(md, "discord")).toBe(md);
-    });
-  });
-
   describe("regression: harness CommonMark that used to render literally", () => {
     it("Slack skills list", () => {
       const input = [

@@ -12,7 +12,7 @@
  * passes through as literal text rather than being dropped.
  */
 
-export type Dialect = "slack" | "whatsapp" | "telegram-html" | "discord";
+export type Dialect = "slack" | "whatsapp" | "telegram-html";
 
 // ─── AST ──────────────────────────────────────────────────────────────────────
 
@@ -31,10 +31,9 @@ type Block =
 // ─── Public seam ────────────────────────────────────────────────────────────────
 
 export function toDialect(text: string, dialect: Dialect): string {
-  // Discord renders CommonMark natively (bold, italic, strike, code, headers,
-  // bullets, masked links); its dialect is the identity. Short-circuit so the
-  // round-trip can't perturb text that was already correct.
-  if (dialect === "discord") return text;
+  // Only sources whose rendering diverges from CommonMark need a dialect.
+  // Discord and Mattermost render CommonMark/GFM natively, so they never call
+  // this — there is no identity dialect to carry dead weight.
   return parseBlocks(text)
     .map((block) => renderBlock(block, dialect))
     .join("\n");
