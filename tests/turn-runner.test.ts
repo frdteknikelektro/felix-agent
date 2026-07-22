@@ -69,9 +69,13 @@ function makeResult(overrides: Partial<TurnResult> = {}): TurnResult {
   };
 }
 
-function makePorts(sourceContext: SourceTurnContext = { behaviorInstructions: ["source rule"] }): TurnRunnerPorts {
+function makePorts(
+  sourceContext: SourceTurnContext = { behaviorInstructions: ["source rule"] },
+  ownerUserId?: string,
+): TurnRunnerPorts {
   return {
     sourceAdapter: vi.fn(() => ({
+      ownerUserId,
       getTurnContext: vi.fn(async () => sourceContext),
       sendTyping: vi.fn(async () => undefined),
     })),
@@ -113,6 +117,27 @@ function makeInput(overrides: Partial<{
 }
 
 describe("TurnRunner", () => {
+  it.each([
+    ["matching", "user-1", true],
+    ["different", "owner-1", false],
+  ])(
+    "passes %s configured Owner identity to the harness as trusted turn context",
+    async (_case, ownerUserId, expected) => {
+      const inputs: TurnInput[] = [];
+      const harness: Harness = {
+        run: vi.fn(async (input) => {
+          inputs.push(input);
+          return makeResult();
+        }),
+      };
+      const runner = new TurnRunner(harness, makePorts(undefined, ownerUserId));
+
+      await runner.run(makeInput());
+
+      expect(inputs[0]?.requesterIsOwner).toBe(expected);
+    },
+  );
+
   it("runs one trigger with source context and delegates successful outcome", async () => {
     const inputs: TurnInput[] = [];
     const harness: Harness = {

@@ -33,6 +33,7 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("END_FELIX_REPLY");
     expect(agentsMd).toContain("PERMISSION_REQUIRED");
     expect(agentsMd).toContain("END_PERMISSION_REQUIRED");
+    expect(agentsMd).toContain("is_owner");
     // Permission model — contact/request based, not thread-scoped
     expect(agentsMd).toContain("allowed_permissions");
     expect(agentsMd).toContain("contact-based");
@@ -50,6 +51,7 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("Never `source` a secret env file");
     // Session context pointer
     expect(agentsMd).toContain("initial_md");
+    expect(agentsMd).toMatch(/AGENTS\.md.*(?:overrides|higher priority).*PERSONALITY\.md/i);
   });
 
   it("points audio attachments at the listen-speak skill", () => {
