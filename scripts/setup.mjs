@@ -371,7 +371,10 @@ function ownerDiscoveryPrompts() {
     }),
     showClaim: async ({ source, claimCode }) => {
       info(`Send this exact one-time message to the ${SOURCE_DEFS[source].label} bot in a private chat:`);
-      console.log(`\n  ${c.bold}${c.yellow}${claimCode}${c.reset}\n`);
+      // No bold/color on the code itself — a rich-text clipboard copy of a
+      // styled ANSI run can get reinterpreted as markdown (e.g. **code**) by
+      // a chat composer's paste handler, which breaks the exact-match check.
+      console.log(`\n  ${claimCode}\n`);
       info("Waiting up to five minutes for the matching private message...");
     },
     showConfirmation: ({ source }) => {
