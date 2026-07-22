@@ -258,6 +258,7 @@ describe("codex output parser", () => {
               "9. For Mattermost channel threads (visibility: channel), only answer when the post explicitly mentions @felix-agent or @Felix Agent. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.",
             ],
           },
+          requesterIsOwner: true,
           resumed: false,
           precedingEvents: [
             {
@@ -324,6 +325,7 @@ describe("codex output parser", () => {
       expect(prompt).toContain("visibility: channel");
       expect(prompt).toContain("mentions_bot: true");
       expect(prompt).toContain("sender: mattermost:user");
+      expect(prompt).toContain("is_owner: true");
       expect(prompt).toContain("text: Hello");
 
       // Server-computed permission gate is injected and authoritative

@@ -91,6 +91,7 @@ export interface TurnInput {
   contact: ContactRecord;
   skills: SkillRecord[];
   sourceContext: SourceTurnContext;
+  requesterIsOwner?: boolean;
   resumed: boolean;
   precedingEvents?: { event: UniversalEvent; eventFile: string }[];
   promptOverride?: string;

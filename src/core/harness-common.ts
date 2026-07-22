@@ -124,6 +124,7 @@ function buildPerTurnMessage(cfg: AppConfig, input: TurnInput): string {
     `mentions_bot: ${input.event.mentions_bot}`,
     `source_thread_ref: ${JSON.stringify(input.event.source_thread_ref)}`,
     `sender: ${input.event.sender.source}:${input.event.sender.id}${input.event.sender.display ? ` (${input.event.sender.display})` : ""}`,
+    `is_owner: ${input.requesterIsOwner === true}`,
     `text: ${input.event.text}`,
   ];
 
