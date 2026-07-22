@@ -6,6 +6,7 @@ import type { FelixEngine } from "../../engine.js";
 import { handleSourceEventIntake, handleSourceReactionIntake } from "../../core/source-intake.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
 import { slackMentionToken } from "./mentions.js";
+import { toDialect } from "../../core/message-dialect.js";
 import type { SourceMessageAnchor, SourceThreadRef, UniversalAttachment, UniversalEvent } from "../../types.js";
 import {
   downloadResponseToFile,
@@ -310,7 +311,7 @@ class SlackAdapter implements SourceAdapter {
     const rootMessageId = input.event.source_thread_ref.root_message_id;
     await this.app.client.chat.postMessage({
       channel: channelId,
-      text: input.text,
+      text: toDialect(input.text, "slack"),
       thread_ts: rootMessageId,
     });
   }
@@ -323,7 +324,7 @@ class SlackAdapter implements SourceAdapter {
     try {
       const result = await this.app.client.chat.postMessage({
         channel: input.userId,
-        text: input.text,
+        text: toDialect(input.text, "slack"),
       });
       if (!result.ok || !result.ts) return null;
       return {
@@ -349,7 +350,7 @@ class SlackAdapter implements SourceAdapter {
     const result = await this.app.client.chat.update({
       channel: channelId,
       ts: messageTs,
-      text: input.text,
+      text: toDialect(input.text, "slack"),
     });
     if (!result.ok) {
       throw new Error(`Slack chat.update failed for ${messageTs}`);

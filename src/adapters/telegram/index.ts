@@ -14,6 +14,7 @@ import {
 } from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { toDialect } from "../../core/message-dialect.js";
 import type {
   SourceMessageAnchor,
   SourceThreadRef,
@@ -155,108 +156,6 @@ function convertNotificationTableForTelegram(md: string): string {
   }
 
   return out.join("\n");
-}
-
-// ─── Markdown → Telegram HTML converter ────────────────────────────────────────
-
-/**
- * Converts a subset of Markdown (as produced by the LLM) into Telegram-compatible
- * HTML.  Handles: *bold*, _italic_, ~strikethrough~, `inline code`, ```code blocks```,
- * and [text](url) links.  Nested/overlapping markers are supported.  Any `<`, `>`,
- * or `&` outside formatting spans are escaped.
- */
-export function markdownToTelegramHtml(text: string): string {
-  const TAG: Record<string, [string, string]> = {
-    "*": ["<b>", "</b>"],
-    _: ["<i>", "</i>"],
-    "~": ["<s>", "</s>"],
-  };
-
-  const out: string[] = [];
-  let i = 0;
-
-  while (i < text.length) {
-    // ── code block (triple backtick) ──────────────────────────────────────
-    if (text.startsWith("```", i)) {
-      const end = text.indexOf("```", i + 3);
-      const block = end === -1 ? text.slice(i + 3) : text.slice(i + 3, end);
-      out.push("<pre>", escapeHtml(block), "</pre>");
-      i = end === -1 ? text.length : end + 3;
-      continue;
-    }
-
-    // ── inline code (single backtick) ─────────────────────────────────────
-    if (text[i] === "`") {
-      const end = text.indexOf("`", i + 1);
-      if (end !== -1) {
-        out.push("<code>", escapeHtml(text.slice(i + 1, end)), "</code>");
-        i = end + 1;
-        continue;
-      }
-    }
-
-    // ── link [text](url) ──────────────────────────────────────────────────
-    if (text[i] === "[") {
-      const close = text.indexOf("]", i + 1);
-      if (close !== -1 && text[close + 1] === "(") {
-        const urlEnd = text.indexOf(")", close + 2);
-        if (urlEnd !== -1) {
-          const linkText = text.slice(i + 1, close);
-          const url = text.slice(close + 2, urlEnd);
-          out.push(
-            `<a href="${escapeHtml(url)}">${markdownToTelegramHtml(linkText)}</a>`,
-          );
-          i = urlEnd + 1;
-          continue;
-        }
-      }
-    }
-
-    // ── formatting markers (*, _, ~) ──────────────────────────────────────
-    const tag = TAG[text[i]];
-    if (tag) {
-      const marker = text[i];
-      let j = i + 1;
-      while (j < text.length && text[j] === marker) j++;
-      const runLen = j - i;
-
-      // look for matching closer with same run-length
-      let found = false;
-      let k = j;
-      while (k < text.length) {
-        if (text[k] === marker) {
-          let m = k;
-          while (m < text.length && text[m] === marker) m++;
-          if (m - k === runLen) {
-            const inner = text.slice(j, k);
-            out.push(tag[0], markdownToTelegramHtml(inner), tag[1]);
-            i = m;
-            found = true;
-            break;
-          }
-          k = m;
-        } else {
-          k++;
-        }
-      }
-
-      if (!found) {
-        out.push(escapeHtml(marker));
-        i++;
-      }
-      continue;
-    }
-
-    // ── plain character ────────────────────────────────────────────────────
-    out.push(escapeHtml(text[i]));
-    i++;
-  }
-
-  return out.join("");
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ─── Telegram Bot API types ───────────────────────────────────────────────────
@@ -888,7 +787,7 @@ class TelegramAdapter implements SourceAdapter {
     return {
       behaviorInstructions: [
         `T1. For Telegram group messages (visibility: channel), only answer when the post explicitly mentions ${botName}. If not mentioned, output nothing — no FELIX_REPLY, no explanation. In DMs (visibility: dm), answer normally regardless of mention.`,
-        "T2. Telegram formatting: use *bold*, _italic_, ~strikethrough~, ```code```, and [link](url) syntax. Your Markdown is automatically converted to HTML before sending — just write standard Markdown.",
+        "T2. Telegram formatting: write standard Markdown — **bold**, *italic*, ~~strikethrough~~, `code`, ```code blocks```, and [text](url) links. It is automatically converted to Telegram HTML before sending.",
         "T3. Telegram API posting (for intermediate messages only — final replies go through FELIX_REPLY):",
         "```bash",
         `CHAT_ID="${chatId}"`,
@@ -974,7 +873,7 @@ class TelegramAdapter implements SourceAdapter {
       input.event.sender.id === "system" ||
       input.event.synthetic === "scheduled";
     const threadId = input.event.source_thread_ref.root_message_id;
-    const html = markdownToTelegramHtml(input.text);
+    const html = toDialect(input.text, "telegram-html");
     const replyParams = isSystem
       ? {}
       : {
@@ -1012,7 +911,7 @@ class TelegramAdapter implements SourceAdapter {
     text: string;
   }): Promise<SourceMessageAnchor | null> {
     await this.waitForSendSlot();
-    const html = markdownToTelegramHtml(input.text);
+    const html = toDialect(input.text, "telegram-html");
     const result = await this.apiCall<{
       message_id: number;
       chat: TelegramChat;
@@ -1055,7 +954,7 @@ class TelegramAdapter implements SourceAdapter {
     if (!chatId || !messageId) {
       throw new Error("Telegram editUserMessage: missing anchor fields");
     }
-    const html = markdownToTelegramHtml(input.text);
+    const html = toDialect(input.text, "telegram-html");
     await this.waitForSendSlot();
     const ok = await this.apiCall("editMessageText", {
       chat_id: chatId,

@@ -24,6 +24,7 @@ import {
 } from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
 import { decisionEmoji, decisionLabel } from "../../core/decision.js";
+import { toDialect } from "../../core/message-dialect.js";
 import type {
   SourceMessageAnchor,
   SourceThreadRef,
@@ -1139,7 +1140,7 @@ class WhatsAppAdapter implements SourceAdapter {
         "Use the official wacli command reference at https://wacli.sh/ or `wacli --help` when you need flags or subcommands not shown in these instructions.",
         "The JSON output has a `.data` array. Each entry has `.msg_id`, `.sender_jid`, `.sender_name`, `.ts` (Unix seconds), `.from_me` (bool), `.text`, `.display_text` (includes reply context), `.quoted_msg_id`, `.media_type`, and `.media_caption`. Sort by `.ts` to reconstruct the timeline.",
         "If the fetch fails, do not claim you read live WhatsApp history. Reply that the history could not be fetched and ask for a retry. Do not use the local thread transcript as a substitute for live WhatsApp history.",
-        "W3. WhatsApp formatting: use *bold*, _italic_, ~strikethrough~, ``` `code` ```. Do NOT use Markdown — WhatsApp renders its own formatting natively. Format URLs as plain text — WhatsApp auto-preview links.",
+        "W3. WhatsApp formatting: write standard Markdown — **bold**, *italic*, ~~strikethrough~~, `code`, ```code blocks```, and [text](url) links. It is automatically converted to WhatsApp formatting before sending. Format URLs as plain text — WhatsApp auto-previews links.",
         "W3.1. WhatsApp has NO table support. NEVER output pipe tables (`|---|---|`) — they render as garbled text. For simple tabular data, use key-value pairs with bold labels (e.g., `*Name:* Alice\n*Role:* Admin`). For larger or complex tables, write the data to a `.csv` or `.md` file and send it as an attachment with `wacli send file`.",
         'W4. **CRITICAL: Do NOT call `wacli send text` for your final reply.** Always use the `FELIX_REPLY` block for your response — the harness will send it automatically. Calling `wacli send text` AND outputting `FELIX_REPLY` causes duplicate messages. You may only use `wacli send text` for intermediate/progress messages (e.g., "Processing...") before your final `FELIX_REPLY`.',
         "To reply to a specific message, add `--reply-to <quoted_msg_id>`. In group chats, also add `--reply-to-sender <sender_jid>` when the sender JID is known.",
@@ -1274,11 +1275,14 @@ class WhatsAppAdapter implements SourceAdapter {
         ? ["--reply-to", replyToMsgId, "--reply-to-sender", replyToSender]
         : [];
 
+    // The harness reply is CommonMark; render it to WhatsApp's native
+    // formatting. The prefix is already native (and doubles as the bot's
+    // self-recognition token elsewhere), so it is prepended unconverted.
     const botName = this.cfg.FELIX_NAME;
     const prefix = `*[${botName}]*`;
     const text = input.text.startsWith(prefix)
       ? input.text
-      : `${prefix}\n${input.text}`;
+      : `${prefix}\n${toDialect(input.text, "whatsapp")}`;
 
     const args = [
       "send",
@@ -1702,8 +1706,12 @@ function phoneNumberFromJid(jid: string | undefined): string {
   return phone;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function containsStrictMention(text: string, name: string): boolean {
-  return new RegExp(`(?:^|(?<=\\s))@${name}(?!\\w)`).test(text);
+  return new RegExp(`(?:^|(?<=\\s))@${escapeRegExp(name)}(?!\\w)`).test(text);
 }
 
 export function isWhatsAppGroupJid(jid: string): boolean {
