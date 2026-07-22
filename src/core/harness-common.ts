@@ -319,3 +319,35 @@ export function buildOwnerPermissionNotification(input: OwnerPermissionNotificat
     ...footer,
   ].join("\n");
 }
+
+/**
+ * `buildOwnerPermissionNotification` produces a Markdown table (`| Field | Value |`),
+ * which sources without table rendering (Slack, Telegram) show as literal pipes.
+ * This converts each table row into a plain `**Field** Value` line, which each
+ * source's own dialect step then renders in its native bold syntax.
+ */
+export function convertNotificationTableToPlainLines(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // skip table header/separator rows
+    if (/^\|[-\s|]+\|$/.test(trimmed)) continue;
+    if (/^\|\s*Field\s*\|\s*Value\s*\|$/.test(trimmed)) continue;
+
+    // convert table data rows:  | **Field** | Value |
+    const dataRow = trimmed.match(/^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/);
+    if (dataRow) {
+      // strip existing ** wrappers before re-wrapping to avoid ****
+      const field = dataRow[1].replace(/^\*\*(.+?)\*\*$/, "$1");
+      out.push(`**${field}** ${dataRow[2]}`);
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
