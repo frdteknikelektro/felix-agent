@@ -78,6 +78,20 @@ export async function listApprovalRecords(cfg: AppConfig): Promise<ApprovalRecor
   return out.sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
 }
 
+/**
+ * Resolve a single approval record by any of its accepted identifiers —
+ * `id`, `requestId`, or `requestPath`. The registry owns the sole predicate
+ * (`approvalRecordIdsMatch`) so callers never re-derive the matching rule and
+ * drift out of sync with it.
+ */
+export async function findApprovalRecord(
+  cfg: AppConfig,
+  approvalId: string,
+): Promise<ApprovalRecord | null> {
+  const records = await listApprovalRecords(cfg);
+  return records.find((record) => approvalRecordIdsMatch(record, approvalId)) ?? null;
+}
+
 export async function listPendingApprovals(cfg: AppConfig): Promise<PendingApproval[]> {
   const records = (await listApprovalRecords(cfg)).filter((record) => record.status === "pending");
   const out: PendingApproval[] = [];

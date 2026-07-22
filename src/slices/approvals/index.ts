@@ -4,6 +4,7 @@ export {
   loadApprovalRecord,
   upsertApprovalDecision,
   listApprovalRecords,
+  findApprovalRecord,
   listPendingApprovals,
   findPendingApproval,
   hasPendingApproval,

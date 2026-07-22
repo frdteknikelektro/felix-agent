@@ -3,10 +3,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   decideApproval,
+  findApprovalRecord,
   findPendingApproval,
   listApprovalRecords,
   listPendingApprovals,
   requestApproval,
+  saveApprovalRecord,
+  type ApprovalRecord,
 } from "../src/slices/approvals/index.js";
 import { loadContact } from "../src/slices/contacts/index.js";
 import { createOrLoadThread, loadSessionState, setPendingPermission } from "../src/slices/sessions/index.js";
@@ -130,5 +133,50 @@ describe("approval lifecycle", () => {
     // decideApproval names the grant but leaves the merge + persistence to the caller.
     const stored = await loadContact(cfg, "mattermost", "user-7");
     expect(stored.allowed_permissions).not.toContain("test-skill:net:fetch");
+  });
+});
+
+describe("findApprovalRecord", () => {
+  // A record whose three identifiers are all distinct, so each predicate
+  // branch can be exercised in isolation.
+  function distinctRecord(): ApprovalRecord {
+    return {
+      id: "rec-id",
+      requestId: "rec-request-id",
+      threadKey: "mattermost:chan:root",
+      source: "mattermost",
+      status: "pending",
+      requestedAt: "2026-05-25T00:00:00.000Z",
+      skillId: "test-skill",
+      permissions: ["test-skill:net:fetch"],
+      reason: "needs network",
+      ownerMessage: "Owner approval required.",
+      requester: { source: "mattermost", id: "user-7", display: "Jala" },
+      requestPath: "/events/req_permission_request.md",
+    };
+  }
+
+  it("resolves a record by its id", async () => {
+    const cfg = await makeCfg("felix-find-id-");
+    const record = await saveApprovalRecord(cfg, distinctRecord());
+    expect((await findApprovalRecord(cfg, "rec-id"))?.id).toBe(record.id);
+  });
+
+  it("resolves a record by its requestId", async () => {
+    const cfg = await makeCfg("felix-find-request-id-");
+    const record = await saveApprovalRecord(cfg, distinctRecord());
+    expect((await findApprovalRecord(cfg, "rec-request-id"))?.id).toBe(record.id);
+  });
+
+  it("resolves a record by its requestPath (regression: the routes copy 404'd)", async () => {
+    const cfg = await makeCfg("felix-find-request-path-");
+    const record = await saveApprovalRecord(cfg, distinctRecord());
+    expect((await findApprovalRecord(cfg, "/events/req_permission_request.md"))?.id).toBe(record.id);
+  });
+
+  it("returns null when no identifier matches", async () => {
+    const cfg = await makeCfg("felix-find-miss-");
+    await saveApprovalRecord(cfg, distinctRecord());
+    expect(await findApprovalRecord(cfg, "no-such-id")).toBeNull();
   });
 });

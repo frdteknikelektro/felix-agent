@@ -23,6 +23,7 @@ import {
 import { parseUsageWindow, usageView } from "../slices/usage/index.js";
 import {
   listApprovalRecords,
+  findApprovalRecord,
   ownerDecisionFromAction,
 } from "../slices/approvals/index.js";
 import {
@@ -493,10 +494,7 @@ export const API_ROUTES: Route[] = [
         send(400, { error: "invalid_decision" });
         return;
       }
-      const approvals = await listApprovalRecords(cfg);
-      const approval = approvals.find((item) =>
-        matchesApprovalId(item, approvalId),
-      );
+      const approval = await findApprovalRecord(cfg, approvalId);
       if (!approval) {
         send(404, { error: "not_found" });
         return;
@@ -557,13 +555,6 @@ function extractContactParams(params: Record<string, string>): {
   const rest = params["**"];
   if (!source || !rest) return {};
   return { source, userId: rest };
-}
-
-function matchesApprovalId(
-  record: { id?: string; requestId?: string },
-  id: string,
-): boolean {
-  return record.id === id || record.requestId === id;
 }
 
 function normalizeSkillBody(body: Record<string, unknown>): {
