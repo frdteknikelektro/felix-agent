@@ -53,6 +53,7 @@ describe("parseDecisionEmoji", () => {
     expect(parseDecisionEmoji("thumbs_up")).toBe("always");
     expect(parseDecisionEmoji("+1")).toBe("always");
     expect(parseDecisionEmoji("thumbs up")).toBe("always");
+    expect(parseDecisionEmoji("thumb")).toBe("always");
     expect(parseDecisionEmoji("pray")).toBe("reject");
     expect(parseDecisionEmoji("prayer")).toBe("reject");
     expect(parseDecisionEmoji("folded_hands")).toBe("reject");

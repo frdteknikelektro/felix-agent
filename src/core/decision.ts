@@ -20,6 +20,7 @@ const DECISION_ALIASES: Record<string, PermissionDecision["mode"]> = {
   "thumbs up": "always",
   "thumbs_up": "always",
   "thumbsup": "always",
+  "thumb": "always",
   "+1": "always",
   "👍": "always",
   "🙏": "reject",

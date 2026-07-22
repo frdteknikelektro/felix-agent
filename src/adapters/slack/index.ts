@@ -407,11 +407,18 @@ class SlackAdapter implements SourceAdapter {
   }
 
   private async handleReactionAdd(engine: FelixEngine, event: Record<string, unknown>): Promise<void> {
+    const item = event.item as { type?: string; channel?: string; ts?: string } | undefined;
+    log.info("slack.reaction_received", {
+      user: event.user,
+      reaction: event.reaction,
+      item_channel: item?.channel,
+      item_ts: item?.ts,
+      owner_user_id: this.ownerUserId,
+    });
     if (!this.ownerUserId) return;
     if ((event.user as string | undefined) !== this.ownerUserId) return;
-    const item = event.item as { type?: string; channel?: string; ts?: string } | undefined;
     if (!item || item.type !== "message" || !item.channel || !item.ts) return;
-    await handleSourceReactionIntake(this.cfg, {
+    const result = await handleSourceReactionIntake(this.cfg, {
       source: "slack",
       token: (event.reaction as string | undefined) ?? "",
       decidedBy: this.ownerUserId,
@@ -423,6 +430,7 @@ class SlackAdapter implements SourceAdapter {
       },
       ports: engine,
     });
+    log.info("slack.reaction_routed", { result });
   }
 
   async downloadAttachment(input: {
