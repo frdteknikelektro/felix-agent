@@ -20,6 +20,41 @@ import {
 import { createSourceHost } from "../../core/source-host.js";
 import { preferDiscoveredIdentity, type PlatformIdentity } from "../../core/platform-identity.js";
 
+// ─── Notification table → Slack-friendly format ────────────────────────────────
+
+/**
+ * The shared `buildOwnerPermissionNotification` produces a Markdown table
+ * (`| Field | Value |`) which Slack has no rendering for at all — it shows
+ * the literal pipes and separator row. This converts each table row into a
+ * plain `**Field** Value` line, which `toDialect` then turns into Slack's
+ * single-asterisk bold.
+ */
+function convertNotificationTableForSlack(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // skip table header/separator rows
+    if (/^\|[-\s|]+\|$/.test(trimmed)) continue;
+    if (/^\|\s*Field\s*\|\s*Value\s*\|$/.test(trimmed)) continue;
+
+    // convert table data rows:  | **Field** | Value |
+    const dataRow = trimmed.match(/^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/);
+    if (dataRow) {
+      // strip existing ** wrappers before re-wrapping to avoid ****
+      const field = dataRow[1].replace(/^\*\*(.+?)\*\*$/, "$1");
+      out.push(`**${field}** ${dataRow[2]}`);
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
 // ─── Public constructors ──────────────────────────────────────────────────────
 
 interface SlackAdapterDependencies {
@@ -368,7 +403,7 @@ class SlackAdapter implements SourceAdapter {
     decisionMode?: "once" | "always" | "reject";
     decidedAt?: string;
   }): Promise<string> {
-    return buildOwnerPermissionNotification(input);
+    return convertNotificationTableForSlack(buildOwnerPermissionNotification(input));
   }
 
   private async handleReactionAdd(engine: FelixEngine, event: Record<string, unknown>): Promise<void> {
