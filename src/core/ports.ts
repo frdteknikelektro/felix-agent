@@ -67,12 +67,28 @@ export interface SourceTurnContext {
 // ─── Harness port ─────────────────────────────────────────────────────────────
 
 export interface ParsedAgentOutput {
-  kind: "reply" | "permission_required" | "no_skill" | "unknown" | "format_error";
+  kind:
+    | "reply"
+    | "permission_required"
+    | "personality_change"
+    | "no_skill"
+    | "unknown"
+    | "format_error";
   text: string;
   skillId?: string;
   permissions?: string[];
   reason?: string;
   ownerMessage?: string;
+  personalityMode?: "update" | "reset";
+  personalityContent?: string;
+  formatTarget?: "permission_required" | "personality_change";
+}
+
+export interface PersonalityChangeOutput {
+  kind: "personality_change";
+  text: string;
+  personalityMode: "update" | "reset";
+  personalityContent?: string;
 }
 
 export interface PermissionRequiredOutput {

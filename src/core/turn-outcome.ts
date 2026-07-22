@@ -6,7 +6,11 @@ import type {
 } from "../types.js";
 import type { ThreadHandle } from "../slices/sessions/index.js";
 import { permissionSatisfied } from "../slices/skills/index.js";
-import type { PermissionRequiredOutput, TurnResult } from "./ports.js";
+import type {
+  PermissionRequiredOutput,
+  PersonalityChangeOutput,
+  TurnResult,
+} from "./ports.js";
 import { decideTurnResult } from "./decide-turn.js";
 
 export interface TurnOutcomePorts {
@@ -42,6 +46,11 @@ export interface TurnOutcomePorts {
     event: UniversalEvent,
     sessionId: string,
   ): Promise<void>;
+  stagePersonalityProposal(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    parsed: PersonalityChangeOutput,
+  ): Promise<string>;
   runFormatCorrection(prompt: string): Promise<TurnResult>;
   requeueEvent(thread: ThreadHandle, item: SessionQueueItem): Promise<void>;
   isStopRequested(threadKey: string): boolean;
@@ -159,7 +168,10 @@ async function handleFormatRetry(
   let corrected: TurnResult;
   try {
     corrected = await input.ports.runFormatCorrection(
-      formatCorrectionPrompt(input.result.parsed.text),
+      formatCorrectionPrompt(
+        input.result.parsed.text,
+        input.result.parsed.formatTarget,
+      ),
     );
   } catch (error) {
     return handleTurnRunError({
@@ -213,6 +225,20 @@ async function applySuccessfulOutcome(
   result: TurnResult,
 ): Promise<void> {
   await input.ports.recordTurnWithUsage(input.thread, input.event, result);
+  if (result.parsed.kind === "personality_change") {
+    const text = await input.ports.stagePersonalityProposal(
+      input.thread,
+      input.event,
+      result.parsed as PersonalityChangeOutput,
+    );
+    await input.ports.postThreadReply(
+      input.thread,
+      input.event,
+      result.sessionId,
+      text,
+    );
+    return;
+  }
   if (result.parsed.kind !== "permission_required") {
     await input.ports.postThreadReply(
       input.thread,
@@ -257,7 +283,21 @@ async function applySuccessfulOutcome(
   });
 }
 
-export function formatCorrectionPrompt(errorText: string): string {
+export function formatCorrectionPrompt(
+  errorText: string,
+  target: "permission_required" | "personality_change" =
+    "permission_required",
+): string {
+  if (target === "personality_change") {
+    return [
+      "Your last output had a format error:",
+      "",
+      errorText,
+      "",
+      "Please re-read the latest event and the personality skill, then produce a correctly formatted PERSONALITY_CHANGE block.",
+      "For an update, include mode: update, content:, the complete # Personality Markdown, and END_PERSONALITY_CHANGE. For a reset, include mode: reset and END_PERSONALITY_CHANGE.",
+    ].join("\n");
+  }
   return [
     "Your last output had a format error:",
     "",

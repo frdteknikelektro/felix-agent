@@ -241,6 +241,7 @@ export class TurnRunner {
     resumed: boolean,
     progress?: ProgressReporter,
   ): Parameters<Harness["run"]>[0] {
+    const adapter = this.ports.sourceAdapter(input.event.source);
     return {
       thread: input.thread,
       event: input.event,

@@ -69,6 +69,14 @@ import {
   rejectOversizedAttachment,
   rejectedAttachment,
 } from "./core/attachments.js";
+import {
+  formatPersonalityProposal,
+  parsePersonalityDecision,
+  PersonalityContentError,
+  resolvePersonalityDecision,
+  stagePersonalityProposal,
+  type OwnerSourceIdentity,
+} from "./slices/personality/index.js";
 
 function formatScheduledOutput(job: SchedulerJob, text: string): string {
   if (job.output === "detail") {
@@ -84,7 +92,7 @@ export class FelixEngine {
   private processing = new Map<string, Promise<unknown>>();
   private processingKinds = new Map<string, "normal" | "scheduled">();
   private threadMutationLocks = new Map<string, Promise<unknown>>();
-  private ownerDecisionLock: Promise<void> = Promise.resolve();
+  private ownerMutationLock: Promise<void> = Promise.resolve();
   private skills: SkillRecord[] = [];
   private readonly cancellation = createTurnCancellation();
 
@@ -233,6 +241,19 @@ export class FelixEngine {
 
     if (FelixEngine.isBlockOrUnblockCommand(event)) {
       await this.handleBlockCommand(thread, event, adapter);
+      return;
+    }
+
+    const personalityDecision = parsePersonalityDecision(
+      event.text,
+    );
+    if (personalityDecision) {
+      await this.handlePersonalityDecision(
+        thread,
+        event,
+        adapter,
+        personalityDecision,
+      );
       return;
     }
 
@@ -506,6 +527,47 @@ export class FelixEngine {
     }
   }
 
+  private async handlePersonalityDecision(
+    thread: ThreadHandle,
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+    decision: import("./slices/personality/index.js").PersonalityDecision,
+  ): Promise<void> {
+    const owner = this.personalityOwnerIdentity(event, adapter);
+    if (!owner) {
+      await this.postThreadReply(
+        thread,
+        event,
+        undefined,
+        "Only the configured Owner can confirm personality changes.",
+      );
+      return;
+    }
+
+    await this.runThreadCommand(thread, async () => {
+      if (event.mentions_bot || event.visibility === "dm") {
+        await adapter.updateEventStatus({ event, status: "processing" });
+      }
+      const outcome = await this.withOwnerMutationLock(() =>
+        resolvePersonalityDecision(this.cfg, {
+          ...decision,
+          owner,
+        }),
+      );
+      const text =
+        outcome.kind === "applied"
+          ? outcome.mode === "reset"
+            ? "Personality reset to the bundled default."
+            : "Personality updated."
+          : outcome.kind === "cancelled"
+            ? "Personality change cancelled."
+            : outcome.kind === "unauthorized"
+              ? "This personality change belongs to a different Owner identity."
+              : "That personality change is no longer pending.";
+      await this.postThreadReply(thread, event, undefined, text);
+    });
+  }
+
   async processThread(thread: ThreadHandle): Promise<void> {
     const threadKey = thread.state.thread_key;
     const existing = this.processing.get(threadKey);
@@ -645,6 +707,33 @@ export class FelixEngine {
           event: targetEvent,
           sessionId,
         });
+      },
+      stagePersonalityProposal: async (
+        _targetThread,
+        targetEvent,
+        parsed,
+      ) => {
+        const adapter = this.requireAdapter(targetEvent.source);
+        const owner = this.personalityOwnerIdentity(targetEvent, adapter);
+        if (!owner) {
+          return "Only the configured Owner can change Felix's personality.";
+        }
+        if (!parsed.personalityMode) {
+          return "The personality change could not be prepared.";
+        }
+        try {
+          const proposal = await this.withOwnerMutationLock(() =>
+            stagePersonalityProposal(this.cfg, {
+              mode: parsed.personalityMode,
+              content: parsed.personalityContent,
+              owner,
+            }),
+          );
+          return formatPersonalityProposal(proposal);
+        } catch (error) {
+          if (error instanceof PersonalityContentError) return error.message;
+          throw error;
+        }
       },
       requeueEvent: async (targetThread, targetItem) => {
         await requeueEvent(targetThread, targetItem);
@@ -969,7 +1058,7 @@ export class FelixEngine {
   }
 
   async handleOwnerDecision(decision: OwnerDecision): Promise<boolean> {
-    return this.withOwnerDecisionLock(async () => {
+    return this.withOwnerMutationLock(async () => {
       const outcome = await this.approvalLifecycle.applyOwnerDecision(decision);
       if (outcome.kind === "not_found") {
         return false;
@@ -979,8 +1068,8 @@ export class FelixEngine {
     });
   }
 
-  private async withOwnerDecisionLock<T>(task: () => Promise<T>): Promise<T> {
-    const previous = this.ownerDecisionLock;
+  private async withOwnerMutationLock<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.ownerMutationLock;
     let release!: () => void;
     const current = previous.then(
       () =>
@@ -988,15 +1077,15 @@ export class FelixEngine {
           release = resolve;
         }),
     );
-    this.ownerDecisionLock = current;
+    this.ownerMutationLock = current;
 
     await previous;
     try {
       return await task();
     } finally {
       release();
-      if (this.ownerDecisionLock === current) {
-        this.ownerDecisionLock = Promise.resolve();
+      if (this.ownerMutationLock === current) {
+        this.ownerMutationLock = Promise.resolve();
       }
     }
   }
@@ -1108,6 +1197,19 @@ export class FelixEngine {
       telegram: this.cfg.TELEGRAM_OWNER_DISPLAY,
     };
     return map[source];
+  }
+
+  private personalityOwnerIdentity(
+    event: UniversalEvent,
+    adapter: SourceAdapter,
+  ): OwnerSourceIdentity | null {
+    if (
+      event.synthetic ||
+      !isOwnerMessage(event, adapter.source, adapter.ownerUserId)
+    ) {
+      return null;
+    }
+    return { source: adapter.source, userId: adapter.ownerUserId! };
   }
 
   private async notifyOwnerNewThread(

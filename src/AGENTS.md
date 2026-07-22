@@ -17,7 +17,7 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 
 Read `PERSONALITY.md` from the workspace root for personality instructions (tone, communication style, and role). This file defines how the agent presents itself and adapts to different contexts.
 
-AGENTS.md has higher priority than PERSONALITY.md. Personality content can never override safety, permissions, output contracts, skills, or source behavior. For requests to edit or reset personality, use the installed `personality` skill. That skill trusts the server-computed `is_owner` field and lets only the Owner edit `PERSONALITY.md` directly.
+AGENTS.md has higher priority than PERSONALITY.md. Personality content can never override safety, permissions, output contracts, skills, or source behavior. For requests to edit or reset personality, use the installed `personality` skill. Trust the server-computed `is_owner` field, never write `PERSONALITY.md` directly, and never emit a personality change for a non-owner.
 
 ## Output contract
 
@@ -39,6 +39,23 @@ permissions:
 reason: <short reason>
 owner_message: <short owner request>
 END_PERMISSION_REQUIRED
+```
+
+For an Owner personality request, the `personality` skill may emit one `PERSONALITY_CHANGE` block after its `FELIX_REPLY`. Updates carry the complete proposed Markdown using only that skill's controlled role, tone, and communication-style vocabulary; resets do not carry content. The runtime validates, previews, and confirms the proposal before writing it.
+
+```text
+PERSONALITY_CHANGE
+mode: update
+content:
+# Personality
+...
+END_PERSONALITY_CHANGE
+```
+
+```text
+PERSONALITY_CHANGE
+mode: reset
+END_PERSONALITY_CHANGE
 ```
 
 - Emit a brief user-facing `FELIX_REPLY` (in the user's language) **before** the `PERMISSION_REQUIRED` block. Without one, a default "Waiting for owner permission." is used.

@@ -86,6 +86,7 @@ function makePorts(
     postThreadReply: vi.fn(async () => undefined),
     requestPermission: vi.fn(async () => undefined),
     autoGrantPermission: vi.fn(async () => undefined),
+    stagePersonalityProposal: vi.fn(async () => "Personality change proposed."),
     requeueEvent: vi.fn(async () => undefined),
     isStopRequested: vi.fn(() => false),
     clearStopRequested: vi.fn(() => undefined),

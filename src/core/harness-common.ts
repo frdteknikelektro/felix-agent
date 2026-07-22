@@ -52,6 +52,7 @@ export function parseAgentOutput(raw: string): ParsedAgentOutput {
       return {
         kind: "format_error",
         text: `PERMISSION_REQUIRED block is malformed — missing: ${missing.join(", ")}. Expected format:\nPERMISSION_REQUIRED\nskill: <skill id>\npermissions:\n- <permission>\nreason: <short reason>\nowner_message: <short owner request>\nEND_PERMISSION_REQUIRED`,
+        formatTarget: "permission_required",
       };
     }
     const reply = between(text, "FELIX_REPLY", "END_FELIX_REPLY");
@@ -62,6 +63,24 @@ export function parseAgentOutput(raw: string): ParsedAgentOutput {
       permissions: perm.permissions,
       reason: perm.reason,
       ownerMessage: perm.ownerMessage,
+    };
+  }
+
+  const personality = extractPersonalityChangeBlock(text);
+  if (personality) {
+    const reply = between(text, "FELIX_REPLY", "END_FELIX_REPLY");
+    return {
+      kind: "personality_change",
+      text: reply?.trim() || "I prepared a personality change for confirmation.",
+      personalityMode: personality.mode,
+      personalityContent: personality.content,
+    };
+  }
+  if (/^\s*PERSONALITY_CHANGE\s*$/m.test(text)) {
+    return {
+      kind: "format_error",
+      text: "PERSONALITY_CHANGE block is malformed. Updates require `mode: update`, a `content:` line followed by the complete personality Markdown, and END_PERSONALITY_CHANGE. Resets require `mode: reset` and END_PERSONALITY_CHANGE.",
+      formatTarget: "personality_change",
     };
   }
 
@@ -76,6 +95,28 @@ export function parseAgentOutput(raw: string): ParsedAgentOutput {
   }
 
   return { kind: "unknown", text };
+}
+
+function extractPersonalityChangeBlock(text: string): {
+  mode: "update" | "reset";
+  content?: string;
+} | null {
+  const block = between(
+    text,
+    "PERSONALITY_CHANGE",
+    "END_PERSONALITY_CHANGE",
+  );
+  if (block === null) return null;
+  const lines = block.replace(/^\s*\r?\n/, "").split(/\r?\n/);
+  const modeLine = lines.find((line) => /^mode\s*:/i.test(line));
+  const mode = modeLine?.slice(modeLine.indexOf(":") + 1).trim().toLowerCase();
+  if (mode !== "update" && mode !== "reset") return null;
+  if (mode === "reset") return { mode };
+  const contentAt = lines.findIndex((line) => line.trim().toLowerCase() === "content:");
+  if (contentAt < 0) return null;
+  const content = lines.slice(contentAt + 1).join("\n").trim();
+  if (!content) return null;
+  return { mode, content };
 }
 
 export function hasRenderableOutput(output: ParsedAgentOutput): boolean {
