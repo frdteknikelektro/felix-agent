@@ -181,21 +181,30 @@ export function hasClaudeCodeAuth(cfg: AppConfig): boolean {
 
 export function codexModelForMemorizing(cfg: AppConfig): string {
   if (ninerouterEnabled(cfg)) {
-    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+    if (!cfg.NINEROUTER_MODEL_FOR_MEMORIZING) throw new Error("NINEROUTER_MODEL_FOR_MEMORIZING is required");
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING;
   }
-  return cfg.CODEX_MODEL_FOR_MEMORIZING ?? cfg.CODEX_MODEL;
+  return cfg.CODEX_MODEL_FOR_MEMORIZING;
 }
 
 export function opencodeModelForMemorizing(cfg: AppConfig): string {
   if (ninerouterEnabled(cfg)) {
-    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+    if (!cfg.NINEROUTER_MODEL_FOR_MEMORIZING) throw new Error("NINEROUTER_MODEL_FOR_MEMORIZING is required");
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING;
   }
-  return cfg.OPENCODE_MODEL_FOR_MEMORIZING ?? cfg.OPENCODE_MODEL;
+  return cfg.OPENCODE_MODEL_FOR_MEMORIZING;
 }
 
 export function claudeCodeModelForMemorizing(cfg: AppConfig): string {
   if (ninerouterEnabled(cfg)) {
-    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING ?? cfg.NINEROUTER_MODEL!;
+    if (!cfg.NINEROUTER_MODEL_FOR_MEMORIZING) throw new Error("NINEROUTER_MODEL_FOR_MEMORIZING is required");
+    return cfg.NINEROUTER_MODEL_FOR_MEMORIZING;
   }
-  return cfg.CLAUDE_CODE_MODEL_FOR_MEMORIZING ?? cfg.CLAUDE_CODE_MODEL;
+  return cfg.CLAUDE_CODE_MODEL_FOR_MEMORIZING;
+}
+
+export function modelForMemorizing(cfg: AppConfig): string {
+  if (cfg.HARNESS === "codex") return codexModelForMemorizing(cfg);
+  if (cfg.HARNESS === "opencode") return opencodeModelForMemorizing(cfg);
+  return claudeCodeModelForMemorizing(cfg);
 }

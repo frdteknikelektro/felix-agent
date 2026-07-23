@@ -1,7 +1,10 @@
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildWorkspacePaths,
+  ensureWorkspace,
   projectNamespaceDir,
   projectProviderDir,
   projectRepoDir,
@@ -44,5 +47,29 @@ describe("workspace paths", () => {
     expect(projectProviderDir(paths, "github")).toBe(path.join("/workspace", "projects", "github"));
     expect(projectNamespaceDir(paths, "gitlab", "acme")).toBe(path.join("/workspace", "projects", "gitlab", "acme"));
     expect(projectRepoDir(paths, "github", "acme", "payments")).toBe(path.join("/workspace", "projects", "github", "acme", "payments"));
+  });
+
+  it("initializes Memory lazily while preserving inactive Legacy memory", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-memory-workspace-"));
+    const paths = buildWorkspacePaths(root);
+    const legacyFile = path.join(root, "memory", "wiki", "index.md");
+    await fs.mkdir(path.dirname(legacyFile), { recursive: true });
+    await fs.writeFile(legacyFile, "legacy bytes stay unchanged\n");
+
+    try {
+      await ensureWorkspace(paths);
+
+      expect(await fs.readFile(paths.memoryFile, "utf8")).toBe("# Memory\n");
+      expect((await fs.stat(paths.memoryDailyDir)).isDirectory()).toBe(true);
+      expect((await fs.stat(paths.memoryWeeklyDir)).isDirectory()).toBe(true);
+      expect((await fs.stat(paths.memoryMonthlyDir)).isDirectory()).toBe(true);
+      expect(await fs.readFile(legacyFile, "utf8")).toBe("legacy bytes stay unchanged\n");
+
+      await fs.writeFile(paths.memoryFile, "# Memory\n\n- Owner customization\n");
+      await ensureWorkspace(paths);
+      expect(await fs.readFile(paths.memoryFile, "utf8")).toContain("Owner customization");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

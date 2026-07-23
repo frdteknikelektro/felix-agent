@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { ensureDir } from "./lib/fs.js";
+import { ensureDir, pathExists, writeTextAtomic } from "./lib/fs.js";
 
 export interface WorkspacePaths {
   root: string;
@@ -22,7 +22,10 @@ export interface WorkspacePaths {
   tasks: string;
   usage: string;
   memoryDir: string;
-  memoryLogsDir: string;
+  memoryFile: string;
+  memoryDailyDir: string;
+  memoryWeeklyDir: string;
+  memoryMonthlyDir: string;
   schedulerJobsDir: string;
   schedulerLogsDir: string;
 }
@@ -55,7 +58,10 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     tasks: path.join(root, "tasks"),
     usage: path.join(root, "usage"),
     memoryDir,
-    memoryLogsDir: path.join(memoryDir, "logs"),
+    memoryFile: path.join(root, "MEMORY.md"),
+    memoryDailyDir: path.join(memoryDir, "daily"),
+    memoryWeeklyDir: path.join(memoryDir, "weekly"),
+    memoryMonthlyDir: path.join(memoryDir, "monthly"),
     schedulerJobsDir: path.join(schedulerDir, "jobs"),
     schedulerLogsDir: path.join(schedulerDir, "logs"),
   };
@@ -87,17 +93,28 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.tasks, "paused")),
     ensureDir(paths.usage),
     ensureDir(paths.memoryDir),
-    ensureDir(paths.memoryLogsDir),
+    ensureDir(paths.memoryDailyDir),
+    ensureDir(paths.memoryWeeklyDir),
+    ensureDir(paths.memoryMonthlyDir),
     ensureDir(paths.schedulerJobsDir),
     ensureDir(paths.schedulerLogsDir),
   ]);
+  await ensureMemoryFile(paths);
 }
 
 export async function ensureMemoryDirs(paths: WorkspacePaths): Promise<void> {
   await Promise.all([
     ensureDir(paths.memoryDir),
-    ensureDir(paths.memoryLogsDir),
+    ensureDir(paths.memoryDailyDir),
+    ensureDir(paths.memoryWeeklyDir),
+    ensureDir(paths.memoryMonthlyDir),
   ]);
+  await ensureMemoryFile(paths);
+}
+
+async function ensureMemoryFile(paths: WorkspacePaths): Promise<void> {
+  if (await pathExists(paths.memoryFile)) return;
+  await writeTextAtomic(paths.memoryFile, "# Memory\n");
 }
 
 export async function syncBundledSkills(

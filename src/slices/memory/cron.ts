@@ -1,138 +1,55 @@
-import fs from "node:fs/promises";
-import path from "node:path";
+import { CronExpressionParser } from "cron-parser";
 import type { AppConfig } from "../../config.js";
+import type { Harness } from "../../core/ports.js";
 import { log } from "../../lib/log.js";
+import { runMemoryMaintenance } from "./maintenance.js";
 
 interface CronState {
-  locked: boolean;
+  running: boolean;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-const state: CronState = { locked: false, timer: null };
+const state: CronState = { running: false, timer: null };
 
-const LOG_RETENTION_DAYS = 7;
-
-function parseCronExpression(expr: string): { minute: number; hour: number } {
-  const parts = expr.split(" ");
-  if (parts.length < 2) return { minute: 0, hour: 3 };
-  const minute = parseInt(parts[0], 10);
-  const hour = parseInt(parts[1], 10);
-  return {
-    minute: isNaN(minute) ? 0 : minute,
-    hour: isNaN(hour) ? 3 : hour,
-  };
+export function nextMemoryMaintenanceAt(cfg: AppConfig, now = new Date()): Date {
+  return CronExpressionParser.parse(cfg.MEMORY_MAINTENANCE_CRON, {
+    currentDate: now,
+    tz: cfg.OWNER_TZ,
+  }).next().toDate();
 }
 
-function nextScheduleMs(cronExpr: string): number {
-  const { minute, hour } = parseCronExpression(cronExpr);
-  const now = Date.now();
-  const target = new Date();
-  target.setUTCHours(hour, minute, 0, 0);
-
-  if (target.getTime() <= now) {
-    target.setUTCDate(target.getUTCDate() + 1);
-  }
-
-  return target.getTime() - now;
-}
-
-function scheduleNext(cfg: AppConfig): void {
-  const cronExpr = cfg.MEMORY_CLEANUP_CRON || "0 3 * * *";
-  const delay = nextScheduleMs(cronExpr);
-  log.info("memory: next cleanup scheduled", {
-    at: new Date(Date.now() + delay).toISOString(),
-    cron: cronExpr,
+function scheduleNext(cfg: AppConfig, harness: Harness): void {
+  const next = nextMemoryMaintenanceAt(cfg);
+  const delay = Math.max(0, next.getTime() - Date.now());
+  log.info("memory: next maintenance scheduled", {
+    at: next.toISOString(),
+    cron: cfg.MEMORY_MAINTENANCE_CRON,
+    timezone: cfg.OWNER_TZ,
   });
-
   state.timer = setTimeout(() => {
     state.timer = null;
-    if (state.locked) return scheduleNext(cfg);
-    state.locked = true;
-    runCleanup(cfg)
-      .catch((err) => {
-        log.error("memory: cleanup failed", {
-          err: err instanceof Error ? err.message : String(err),
-        });
-      })
+    if (state.running) {
+      scheduleNext(cfg, harness);
+      return;
+    }
+    state.running = true;
+    runMemoryMaintenance(cfg, harness)
+      .catch((error) => log.error("memory: maintenance failed", {
+        error: error instanceof Error ? error.message : String(error),
+      }))
       .finally(() => {
-        state.locked = false;
-        scheduleNext(cfg);
+        state.running = false;
+        scheduleNext(cfg, harness);
       });
   }, delay);
-
   state.timer.unref();
 }
 
-export function startMemoryCron(cfg: AppConfig): void {
-  if (state.timer) return;
-  scheduleNext(cfg);
+export function startMemoryCron(cfg: AppConfig, harness: Harness): void {
+  if (!state.timer) scheduleNext(cfg, harness);
 }
 
 export function stopMemoryCron(): void {
-  if (state.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
-  }
-}
-
-async function runCleanup(cfg: AppConfig): Promise<void> {
-  const logsDir = cfg.paths.memoryLogsDir;
-  log.info("memory: starting log cleanup", { dir: logsDir });
-
-  try {
-    const entries = await fs.readdir(logsDir).catch(() => []);
-    const now = Date.now();
-    const cutoffMs = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    let deletedCount = 0;
-
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-
-      const dateStr = entry.replace(".md", "");
-      const entryDate = new Date(dateStr);
-
-      if (isNaN(entryDate.getTime())) {
-        log.warn("memory: skipping invalid log filename", { file: entry });
-        continue;
-      }
-
-      const ageMs = now - entryDate.getTime();
-      if (ageMs > cutoffMs) {
-        const filePath = path.join(logsDir, entry);
-        try {
-          await fs.unlink(filePath);
-          deletedCount++;
-          log.info("memory: deleted old log", { file: entry, ageDays: Math.floor(ageMs / (24 * 60 * 60 * 1000)) });
-        } catch (err) {
-          log.error("memory: failed to delete log", {
-            file: entry,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-    }
-
-    log.info("memory: cleanup complete", { deleted: deletedCount, remaining: entries.length - deletedCount });
-
-    if (deletedCount > 0) {
-      await appendCleanupLog(cfg, deletedCount);
-    }
-  } catch (err) {
-    log.error("memory: cleanup error", {
-      err: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-async function appendCleanupLog(cfg: AppConfig, deletedCount: number): Promise<void> {
-  const today = new Date().toISOString().split("T")[0];
-  const logPath = path.join(cfg.paths.memoryLogsDir, `${today}.md`);
-
-  const entry = `- [${new Date().toISOString()}] Memory cleanup: deleted ${deletedCount} log(s) older than ${LOG_RETENTION_DAYS} days\n`;
-
-  try {
-    await fs.appendFile(logPath, entry, "utf-8");
-  } catch {
-    log.warn("memory: failed to append cleanup log");
-  }
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = null;
 }

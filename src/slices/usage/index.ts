@@ -49,7 +49,7 @@ function usageFile(usageDirectory: string, dateKey: string): string {
 
 /** Append one usage record, partitioned into the day file for its TZ-local date. */
 export async function appendUsageRecord(cfg: AppConfig, record: UsageRecord): Promise<void> {
-  const dateKey = tzDateKey(record.at, cfg.USAGE_TZ);
+  const dateKey = tzDateKey(record.at, cfg.OWNER_TZ);
   await appendText(usageFile(usageDir(cfg), dateKey), `${JSON.stringify(record)}\n`);
 }
 
@@ -180,7 +180,7 @@ export async function aggregateUsage(
   window: UsageWindow,
   now: Date = new Date(),
 ): Promise<UsageView> {
-  return aggregateUsageFromDirectory(usageDir(cfg), cfg.USAGE_TZ, window, now);
+  return aggregateUsageFromDirectory(usageDir(cfg), cfg.OWNER_TZ, window, now);
 }
 
 /** Windowed token-usage read model for the owner console Usage page. */
@@ -190,7 +190,7 @@ export async function usageView(cfg: AppConfig, window: UsageWindow, now: Date =
 
 /** Cached dashboard read model for the live "tokens today" counter. */
 export async function tokensToday(cfg: AppConfig, now: Date = new Date()): Promise<number> {
-  const dayKey = tzDateKey(now, cfg.USAGE_TZ);
+  const dayKey = tzDateKey(now, cfg.OWNER_TZ);
   if (tokensTodayCache && tokensTodayCache.dayKey === dayKey && now.getTime() < tokensTodayCache.expiresAt) {
     return tokensTodayCache.value;
   }

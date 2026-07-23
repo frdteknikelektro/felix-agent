@@ -227,7 +227,7 @@ export async function dashboardSnapshot(cfg: AppConfig): Promise<DashboardSnapsh
     listAuditForUi(cfg),
     tokensToday(cfg, now),
   ]);
-  return buildDashboardSnapshot(summaries, approvals, audit, now, todayTokens, cfg.USAGE_TZ, cfg.FELIX_NAME);
+  return buildDashboardSnapshot(summaries, approvals, audit, now, todayTokens, cfg.OWNER_TZ, cfg.FELIX_NAME);
 }
 
 /**

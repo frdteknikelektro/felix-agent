@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
 import { buildWorkspacePaths, type WorkspacePaths } from "./workspace.js";
 import { DEFAULT_ATTACHMENT_MAX_BYTES } from "./core/attachments.js";
@@ -11,6 +12,11 @@ const BoolString = z.preprocess((value) => {
   return value;
 }, z.boolean());
 
+const OptionalNonEmptyString = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().optional(),
+);
+
 const Env = z.object({
   // Name shown to users when a source-specific identity is not available.
   FELIX_NAME: z.string().trim().min(1).default("Felix"),
@@ -18,13 +24,13 @@ const Env = z.object({
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
   CODEX_BIN: z.string().default("codex"),
   CODEX_MODEL: z.string().default("gpt-5.6-luna"),
-  CODEX_MODEL_FOR_MEMORIZING: z.string().optional(),
+  CODEX_MODEL_FOR_MEMORIZING: z.string().default("gpt-5.6-luna"),
   CODEX_BYPASS_SANDBOX: z.coerce.boolean().default(true),
   CODEX_REASONING_EFFORT: z.string().default("high"),
   HARNESS: z.enum(["codex", "opencode", "claude-code"]).default("codex"),
   OPENCODE_BIN: z.string().default("opencode"),
   OPENCODE_MODEL: z.string().default("opencode/deepseek-v4-flash-free"),
-  OPENCODE_MODEL_FOR_MEMORIZING: z.string().optional(),
+  OPENCODE_MODEL_FOR_MEMORIZING: z.string().default("opencode/deepseek-v4-flash-free"),
   OPENCODE_VARIANT: z.string().default("high"),
   OPENCODE_API_KEY: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
@@ -35,7 +41,7 @@ const Env = z.object({
   NINEROUTER_URL: z.string().url().optional().or(z.literal("")),
   CLAUDE_CODE_BIN: z.string().default("claude"),
   CLAUDE_CODE_MODEL: z.string().default("sonnet"),
-  CLAUDE_CODE_MODEL_FOR_MEMORIZING: z.string().optional(),
+  CLAUDE_CODE_MODEL_FOR_MEMORIZING: z.string().default("haiku"),
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   OWNER_UI_SECRET: z.string().min(8).optional(),
@@ -103,15 +109,39 @@ const Env = z.object({
     z.enum(["mattermost", "discord", "slack", "whatsapp", "telegram"]).optional(),
   ),
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
-  // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
-  USAGE_TZ: z.string().default("UTC"),
-  // Cron expression for memory log cleanup (default: daily at 3 AM UTC)
-  MEMORY_CLEANUP_CRON: z.string().default("0 3 * * *"),
+  // Canonical IANA timezone for Owner-facing calendar boundaries.
+  OWNER_TZ: OptionalNonEmptyString,
+  // Deprecated compatibility fallback for deployments that predate OWNER_TZ.
+  USAGE_TZ: OptionalNonEmptyString,
+  // Owner-timezone schedule for Memory rollup and retention maintenance.
+  MEMORY_MAINTENANCE_CRON: z.string().trim().min(1).default("0 3 * * *"),
 }).superRefine((env, ctx) => {
+  for (const key of ["OWNER_TZ", "USAGE_TZ"] as const) {
+    const value = env[key];
+    if (value && !isValidTimeZone(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `${key} must be a valid IANA timezone`,
+      });
+    }
+  }
+  try {
+    CronExpressionParser.parse(env.MEMORY_MAINTENANCE_CRON, {
+      tz: env.OWNER_TZ ?? env.USAGE_TZ ?? "UTC",
+    });
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["MEMORY_MAINTENANCE_CRON"],
+      message: "MEMORY_MAINTENANCE_CRON must be a valid cron expression",
+    });
+  }
   if (env.NINEROUTER_ENABLED) {
     const required: Array<keyof typeof env> = [
       "NINEROUTER_KEY",
       "NINEROUTER_MODEL",
+      "NINEROUTER_MODEL_FOR_MEMORIZING",
       "NINEROUTER_URL",
     ];
     for (const key of required) {
@@ -143,7 +173,11 @@ const Env = z.object({
   }
 });
 
-export type AppConfig = z.infer<typeof Env> & {
+type ParsedEnv = z.infer<typeof Env>;
+
+export type AppConfig = Omit<ParsedEnv, "OWNER_TZ" | "USAGE_TZ"> & {
+  OWNER_TZ: string;
+  USAGE_TZ: string;
   paths: WorkspacePaths;
 };
 
@@ -179,10 +213,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     process.env[key] = String(value);
   }
   const parsed = Env.parse(merged);
+  const ownerTimezone = parsed.OWNER_TZ ?? parsed.USAGE_TZ ?? "UTC";
+  process.env.OWNER_TZ = ownerTimezone;
+  process.env.USAGE_TZ = ownerTimezone;
+  process.env.MEMORY_MAINTENANCE_CRON = parsed.MEMORY_MAINTENANCE_CRON;
   return {
     ...parsed,
+    OWNER_TZ: ownerTimezone,
+    USAGE_TZ: ownerTimezone,
     paths: buildWorkspacePaths(parsed.WORKSPACE_DIR),
   };
+}
+
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readDotEnv(file: string): Record<string, string> {

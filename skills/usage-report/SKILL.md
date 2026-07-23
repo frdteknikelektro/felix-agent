@@ -35,4 +35,4 @@ Completion requires that the displayed window matches the request and every coun
 
 ## Data contract
 
-The reporter reads `${WORKSPACE_DIR}/usage/<YYYY-MM-DD>.jsonl`. Day, ISO-week, and month boundaries use `USAGE_TZ` (UTC by default). Never redefine either environment variable, modify usage files, or infer monetary cost.
+The reporter reads `${WORKSPACE_DIR}/usage/<YYYY-MM-DD>.jsonl`. Day, ISO-week, and month boundaries use `OWNER_TZ`; deprecated `USAGE_TZ` is only a compatibility fallback, then UTC. Never redefine these environment variables, modify usage files, or infer monetary cost.

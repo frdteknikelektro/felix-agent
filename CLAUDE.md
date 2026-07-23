@@ -137,12 +137,14 @@ Key variables:
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node` |
 | `CODEX_MODEL` | — | default `gpt-5.6-luna` |
-| `CODEX_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CODEX_MODEL`) |
-| `OPENCODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `OPENCODE_MODEL`) |
-| `CLAUDE_CODE_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint (defaults to `CLAUDE_CODE_MODEL`) |
-| `NINEROUTER_MODEL_FOR_MEMORIZING` | — | cheaper model for memory ingestion/lint via 9router (defaults to `NINEROUTER_MODEL`) |
+| `CODEX_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `gpt-5.6-luna`, never falls back to the primary model |
+| `OPENCODE_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `opencode/deepseek-v4-flash-free`, never falls back to the primary model |
+| `CLAUDE_CODE_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `haiku`, never falls back to the primary model |
+| `NINEROUTER_MODEL_FOR_MEMORIZING` | 9router | dedicated low-cost Memory rollup model; required with 9router |
 | `CLAUDE_CODE_MODEL` | — | default `sonnet` |
-| `USAGE_TZ` | — | IANA timezone for usage day/week/month boundaries (default `UTC`) |
+| `OWNER_TZ` | — | canonical IANA timezone for Owner-facing usage and Memory calendar boundaries (default `UTC`) |
+| `USAGE_TZ` | — | deprecated compatibility fallback used only when `OWNER_TZ` is absent |
+| `MEMORY_MAINTENANCE_CRON` | — | Owner-timezone Memory rollup/retention schedule (default `0 3 * * *`) |
 | `MATTERMOST_TOKEN` | Mattermost | enables the adapter when set |
 | `DISCORD_TOKEN` | Discord | enables the adapter when set |
 | `SLACK_TOKEN` | Slack | enables the adapter when set |

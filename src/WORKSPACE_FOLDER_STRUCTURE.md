@@ -8,6 +8,7 @@ $WORKSPACE_DIR
 ├── AGENTS.md                      Felix behavior contract (boot-written)
 ├── CLAUDE.md                      Claude Code alias (identical copy)
 ├── PERSONALITY.md                 Global role, tone, and style (copy-if-absent)
+├── MEMORY.md                      Durable semantic Memory (created if absent)
 ├── WORKSPACE_FOLDER_STRUCTURE.md  This file
 │
 ├── catalog/
@@ -41,7 +42,11 @@ $WORKSPACE_DIR
 │   ├── thread-key/<source>/<thread_key>.json   Thread_key → session path
 │   └── bot-messages/<source>/                  Bot message ID → thread_key (WhatsApp)
 │
-├── memory/                              Knowledge wiki (see memory skill for internals)
+├── memory/                              Active and inactive persistent memory
+│   ├── daily/                           Recent owner-local episodic Memory
+│   ├── weekly/                          Completed weekly rollups (Monday start)
+│   ├── monthly/                         Completed monthly rollups
+│   └── wiki/                            Inactive Legacy memory (preserved, never read)
 ├── tasks/
 │   ├── active/                          Exactly 1 task at a time
 │   ├── backlog/
@@ -85,7 +90,10 @@ $WORKSPACE_DIR
 | `PERSONALITY.md` | Global role, tone, and communication style |
 | `.agents/skills/<skill_id>/SKILL.md` | Skill definition (agentskills.io standard) |
 | `catalog/contacts/<source>/<user_id>.md` | Per-contact config, `allowed_permissions` |
-| `memory/wiki/index.md` | Knowledge wiki index — always read first |
+| `MEMORY.md` | Durable semantic Memory — part of the fresh-session working set |
+| `memory/daily/` | Recent episodic Memory by owner-local date |
+| `memory/weekly/` | Completed weekly rollups, named by Monday start |
+| `memory/monthly/` | Completed monthly rollups |
 | `sessions/<source>/<sid>/transcript.md` | Session transcript |
 | `sessions/<source>/<sid>/INITIAL.md` | Per-session context (read once per session) |
 | `tasks/active/` | Current active task |

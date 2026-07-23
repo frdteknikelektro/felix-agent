@@ -110,7 +110,7 @@ export class FelixEngine {
   async boot(): Promise<void> {
     await this.refreshSkills();
     await this.recoverThreads();
-    startMemoryCron(this.cfg);
+    startMemoryCron(this.cfg, this.harness);
     startScheduler(this.cfg, {
       run: (request) => this.runScheduledJob(request),
     });

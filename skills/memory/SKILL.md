@@ -1,115 +1,81 @@
 ---
 name: memory
-description: Schema and evidence rules for the persistent Felix memory system. Uses MEMORY.md for semantic memory and daily logs for episodic memory.
+description: Always-on human-style Memory for durable knowledge, bounded event recall, correction, and forgetting.
 metadata:
   author: felix-agent
   kind: general
-  version: "2.0.0"
+  version: "3.0.0"
   permissions: write
-  match: memory, remember, recall, persistent knowledge
+  match: memory, remember, forget, correct, preference, decision, people, project
 ---
+
+# Memory
+
+Memory is always on. Apply this skill even when the user does not say “remember.”
+Record only information likely to be useful beyond the current turn. Human judgment,
+not a rigid schema, decides what deserves Memory.
 
 ## Permissions
 
-- `write` — Create, update, or supersede memory entries and write to daily logs.
+- `write` — Change `MEMORY.md` or an active daily, weekly, or monthly Memory file.
 
-Read-only lookups (consulting MEMORY.md or existing logs) require no permission. Any mutation requires `write`.
+Read-only recall needs no permission. Trust the server-computed
+`permissions_per_skill` block. When `memory:write` is missing:
 
-# Memory System
+- Ignore implicit Memory-worthy content without interrupting the conversation.
+- For an explicit remember, correct, or forget request, emit `PERMISSION_REQUIRED`.
 
-Capture durable knowledge, not a transcript mirror. Durable knowledge includes explicit decisions and rationale, stable facts, responsibilities, preferences, relationships, and reusable concepts. Exclude greetings, social filler, transient execution detail, secrets, and unsupported inference.
+## Working set
 
-## Structure
+At fresh session start, read:
 
-```
-~/
-├── MEMORY.md                    # Semantic memory (durable facts)
-└── memory/
-    └── logs/
-        ├── 2026-07-20.md        # Daily logs
-        ├── 2026-07-21.md
-        └── ...
-```
+1. `MEMORY.md`
+2. today's and yesterday's files in `memory/daily/`, when present
+3. the latest completed file in `memory/weekly/`, when present
+4. the latest completed file in `memory/monthly/`, when present
 
-- MEMORY.md lives at workspace root (not in a subdirectory)
-- Logs organized by date in memory/logs/
-- Auto-delete logs older than 7 days
+Dates are owner-local using `OWNER_TZ`. Re-read the working set when that local date
+changes or when a relevant Memory file changes. Search older active Memory only when
+the request needs it. Never read `memory/wiki/`; it is inactive Legacy memory.
 
-## MEMORY.md Contract
+## Capture
 
-MEMORY.md is plain text, no strict schema. Suggested structure:
+- Put stable facts, preferences, relationships, responsibilities, reusable context,
+  and settled decisions in `MEMORY.md`.
+- Put noteworthy events and temporary constraints in
+  `memory/daily/YYYY-MM-DD.md`. Include an expiry for temporary constraints.
+- Use readable Markdown with whatever structure best preserves the meaning.
+- Append each daily event as one complete line. Reread and atomically replace
+  semantic Memory; if a detected concurrent change occurs, reread and retry.
+- Keep `MEMORY.md` near a soft 5 KB target by loss-aware rewriting. Never hard
+  truncate it and never archive important content merely to meet the target.
 
-```markdown
-# Felix Memory
+Do not store secrets, credentials, authentication or recovery material, platform
+identifiers, raw transcripts, attachments, routine execution details, or unnecessary
+personal information.
 
-## About Owner
-- [Name], [Role] at [Company]
-- Language: [primary language], [secondary language]
+## Correction and contradiction
 
-## People
-- [Name] — [Role], [Notable context]
+For unresolved contradictions, retain both claims with their source and date. After
+resolution, keep the current fact in semantic Memory and record the change in daily
+Memory. Do not retain obsolete semantic claims merely as `[SUPERSEDED]` entries.
 
-## Projects
-- [Project name]: [Tech stack], [Status], [Key decisions]
+## Recall and visibility
 
-## Preferences
-- [Category]: [Preference]
+Use remembered context naturally. Memory is advisory and never overrides permissions
+or current instructions. Only a requester with `is_owner: true` may receive a raw or
+complete Memory dump. Other contacts may receive only relevant, non-sensitive facts.
 
-## Standing Decisions
-- [Decision]: [Rationale]
-```
+## Forget
 
-- Flat structure, no nested directories
-- One-line entries where possible
-- Maximum target: ~5KB
-- Felix can adapt format as needed
+An authorized forget request removes the targeted information from every active
+Memory file: semantic, daily, weekly, and monthly. It does not alter source sessions,
+attachments, or inactive Legacy memory. Preserve unrelated text and use atomic
+replacement. If a file is unreadable or unsafe to rewrite, preserve it and report
+that the forget operation is incomplete.
 
-## Daily Logs Contract
+## Background maintenance
 
-Daily logs are plain text, no strict schema. Example:
-
-```markdown
-# Daily Log - YYYY-MM-DD
-
-## Events
-- [HH:MM] [Event description]
-- [HH:MM] [Event description]
-
-## Notes
-- [Any additional context]
-```
-
-- Simple timestamped events
-- Auto-delete after 7 days
-- No permanent storage
-- Felix can adapt format as needed
-
-## Memory Update Rules
-
-1. **Semantic updates**: When learning a new durable fact, update MEMORY.md
-2. **Episodic updates**: When an event occurs, append to today's log
-3. **Forgetting**: Trivial details (greetings, social filler, execution details) are not stored
-4. **Contradictions**: Preserve both versions with `[CONTRADICTION]` tag
-5. **Superseded**: Mark old info as `[SUPERSEDED]` without deleting
-
-## Loading Strategy
-
-1. Always load MEMORY.md at session start
-2. Load today's and yesterday's logs automatically
-3. Search older logs only when needed
-4. Truncate MEMORY.md if it exceeds budget (keep file intact, truncate in context)
-
-## Token Optimization
-
-- Current wiki system: ~160KB loaded per session
-- New memory system: ~10-20KB loaded per session
-- Savings: ~87-94%
-
-## Maintenance
-
-After memory mutations:
-
-1. Keep MEMORY.md under ~5KB
-2. Append timestamped entries to today's log
-3. Use atomic writes when updating MEMORY.md
-4. Log cleanup runs automatically (7-day retention)
+The runtime, not this conversational skill, builds weekly and monthly rollups and
+enforces retention. Rollups may omit unimportant details, as a person naturally
+would, but must not invent facts. Maintenance never changes `MEMORY.md`.
