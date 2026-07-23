@@ -35,4 +35,22 @@ describe("copyTextFileIfAbsent", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("restores the bundled default after the workspace file is deleted", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "bundled-file-"));
+    try {
+      const source = path.join(dir, "src", "PERSONALITY.md");
+      const destination = path.join(dir, "workspace", "PERSONALITY.md");
+      await mkdir(path.dirname(source), { recursive: true });
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(source, "default\n", "utf-8");
+      await writeFile(destination, "custom\n", "utf-8");
+      await rm(destination);
+
+      await expect(copyTextFileIfAbsent(source, destination)).resolves.toBe("written");
+      await expect(readFile(destination, "utf-8")).resolves.toBe("default\n");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

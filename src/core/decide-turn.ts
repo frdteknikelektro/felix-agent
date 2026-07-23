@@ -17,7 +17,6 @@ export type TurnDecision =
   | { kind: "retry_fresh" }
   | { kind: "fail" }
   | { kind: "reply" }
-  | { kind: "personality_change" }
   | { kind: "no_skill" }
   | { kind: "permission_required" }
   | { kind: "format_retry" }
@@ -41,8 +40,6 @@ export function decideTurnResult(
   switch (result.parsed.kind) {
     case "reply":
       return { kind: "reply" };
-    case "personality_change":
-      return { kind: "personality_change" };
     case "no_skill":
       return { kind: "no_skill" };
     case "permission_required":

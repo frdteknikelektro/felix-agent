@@ -26,19 +26,19 @@ function makeThread(session: SessionState = { busy: false, queue: [], pending_pe
   };
 }
 
-function makeEvent(): UniversalEvent {
+function makeEvent(source = "mattermost", senderId = "user-1"): UniversalEvent {
   return {
-    source: "mattermost",
+    source,
     event_id: "event-1",
-    thread_key: "mattermost:channel:root",
+    thread_key: `${source}:channel:root`,
     received_at: "2026-05-25T00:01:00.000Z",
     visibility: "channel",
     mentions_bot: true,
-    sender: { source: "mattermost", id: "user-1" },
+    sender: { source, id: senderId },
     text: "@felix do it",
     attachments: [],
     raw_path: "/tmp/raw.json",
-    source_thread_ref: { source: "mattermost", conversation_id: "channel", root_message_id: "root", message_id: "event-1" },
+    source_thread_ref: { source, conversation_id: "channel", root_message_id: "root", message_id: "event-1" },
   };
 }
 
@@ -86,7 +86,6 @@ function makePorts(
     postThreadReply: vi.fn(async () => undefined),
     requestPermission: vi.fn(async () => undefined),
     autoGrantPermission: vi.fn(async () => undefined),
-    stagePersonalityProposal: vi.fn(async () => "Personality change proposed."),
     requeueEvent: vi.fn(async () => undefined),
     isStopRequested: vi.fn(() => false),
     clearStopRequested: vi.fn(() => undefined),
@@ -102,13 +101,14 @@ function makeInput(overrides: Partial<{
   contact: ContactRecord;
   skills: SkillRecord[];
   retryCounts: Map<string, number>;
+  event: UniversalEvent;
 }> = {}) {
   const session = overrides.session ?? { busy: false, queue: [], pending_permission: null };
   return {
     thread: overrides.thread ?? makeThread(session),
     item: makeItem(),
     session,
-    event: makeEvent(),
+    event: overrides.event ?? makeEvent(),
     precedingEvents: overrides.precedingEvents ?? [],
     contact: overrides.contact ?? makeContact(),
     skills: overrides.skills ?? [],
@@ -118,12 +118,9 @@ function makeInput(overrides: Partial<{
 }
 
 describe("TurnRunner", () => {
-  it.each([
-    ["matching", "user-1", true],
-    ["different", "owner-1", false],
-  ])(
-    "passes %s configured Owner identity to the harness as trusted turn context",
-    async (_case, ownerUserId, expected) => {
+  it.each(["mattermost", "discord", "slack", "whatsapp", "telegram"])(
+    "passes the server-computed Owner identity for %s to the harness",
+    async (source) => {
       const inputs: TurnInput[] = [];
       const harness: Harness = {
         run: vi.fn(async (input) => {
@@ -131,11 +128,18 @@ describe("TurnRunner", () => {
           return makeResult();
         }),
       };
-      const runner = new TurnRunner(harness, makePorts(undefined, ownerUserId));
+      const runner = new TurnRunner(harness, makePorts(undefined, "owner-1"));
 
-      await runner.run(makeInput());
+      await runner.run(
+        makeInput({ event: makeEvent(source, "owner-1") }),
+      );
 
-      expect(inputs[0]?.requesterIsOwner).toBe(expected);
+      expect(inputs[0]?.requesterIsOwner).toBe(true);
+
+      await runner.run(
+        makeInput({ event: makeEvent(source, "different-user") }),
+      );
+      expect(inputs[1]?.requesterIsOwner).toBe(false);
     },
   );
 

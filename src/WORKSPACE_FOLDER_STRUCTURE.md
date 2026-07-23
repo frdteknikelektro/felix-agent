@@ -12,8 +12,6 @@ $WORKSPACE_DIR
 ├── WORKSPACE_FOLDER_STRUCTURE.md  This file
 │
 ├── catalog/
-│   ├── personality-change.json          Pending Owner-confirmed personality proposal
-│   ├── personality-change.applying.json Recovery journal while applying a confirmed proposal
 │   └── contacts/
 │       └── <source>/<user_id>.md        Per-contact config, allowed_permissions
 │

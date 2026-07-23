@@ -70,7 +70,6 @@ export interface ParsedAgentOutput {
   kind:
     | "reply"
     | "permission_required"
-    | "personality_change"
     | "no_skill"
     | "unknown"
     | "format_error";
@@ -79,16 +78,6 @@ export interface ParsedAgentOutput {
   permissions?: string[];
   reason?: string;
   ownerMessage?: string;
-  personalityMode?: "update" | "reset";
-  personalityContent?: string;
-  formatTarget?: "permission_required" | "personality_change";
-}
-
-export interface PersonalityChangeOutput {
-  kind: "personality_change";
-  text: string;
-  personalityMode: "update" | "reset";
-  personalityContent?: string;
 }
 
 export interface PermissionRequiredOutput {

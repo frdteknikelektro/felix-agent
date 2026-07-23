@@ -33,8 +33,7 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("END_FELIX_REPLY");
     expect(agentsMd).toContain("PERMISSION_REQUIRED");
     expect(agentsMd).toContain("END_PERMISSION_REQUIRED");
-    expect(agentsMd).toContain("PERSONALITY_CHANGE");
-    expect(agentsMd).toContain("END_PERSONALITY_CHANGE");
+    expect(agentsMd).toContain("direct file-edit workflow");
     expect(agentsMd).toContain("is_owner");
     // Permission model — contact/request based, not thread-scoped
     expect(agentsMd).toContain("allowed_permissions");
