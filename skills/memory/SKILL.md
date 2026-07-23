@@ -1,74 +1,115 @@
 ---
 name: memory
-description: Schema and evidence rules for the persistent Felix knowledge wiki. Read by the memory ingest harness on every run.
+description: Schema and evidence rules for the persistent Felix memory system. Uses MEMORY.md for semantic memory and daily logs for episodic memory.
 metadata:
   author: felix-agent
   kind: general
-  version: "1.0.0"
+  version: "2.0.0"
   permissions: write
   match: memory, remember, recall, persistent knowledge
 ---
 
 ## Permissions
 
-- `write` — Create, update, or supersede wiki pages and mutate the index or log.
+- `write` — Create, update, or supersede memory entries and write to daily logs.
 
-Read-only lookups (consulting the index or an existing page) require no permission. Any mutation requires `write`.
+Read-only lookups (consulting MEMORY.md or existing logs) require no permission. Any mutation requires `write`.
 
-# Memory Wiki Schema
+# Memory System
 
 Capture durable knowledge, not a transcript mirror. Durable knowledge includes explicit decisions and rationale, stable facts, responsibilities, preferences, relationships, and reusable concepts. Exclude greetings, social filler, transient execution detail, secrets, and unsupported inference.
 
-## Page taxonomy
+## Structure
 
-| Location | One page per |
-|---|---|
-| `entities/` | Person, project, tool, service, or other stable noun |
-| `concepts/` | Idea, pattern, decision, trade-off, or reusable reasoning |
-| `sessions/<source>/` | Ingested source thread |
-| `comparisons/` | Explicit comparison of at least two alternatives |
-| `overview.md` | Current projects, open questions, and major themes |
-| `synthesis.md` | Best supported big-picture interpretation |
-
-Root files:
-
-- `index.md`: every page, grouped by type, with a one-line summary.
-- `log.md`: append-only record of ingest and lint mutations.
-
-## Page contract
-
-Every entity, concept, session, and comparison starts with:
-
-```yaml
----
-title: "Human-readable title"
-type: entity | concept | session | comparison
-tags: [specific, reusable]
-updated_at: "2026-06-19T14:00:00Z"
-sources: [mattermost:channel:thread]
----
+```
+~/
+├── MEMORY.md                    # Semantic memory (durable facts)
+└── memory/
+    └── logs/
+        ├── 2026-07-20.md        # Daily logs
+        ├── 2026-07-21.md
+        └── ...
 ```
 
-Use lowercase kebab-case filenames. Treat identity as semantic: search `index.md` and existing pages for aliases before creating a page.
+- MEMORY.md lives at workspace root (not in a subdirectory)
+- Logs organized by date in memory/logs/
+- Auto-delete logs older than 7 days
 
-Write claims specifically and attribute their source in `sources`. When new evidence conflicts with an existing claim, preserve both and add `[CONTRADICTION]` with the relevant source; never silently choose one. Mark superseded claims `[SUPERSEDED]` without erasing history.
+## MEMORY.md Contract
 
-## Page contents
+MEMORY.md is plain text, no strict schema. Suggested structure:
 
-- Entity: role or purpose, durable facts/preferences, and related pages.
-- Concept: definition, rationale, trade-offs, decisions, and involved entities.
-- Session: concise durable outcomes and links to every page changed because of the session.
-- Comparison: alternatives, decision criteria, trade-off table, and decision when present.
+```markdown
+# Felix Memory
 
-Use wiki-root paths such as `[[entities/alice]]` and `[[concepts/row-level-security]]`. Add reciprocal links when the relationship is meaningful.
+## About Owner
+- [Name], [Role] at [Company]
+- Language: [primary language], [secondary language]
 
-## Maintenance contract
+## People
+- [Name] — [Role], [Notable context]
 
-After page mutations:
+## Projects
+- [Project name]: [Tech stack], [Status], [Key decisions]
 
-1. Make `index.md` exactly reflect all pages and refresh changed summaries.
-2. Append a timestamped `log.md` entry listing created, updated, and superseded pages plus the source thread.
-3. Update `overview.md` or `synthesis.md` only when the new evidence materially changes that page.
-4. Write atomically when the ingest prompt requests it.
+## Preferences
+- [Category]: [Preference]
 
-Ingestion is complete only after every eligible transcript event has been scanned, every durable claim has one appropriate home, no duplicate identity was created, all touched pages satisfy the page contract, cross-links resolve or intentionally signal a missing page, the index matches disk, and the log records the run.
+## Standing Decisions
+- [Decision]: [Rationale]
+```
+
+- Flat structure, no nested directories
+- One-line entries where possible
+- Maximum target: ~5KB
+- Felix can adapt format as needed
+
+## Daily Logs Contract
+
+Daily logs are plain text, no strict schema. Example:
+
+```markdown
+# Daily Log - YYYY-MM-DD
+
+## Events
+- [HH:MM] [Event description]
+- [HH:MM] [Event description]
+
+## Notes
+- [Any additional context]
+```
+
+- Simple timestamped events
+- Auto-delete after 7 days
+- No permanent storage
+- Felix can adapt format as needed
+
+## Memory Update Rules
+
+1. **Semantic updates**: When learning a new durable fact, update MEMORY.md
+2. **Episodic updates**: When an event occurs, append to today's log
+3. **Forgetting**: Trivial details (greetings, social filler, execution details) are not stored
+4. **Contradictions**: Preserve both versions with `[CONTRADICTION]` tag
+5. **Superseded**: Mark old info as `[SUPERSEDED]` without deleting
+
+## Loading Strategy
+
+1. Always load MEMORY.md at session start
+2. Load today's and yesterday's logs automatically
+3. Search older logs only when needed
+4. Truncate MEMORY.md if it exceeds budget (keep file intact, truncate in context)
+
+## Token Optimization
+
+- Current wiki system: ~160KB loaded per session
+- New memory system: ~10-20KB loaded per session
+- Savings: ~87-94%
+
+## Maintenance
+
+After memory mutations:
+
+1. Keep MEMORY.md under ~5KB
+2. Append timestamped entries to today's log
+3. Use atomic writes when updating MEMORY.md
+4. Log cleanup runs automatically (7-day retention)

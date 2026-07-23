@@ -105,6 +105,8 @@ const Env = z.object({
   ATTACHMENT_MAX_BYTES: z.coerce.number().int().positive().default(DEFAULT_ATTACHMENT_MAX_BYTES),
   // IANA timezone for usage day/week/month boundaries (e.g. "Asia/Jakarta").
   USAGE_TZ: z.string().default("UTC"),
+  // Cron expression for memory log cleanup (default: daily at 3 AM UTC)
+  MEMORY_CLEANUP_CRON: z.string().default("0 3 * * *"),
 }).superRefine((env, ctx) => {
   if (env.NINEROUTER_ENABLED) {
     const required: Array<keyof typeof env> = [

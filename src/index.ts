@@ -129,22 +129,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Memory schema sync
-// ---------------------------------------------------------------------------
-
-async function syncMemorySchema(
-  paths: import("./workspace.js").WorkspacePaths,
-): Promise<void> {
-  const source = path.join(paths.skills, "memory", "SKILL.md");
-  const dest = path.join(paths.wikiDir, ".schema.md");
-  try {
-    await fs.cp(source, dest, { force: true });
-  } catch {
-    // schema file not found — wiki bootstraps without conventions
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -159,7 +143,6 @@ async function main(): Promise<void> {
     // otherwise so non-9router users don't see an irrelevant skill.
     skip: (name) => name === "9router" && !ninerouterEnabled(cfg),
   });
-  await syncMemorySchema(cfg.paths);
 
   // ── SSH key setup ─────────────────────────────────────────────────────────
   // Generate an Ed25519 key pair at ~/.ssh/ if none exists. The home directory

@@ -22,7 +22,7 @@ export interface WorkspacePaths {
   tasks: string;
   usage: string;
   memoryDir: string;
-  wikiDir: string;
+  memoryLogsDir: string;
   schedulerJobsDir: string;
   schedulerLogsDir: string;
 }
@@ -55,7 +55,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     tasks: path.join(root, "tasks"),
     usage: path.join(root, "usage"),
     memoryDir,
-    wikiDir: path.join(memoryDir, "wiki"),
+    memoryLogsDir: path.join(memoryDir, "logs"),
     schedulerJobsDir: path.join(schedulerDir, "jobs"),
     schedulerLogsDir: path.join(schedulerDir, "logs"),
   };
@@ -87,11 +87,7 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(path.join(paths.tasks, "paused")),
     ensureDir(paths.usage),
     ensureDir(paths.memoryDir),
-    ensureDir(paths.wikiDir),
-    ensureDir(path.join(paths.wikiDir, "entities")),
-    ensureDir(path.join(paths.wikiDir, "concepts")),
-    ensureDir(path.join(paths.wikiDir, "sessions")),
-    ensureDir(path.join(paths.wikiDir, "comparisons")),
+    ensureDir(paths.memoryLogsDir),
     ensureDir(paths.schedulerJobsDir),
     ensureDir(paths.schedulerLogsDir),
   ]);
@@ -100,11 +96,7 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
 export async function ensureMemoryDirs(paths: WorkspacePaths): Promise<void> {
   await Promise.all([
     ensureDir(paths.memoryDir),
-    ensureDir(paths.wikiDir),
-    ensureDir(path.join(paths.wikiDir, "entities")),
-    ensureDir(path.join(paths.wikiDir, "concepts")),
-    ensureDir(path.join(paths.wikiDir, "sessions")),
-    ensureDir(path.join(paths.wikiDir, "comparisons")),
+    ensureDir(paths.memoryLogsDir),
   ]);
 }
 
