@@ -90,4 +90,9 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("symbolic link");
     expect(agentsMd).not.toContain("Workspace root = `$HOME`");
   });
+
+  it("keeps the prose identity configurable", () => {
+    expect(agentsMd).toContain("`$FELIX_NAME`");
+    expect(agentsMd).not.toMatch(/\bFelix\b/);
+  });
 });
