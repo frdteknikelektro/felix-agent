@@ -269,20 +269,22 @@ const CHANNEL_TOKEN_HINTS = {
 };
 
 // Where each skill env var comes from — shown before its prompt.
+const GOOGLE_OAUTH_SETUP_GUIDE = [
+  `Full setup guide: ${c.dim}${link("https://github.com/frdteknikelektro/felix-agent/blob/main/skills/google-workspace/references/setup.md")}${c.reset}`,
+  ``,
+  `Quick steps:`,
+  `  1. Open ${c.dim}${link("https://console.cloud.google.com")}${c.reset} → create a new project`,
+  `  2. APIs & Services → Library → enable Gmail, Calendar, Drive, etc.`,
+  `  3. APIs & Services → OAuth consent screen → select "External"`,
+  `     → fill app name & your email → add your email as test user`,
+  `     → go to Audience → Publish app (no verification needed)`,
+  `  4. APIs & Services → Credentials → Create Credentials → OAuth client ID`,
+  `     → select "Desktop app" → copy the Client ID and Secret below`,
+].join("\n");
+
 const SKILL_ENV_HINTS = {
-  GOOGLE_CLIENT_ID: [
-    `How to get it:`,
-    `  1. Open ${c.dim}${link("https://console.cloud.google.com")}${c.reset}`,
-    `  2. Create a new project (or select an existing one)`,
-    `  3. Go to Credentials → Create Credentials → OAuth client ID`,
-    `  4. Select "Desktop app" as application type`,
-    `  5. Copy the Client ID shown`,
-  ].join("\n"),
-  GOOGLE_CLIENT_SECRET: [
-    `Generated together with the Client ID above.`,
-    `  • Find it in the downloaded JSON file, or`,
-    `  • Go to Credentials → click your OAuth client name → Client Secret`,
-  ].join("\n"),
+  GOOGLE_CLIENT_ID: GOOGLE_OAUTH_SETUP_GUIDE,
+  GOOGLE_CLIENT_SECRET: `Generated together with the Client ID above. Find it in the downloaded JSON or Credentials page.`,
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
