@@ -270,8 +270,19 @@ const CHANNEL_TOKEN_HINTS = {
 
 // Where each skill env var comes from — shown before its prompt.
 const SKILL_ENV_HINTS = {
-  GOOGLE_CLIENT_ID: `OAuth 2.0 Client ID from Google Cloud Console → Credentials → Create Credentials → OAuth client ID → Desktop app. ${c.dim}${link("https://console.cloud.google.com/auth/clients")}${c.reset}`,
-  GOOGLE_CLIENT_SECRET: `OAuth 2.0 Client Secret, generated alongside the Client ID above. Found in the downloaded JSON or Credentials page. ${c.dim}${link("https://console.cloud.google.com/auth/clients")}${c.reset}`,
+  GOOGLE_CLIENT_ID: [
+    `How to get it:`,
+    `  1. Open ${c.dim}${link("https://console.cloud.google.com")}${c.reset}`,
+    `  2. Create a new project (or select an existing one)`,
+    `  3. Go to Credentials → Create Credentials → OAuth client ID`,
+    `  4. Select "Desktop app" as application type`,
+    `  5. Copy the Client ID shown`,
+  ].join("\n"),
+  GOOGLE_CLIENT_SECRET: [
+    `Generated together with the Client ID above.`,
+    `  • Find it in the downloaded JSON file, or`,
+    `  • Go to Credentials → click your OAuth client name → Client Secret`,
+  ].join("\n"),
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
