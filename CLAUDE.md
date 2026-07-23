@@ -137,7 +137,7 @@ Key variables:
 | `HARNESS` | — | `codex` (default), `opencode`, or `claude-code` |
 | `WORKSPACE_DIR` | — | default `/home/node` |
 | `CODEX_MODEL` | — | default `gpt-5.6-luna` |
-| `CODEX_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `gpt-5.6-luna`, never falls back to the primary model |
+| `CODEX_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `gpt-5.4-mini`, never falls back to the primary model |
 | `OPENCODE_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `opencode/deepseek-v4-flash-free`, never falls back to the primary model |
 | `CLAUDE_CODE_MODEL_FOR_MEMORIZING` | — | dedicated low-cost Memory rollup model; default `haiku`, never falls back to the primary model |
 | `NINEROUTER_MODEL_FOR_MEMORIZING` | 9router | dedicated low-cost Memory rollup model; required with 9router |

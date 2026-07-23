@@ -99,12 +99,24 @@ async function readSafeMarkdown(file: string): Promise<string> {
   return text;
 }
 
-async function isCoverageFile(file: string): Promise<boolean> {
+type CoverageInspection =
+  | { state: "missing" | "empty" | "covered" }
+  | { state: "unreadable"; error: string };
+
+async function inspectCoverage(file: string): Promise<CoverageInspection> {
   try {
-    return (await readSafeMarkdown(file)).trim().length > 0;
-  } catch {
-    return false;
+    const text = await readSafeMarkdown(file);
+    return { state: text.trim().length > 0 ? "covered" : "empty" };
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { state: "missing" };
+    }
+    return { state: "unreadable", error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+function coverageFailure(file: string, inspection: Extract<CoverageInspection, { state: "unreadable" }>): string {
+  return `${path.basename(file)}: ${inspection.error}`;
 }
 
 async function memorySystemThread(cfg: AppConfig, now: Date): Promise<ThreadHandle> {
@@ -123,6 +135,7 @@ function maintenanceInput(
   kind: "weekly" | "monthly",
   period: string,
   sourceFiles: string[],
+  sourceContents: string[],
 ): TurnInput {
   const monthRule = kind === "monthly"
     ? `Include only events whose attributed date is within ${period}, even when a source week crosses a month boundary.`
@@ -140,7 +153,7 @@ function maintenanceInput(
     `Owner timezone: ${cfg.OWNER_TZ}`,
     monthRule,
     "Sources:",
-    ...sourceFiles.map((file) => `- ${file}`),
+    ...sourceFiles.map((file, index) => `- ${file}\n  Source snapshot (read-only):\n${sourceContents[index] ?? ""}`),
   ].join("\n");
 
   return {
@@ -174,6 +187,60 @@ function maintenanceInput(
   };
 }
 
+function isoDates(text: string): string[] {
+  return [...text.matchAll(/\b\d{4}-\d{2}-\d{2}\b/g)].map((match) => match[0]!);
+}
+
+function validateRollupMarkdown(
+  markdown: string,
+  kind: "weekly" | "monthly",
+  period: string,
+  sourceFiles: string[],
+  sourceContents: string[],
+): void {
+  const sourceDates = new Set<string>([
+    ...sourceFiles.flatMap((file) => isoDates(path.basename(file))),
+    ...sourceContents.flatMap(isoDates),
+  ]);
+  const trimmed = markdown.trim();
+  const isExplicitEmpty = /^\s*(?:#{1,6}\s+[^\n]+\s*)?_No events retained\._\s*$/i.test(trimmed);
+  if (isExplicitEmpty) return;
+  const outputDates = isoDates(markdown);
+  const crossesMonth = kind === "weekly" && monthKeyForDate(period) !== monthKeyForDate(addDays(period, 6));
+  if (crossesMonth && sourceFiles.length > 0 && outputDates.length === 0) {
+    throw new Error("cross-month weekly rollup must preserve source event dates");
+  }
+  for (const date of outputDates) {
+    const inPeriod = kind === "weekly"
+      ? weekStartForKey(date) === period
+      : monthKeyForDate(date) === period;
+    if (!inPeriod || !sourceDates.has(date)) {
+      throw new Error(`rollup date ${date} is not grounded in the ${kind} source period`);
+    }
+  }
+}
+
+async function unlinkIfUnchanged(file: string): Promise<void> {
+  const before = await readSafeMarkdown(file);
+  const current = await readSafeMarkdown(file);
+  if (current !== before) throw new Error("file changed during retention; preserving it");
+  await fs.unlink(file);
+}
+
+async function coverageIsFresh(output: string, sourceFiles: string[]): Promise<boolean> {
+  try {
+    const outputStat = await fs.lstat(output);
+    if (!outputStat.isFile() || outputStat.isSymbolicLink()) return false;
+    for (const source of sourceFiles) {
+      const sourceStat = await fs.lstat(source);
+      if (!sourceStat.isFile() || sourceStat.isSymbolicLink() || sourceStat.mtimeMs > outputStat.mtimeMs) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function createRollup(
   cfg: AppConfig,
   harness: Harness,
@@ -193,7 +260,7 @@ async function createRollup(
         throw new Error(`${path.basename(file)}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    const result = await harness.run(maintenanceInput(cfg, thread, now, kind, period, sourceFiles));
+    const result = await harness.run(maintenanceInput(cfg, thread, now, kind, period, sourceFiles, before));
     if (!result.success) {
       throw new Error(`low-cost model failed (exit ${result.exitCode})`);
     }
@@ -201,6 +268,7 @@ async function createRollup(
     if (result.parsed.kind !== "reply" || !markdown.trim()) {
       throw new Error("low-cost model returned no Markdown");
     }
+    validateRollupMarkdown(markdown, kind, period, sourceFiles, before);
 
     let changed = false;
     for (let index = 0; index < sourceFiles.length; index += 1) {
@@ -215,8 +283,8 @@ async function createRollup(
       continue;
     }
     if (await pathExists(outputFile)) {
-      if (!(await isCoverageFile(outputFile))) throw new Error("output changed to an unsafe file");
-      return;
+      const outputStatus = await inspectCoverage(outputFile);
+      if (outputStatus.state === "unreadable") throw new Error("output changed to an unsafe file");
     }
     await writeTextAtomic(outputFile, markdown.endsWith("\n") ? markdown : `${markdown}\n`);
     return;
@@ -254,10 +322,17 @@ async function buildWeeklyRollups(
 
   for (const week of [...candidates].sort()) {
     const output = path.join(cfg.paths.memoryWeeklyDir, `${week}.md`);
-    if (await isCoverageFile(output)) continue;
     const sourceFiles = dailyKeys
       .filter((day) => day >= week && day <= addDays(week, 6))
       .map((day) => path.join(cfg.paths.memoryDailyDir, `${day}.md`));
+    const outputStatus = await inspectCoverage(output);
+    if (outputStatus.state === "covered" && await coverageIsFresh(output, sourceFiles)) continue;
+    if (outputStatus.state === "unreadable") {
+      const message = coverageFailure(output, outputStatus);
+      result.failures.push(message);
+      log.error("memory: weekly output is unreadable", { period: week, error: message });
+      continue;
+    }
     try {
       await createRollup(cfg, harness, thread, now, "weekly", week, sourceFiles, output);
       result.weeklyCreated.push(week);
@@ -289,11 +364,28 @@ async function buildMonthlyRollups(
 
   for (const month of [...candidates].sort()) {
     const output = path.join(cfg.paths.memoryMonthlyDir, `${month}.md`);
-    if (await isCoverageFile(output)) continue;
     const weeks = weeksIntersectingMonth(month);
     if (weeks.some((week) => week >= currentWeek)) continue;
     const sourceFiles = weeks.map((week) => path.join(cfg.paths.memoryWeeklyDir, `${week}.md`));
-    if (!(await Promise.all(sourceFiles.map(isCoverageFile))).every(Boolean)) continue;
+    const outputStatus = await inspectCoverage(output);
+    if (outputStatus.state === "covered" && await coverageIsFresh(output, sourceFiles)) continue;
+    if (outputStatus.state === "unreadable") {
+      const message = coverageFailure(output, outputStatus);
+      result.failures.push(message);
+      log.error("memory: monthly output is unreadable", { period: month, error: message });
+      continue;
+    }
+    const sourceStatuses = await Promise.all(sourceFiles.map(inspectCoverage));
+    const unreadableSources = sourceFiles.flatMap((file, index) => {
+      const status = sourceStatuses[index]!;
+      return status.state === "unreadable" ? [coverageFailure(file, status)] : [];
+    });
+    if (unreadableSources.length > 0) {
+      result.failures.push(...unreadableSources);
+      log.error("memory: monthly source is unreadable", { period: month, errors: unreadableSources });
+      continue;
+    }
+    if (!sourceStatuses.every((status) => status.state === "covered")) continue;
     try {
       await createRollup(cfg, harness, thread, now, "monthly", month, sourceFiles, output);
       result.monthlyCreated.push(month);
@@ -316,11 +408,17 @@ async function enforceRetention(
   for (const day of await listPeriodKeys(cfg.paths.memoryDailyDir, "daily")) {
     if (day > dailyCutoff) continue;
     const coverage = path.join(cfg.paths.memoryWeeklyDir, `${weekStartForKey(day)}.md`);
-    if (!(await isCoverageFile(coverage))) continue;
+    const coverageStatus = await inspectCoverage(coverage);
+    if (coverageStatus.state === "unreadable") {
+      const message = coverageFailure(coverage, coverageStatus);
+      result.failures.push(message);
+      log.error("memory: daily retention coverage is unreadable", { day, error: message });
+      continue;
+    }
+    if (coverageStatus.state !== "covered") continue;
     const file = path.join(cfg.paths.memoryDailyDir, `${day}.md`);
     try {
-      await readSafeMarkdown(file);
-      await fs.unlink(file);
+      await unlinkIfUnchanged(file);
       result.dailyDeleted.push(day);
     } catch (error) {
       result.failures.push(`${day}.md: ${error instanceof Error ? error.message : String(error)}`);
@@ -335,11 +433,20 @@ async function enforceRetention(
       months.add(monthKeyForDate(day));
     }
     const coverage = [...months].map((month) => path.join(cfg.paths.memoryMonthlyDir, `${month}.md`));
-    if (!(await Promise.all(coverage.map(isCoverageFile))).every(Boolean)) continue;
+    const coverageStatuses = await Promise.all(coverage.map(inspectCoverage));
+    const unreadableCoverage = coverage.flatMap((file, index) => {
+      const status = coverageStatuses[index]!;
+      return status.state === "unreadable" ? [coverageFailure(file, status)] : [];
+    });
+    if (unreadableCoverage.length > 0) {
+      result.failures.push(...unreadableCoverage);
+      log.error("memory: weekly retention coverage is unreadable", { week, errors: unreadableCoverage });
+      continue;
+    }
+    if (!coverageStatuses.every((status) => status.state === "covered")) continue;
     const file = path.join(cfg.paths.memoryWeeklyDir, `${week}.md`);
     try {
-      await readSafeMarkdown(file);
-      await fs.unlink(file);
+      await unlinkIfUnchanged(file);
       result.weeklyDeleted.push(week);
     } catch (error) {
       result.failures.push(`${week}.md: ${error instanceof Error ? error.message : String(error)}`);
@@ -351,8 +458,7 @@ async function enforceRetention(
     if (month >= monthlyCutoff) continue;
     const file = path.join(cfg.paths.memoryMonthlyDir, `${month}.md`);
     try {
-      await readSafeMarkdown(file);
-      await fs.unlink(file);
+      await unlinkIfUnchanged(file);
       result.monthlyDeleted.push(month);
     } catch (error) {
       result.failures.push(`${month}.md: ${error instanceof Error ? error.message : String(error)}`);

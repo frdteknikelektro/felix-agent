@@ -42,7 +42,7 @@ describe("Memory configuration", () => {
 
   it("always provides a dedicated low-cost model and requires one for 9router", () => {
     const defaults = loadConfig(env());
-    expect(defaults.CODEX_MODEL_FOR_MEMORIZING).toBe("gpt-5.6-luna");
+    expect(defaults.CODEX_MODEL_FOR_MEMORIZING).toBe("gpt-5.4-mini");
     expect(defaults.OPENCODE_MODEL_FOR_MEMORIZING).toBe("opencode/deepseek-v4-flash-free");
     expect(defaults.CLAUDE_CODE_MODEL_FOR_MEMORIZING).toBe("haiku");
 

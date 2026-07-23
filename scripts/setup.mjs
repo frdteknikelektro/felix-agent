@@ -733,7 +733,7 @@ export async function main() {
       info("Dedicated low-cost model for Memory rollups; it never falls back to CODEX_MODEL.");
       const codexMemModel = await promptModelWithValidation({
         message: `CODEX_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.CODEX_MODEL_FOR_MEMORIZING || "gpt-5.6-luna",
+        default: existing.CODEX_MODEL_FOR_MEMORIZING || "gpt-5.4-mini",
         check: checkCodexModel,
         providerLabel: "OpenAI",
       });

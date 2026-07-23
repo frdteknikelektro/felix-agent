@@ -11,6 +11,13 @@ import { makeTestConfig } from "../helpers/workspace.js";
 
 const roots: string[] = [];
 
+function weekStart(key: string): string {
+  const date = new Date(`${key}T12:00:00.000Z`);
+  const isoDay = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() - isoDay + 1);
+  return date.toISOString().slice(0, 10);
+}
+
 class RollupHarness implements Harness {
   readonly inputs: TurnInput[] = [];
   constructor(private readonly fail = false) {}
@@ -18,13 +25,18 @@ class RollupHarness implements Harness {
   async run(input: TurnInput): Promise<TurnResult> {
     this.inputs.push(input);
     const period = input.promptOverride?.match(/^Period: (.+)$/m)?.[1] ?? "unknown";
+    const sourceDates = [...(input.promptOverride ?? "").matchAll(/-\s+.*?(\d{4}-\d{2}-\d{2})\.md/g)]
+      .map((match) => match[1]!);
+    const date = sourceDates.find((value) => /^\d{4}-\d{2}$/.test(period) ? value.startsWith(`${period}-`) : weekStart(value) === period);
     return {
       sessionId: `memory-${this.inputs.length}`,
       exitCode: this.fail ? 1 : 0,
       success: !this.fail,
       parsed: {
         kind: "reply",
-        text: this.fail ? "" : `# Memory rollup\n\n- Retained event for ${period}\n`,
+        text: this.fail ? "" : !date
+          ? "# Memory rollup\n\n_No events retained._\n"
+          : `# Memory rollup\n\n- ${date}: Retained event\n`,
       },
       logPath: "/dev/null",
     };
@@ -101,6 +113,21 @@ describe("Memory maintenance", () => {
     expect(harness.inputs).toHaveLength(1);
   });
 
+  it("refreshes existing coverage when a source changes", async () => {
+    const cfg = await setup();
+    const harness = new RollupHarness();
+    const source = path.join(cfg.paths.memoryDailyDir, "2026-07-12.md");
+    await fs.writeFile(source, "- initial event\n");
+    const now = new Date("2026-07-13T00:30:00.000Z");
+    await runMemoryMaintenance(cfg, harness, now);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await fs.appendFile(source, "- late event\n");
+
+    await runMemoryMaintenance(cfg, harness, now);
+
+    expect(harness.inputs).toHaveLength(3);
+  });
+
   it("does not publish coverage or clean sources when the low-cost model fails", async () => {
     const cfg = await setup();
     const harness = new RollupHarness(true);
@@ -125,6 +152,7 @@ describe("Memory maintenance", () => {
       await put(cfg.paths.memoryWeeklyDir, week);
     }
     await put(cfg.paths.memoryMonthlyDir, "2025-05");
+    await put(cfg.paths.memoryMonthlyDir, "2025-07");
     await fs.writeFile(cfg.paths.memoryFile, "# Memory\n\n- Must survive maintenance.\n");
 
     const result = await runMemoryMaintenance(cfg, harness, new Date("2026-07-13T00:30:00.000Z"));
@@ -135,7 +163,94 @@ describe("Memory maintenance", () => {
     expect(monthInput?.promptOverride).toContain("2026-06-01.md");
     expect(monthInput?.promptOverride).toContain("2026-06-29.md");
     await expect(fs.access(path.join(cfg.paths.memoryMonthlyDir, "2025-05.md"))).rejects.toThrow();
+    await expect(fs.access(path.join(cfg.paths.memoryMonthlyDir, "2025-07.md"))).resolves.toBeUndefined();
     expect(await fs.readFile(cfg.paths.memoryFile, "utf8")).toContain("Must survive");
+  });
+
+  it("reports unreadable weekly sources and blocks monthly cleanup", async () => {
+    const cfg = await setup();
+    const harness = new RollupHarness();
+    for (const week of ["2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29"]) {
+      await put(cfg.paths.memoryWeeklyDir, week);
+    }
+    const unsafe = path.join(cfg.paths.memoryWeeklyDir, "2026-06-15.md");
+    await fs.rm(unsafe);
+    await fs.mkdir(unsafe);
+    await put(cfg.paths.memoryMonthlyDir, "2025-07");
+
+    const result = await runMemoryMaintenance(cfg, harness, new Date("2026-07-13T00:30:00.000Z"));
+
+    expect(result.failures.some((failure) => failure.includes("2026-06-15.md"))).toBe(true);
+    expect((await fs.lstat(unsafe)).isDirectory()).toBe(true);
+    await expect(fs.access(path.join(cfg.paths.memoryMonthlyDir, "2025-07.md"))).resolves.toBeUndefined();
+  });
+
+  it("rejects non-empty rollups whose dates are not grounded in their sources", async () => {
+    const cfg = await setup();
+    const harness = new RollupHarness();
+    harness.run = async (input) => {
+      harness.inputs.push(input);
+      return {
+        sessionId: "invalid-date",
+        exitCode: 0,
+        success: true,
+        parsed: { kind: "reply", text: "# Weekly Memory\n\n- 2026-07-20: invented\n" },
+        logPath: "/dev/null",
+      };
+    };
+    await put(cfg.paths.memoryDailyDir, "2026-07-06");
+
+    const result = await runMemoryMaintenance(cfg, harness, new Date("2026-07-13T00:30:00.000Z"));
+
+    expect(result.failures.some((failure) => failure.includes("not grounded"))).toBe(true);
+    await expect(fs.access(path.join(cfg.paths.memoryWeeklyDir, "2026-07-06.md"))).rejects.toThrow();
+    await expect(fs.access(path.join(cfg.paths.memoryDailyDir, "2026-07-06.md"))).resolves.toBeUndefined();
+  });
+
+  it("accepts arbitrary readable Markdown", async () => {
+    const cfg = await setup();
+    const harness = new RollupHarness();
+    harness.run = async (input) => {
+      harness.inputs.push(input);
+      return {
+        sessionId: `format-${harness.inputs.length}`,
+        exitCode: 0,
+        success: true,
+        parsed: {
+          kind: "reply",
+          text: "# Weekly Memory\n\n- Discussed the launch.\n",
+        },
+        logPath: "/dev/null",
+      };
+    };
+    await put(cfg.paths.memoryDailyDir, "2026-07-06");
+
+    const result = await runMemoryMaintenance(cfg, harness, new Date("2026-07-13T00:30:00.000Z"));
+
+    expect(result.failures).toEqual([]);
+    await expect(fs.access(path.join(cfg.paths.memoryWeeklyDir, "2026-07-06.md"))).resolves.toBeUndefined();
+    expect(harness.inputs).toHaveLength(2);
+  });
+
+  it("does not trust an empty marker when mixed with invented content", async () => {
+    const cfg = await setup();
+    const harness = new RollupHarness();
+    harness.run = async (input) => {
+      harness.inputs.push(input);
+      return {
+        sessionId: "mixed-empty",
+        exitCode: 0,
+        success: true,
+        parsed: { kind: "reply", text: "# Weekly Memory\n\n_No events retained._\n\n- 2099-01-01: invented\n" },
+        logPath: "/dev/null",
+      };
+    };
+    await put(cfg.paths.memoryDailyDir, "2026-07-06");
+
+    const result = await runMemoryMaintenance(cfg, harness, new Date("2026-07-13T00:30:00.000Z"));
+
+    expect(result.failures.some((failure) => failure.includes("not grounded"))).toBe(true);
+    await expect(fs.access(path.join(cfg.paths.memoryWeeklyDir, "2026-07-06.md"))).rejects.toThrow();
   });
 
   it("preserves unreadable inputs and blocks dependent cleanup", async () => {
@@ -236,7 +351,7 @@ describe("Memory maintenance", () => {
         sessionId: `retry-${harness.inputs.length}`,
         exitCode: 0,
         success: true,
-        parsed: { kind: "reply", text: `# Weekly Memory\n\n- attempt ${harness.inputs.length}\n` },
+        parsed: { kind: "reply", text: `# Weekly Memory\n\n- 2026-07-06: attempt ${harness.inputs.length}\n` },
         logPath: "/dev/null",
       };
     };

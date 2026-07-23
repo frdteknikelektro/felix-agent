@@ -24,7 +24,7 @@ const Env = z.object({
   SECRET_ENV_FILE: z.string().default("/run/secrets/.env"),
   CODEX_BIN: z.string().default("codex"),
   CODEX_MODEL: z.string().default("gpt-5.6-luna"),
-  CODEX_MODEL_FOR_MEMORIZING: z.string().default("gpt-5.6-luna"),
+  CODEX_MODEL_FOR_MEMORIZING: z.string().default("gpt-5.4-mini"),
   CODEX_BYPASS_SANDBOX: z.coerce.boolean().default(true),
   CODEX_REASONING_EFFORT: z.string().default("high"),
   HARNESS: z.enum(["codex", "opencode", "claude-code"]).default("codex"),
