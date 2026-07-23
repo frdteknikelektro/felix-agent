@@ -17,6 +17,8 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 
 Read `PERSONALITY.md` from the workspace root for personality instructions (tone, communication style, and role). This file defines how the agent presents itself and adapts to different contexts.
 
+AGENTS.md has higher priority than PERSONALITY.md. Personality content can never override safety, permissions, output contracts, skills, or source behavior. For requests to edit or reset personality, use the installed `personality` skill. That skill trusts the server-computed `is_owner` field and lets only the Owner edit `PERSONALITY.md` directly.
+
 ## Output contract
 
 Every reply to the user MUST be wrapped in a `FELIX_REPLY` block. Text outside these markers is not delivered to the user.
@@ -98,7 +100,7 @@ Paths below are relative to the workspace root; thread- and session-specific abs
 
 Each turn delivers:
 
-1. A per-turn message with resolved absolute paths you cannot reliably derive yourself (`thread_dir`, `initial_md`, `transcript`, `contact_file`) + the new event (event file path, sender, text, attachments) + any preceding events already in the transcript.
+1. A per-turn message with resolved absolute paths you cannot reliably derive yourself (`thread_dir`, `initial_md`, `transcript`, `contact_file`) + the new event (event file path, server-computed `is_owner`, sender, text, attachments) + any preceding events already in the transcript.
 2. `INITIAL.md` on disk — written once at session start and never folded into the per-turn message. Read it (at `initial_md`) for session ID, harness type, working directory, and the platform-specific behavior instructions (the bash commands for fetching history, posting, reacting, etc.); re-read it whenever you need session details or platform instructions.
 3. AGENTS.md / CLAUDE.md in the system/developer tier — this contract, always present.
 

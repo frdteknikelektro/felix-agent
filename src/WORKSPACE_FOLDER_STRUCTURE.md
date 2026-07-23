@@ -7,6 +7,7 @@ $WORKSPACE_DIR
 │
 ├── AGENTS.md                      Felix behavior contract (boot-written)
 ├── CLAUDE.md                      Claude Code alias (identical copy)
+├── PERSONALITY.md                 Global role, tone, and style (copy-if-absent)
 ├── WORKSPACE_FOLDER_STRUCTURE.md  This file
 │
 ├── catalog/
@@ -81,6 +82,7 @@ $WORKSPACE_DIR
 | Path | Purpose |
 |------|---------|
 | `WORKSPACE_FOLDER_STRUCTURE.md` | Authoritative directory layout — read it once per session |
+| `PERSONALITY.md` | Global role, tone, and communication style |
 | `.agents/skills/<skill_id>/SKILL.md` | Skill definition (agentskills.io standard) |
 | `catalog/contacts/<source>/<user_id>.md` | Per-contact config, `allowed_permissions` |
 | `memory/wiki/index.md` | Knowledge wiki index — always read first |

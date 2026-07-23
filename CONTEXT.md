@@ -4,6 +4,7 @@
 
 - `Owner`: the single operator who approves permissions and manages skills for this Felix instance.
 - `Agent identity`: the customer-configured name in `FELIX_NAME`, collected by the first-run setup wizard and used when a source does not provide its own bot identity. It defaults to `Felix` for backward compatibility; API- or paired-account-discovered identities are authoritative, and WhatsApp uses this single global presentation name.
+- `Personality configuration`: the single global `PERSONALITY.md` at the Workspace root. It defines Felix's free-form role, tone, voice, and presentation preferences only; `AGENTS.md` remains the higher-priority behavior, safety, permission, and output contract. Boot copies the bundled default only when the Workspace file is absent. The `personality` skill trusts the server-computed `is_owner` turn field and lets only that Owner edit the file directly, so customizations survive sessions and restarts without a separate proposal state machine.
 - `Session`: a persisted interaction tied to one source thread and one Codex run history.
 - `Session record`: the on-disk durable representation of a `Session`, stored under `workspace/sessions/<source>/`.
 - `Thread key`: an opaque stable source-thread identifier produced by a source adapter; core modules store and index it but do not parse it.
