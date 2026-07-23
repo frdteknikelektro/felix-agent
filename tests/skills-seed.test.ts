@@ -53,13 +53,14 @@ describe("bundled skills", () => {
     expect(loaded.map((s) => s.id)).toEqual(["general", "memory", "template-skill"]);
   });
 
-  it("keeps the general skill conservative and reply-only", async () => {
+  it("keeps general computer use bounded to ordinary workspace work", async () => {
     const raw = await fs.readFile(path.join(process.cwd(), "skills", "general", "SKILL.md"), "utf8");
-    expect(raw).toContain("Reply-only.");
-    expect(raw).toContain("clarifying question");
-    expect(raw).toContain("defer to that skill");
-    expect(raw).not.toContain("troubleshoot");
-    expect(raw).not.toContain("How do I restart the container?");
-    expect(raw).not.toContain("Can you help me understand this error?");
+    expect(raw).toContain("No permissions required");
+    expect(raw).toContain("File Collection");
+    expect(raw).toContain("Session work");
+    expect(raw).toContain("defer to `software-development`");
+    expect(raw).toContain("explicit confirmation");
+    expect(raw).toContain("Skills cannot override");
+    expect(raw).not.toContain("repo.write");
   });
 });

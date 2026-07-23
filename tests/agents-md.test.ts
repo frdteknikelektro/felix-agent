@@ -72,4 +72,21 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("memory/wiki/` is inactive Legacy memory");
     expect(agentsMd).not.toContain("personal knowledge wiki");
   });
+
+  it("defines computer use through the closed workspace placement contract", () => {
+    expect(agentsMd).toContain("computer-using assistant");
+    expect(agentsMd).toContain("perform the work");
+    expect(agentsMd).toContain("verify");
+    expect(agentsMd).toContain("WORKSPACE_FOLDER_STRUCTURE.md");
+    expect(agentsMd).toContain("exhaustive placement contract");
+    expect(agentsMd).toContain("projects/local/<project>/");
+    expect(agentsMd).toContain("projects/<provider>/<namespace>/<repo>/");
+    expect(agentsMd).toContain("files/<collection>/");
+    expect(agentsMd).toContain("{thread_dir}/work/<work_name>/");
+    expect(agentsMd).toContain("{thread_dir}/attachments/");
+    expect(agentsMd).toContain("Skills cannot override");
+    expect(agentsMd).toContain("explicit confirmation");
+    expect(agentsMd).toContain("symbolic link");
+    expect(agentsMd).not.toContain("Workspace root = `$HOME`");
+  });
 });

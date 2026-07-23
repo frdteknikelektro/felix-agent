@@ -17,6 +17,7 @@ function makeThread(): ThreadHandle {
     transcriptFile: "/tmp/thread/transcript.md",
     eventsDir: "/tmp/thread/events",
     attachmentsDir: "/tmp/thread/attachments",
+    workDir: "/tmp/thread/work",
     turnsDir: "/tmp/thread/turns",
     state: {
       thread_key: "mattermost:channel:root",

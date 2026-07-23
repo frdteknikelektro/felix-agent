@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildWorkspacePaths,
   ensureWorkspace,
+  fileCollectionDir,
+  localProjectDir,
   projectNamespaceDir,
   projectProviderDir,
   projectRepoDir,
@@ -12,6 +14,7 @@ import {
   sourceRawDir,
   sourceSessionsDir,
   sourceThreadKeyIndexDir,
+  workspaceSlug,
 } from "../src/workspace.js";
 
 describe("workspace paths", () => {
@@ -30,6 +33,22 @@ describe("workspace paths", () => {
     expect(paths.python).toBe(path.join("/workspace", "runtime", "python"));
     expect(paths.threadKeyIndex).toBe(path.join("/workspace", "index", "thread-key"));
     expect(paths.projects).toBe(path.join("/workspace", "projects"));
+    expect(paths.localProjects).toBe(path.join("/workspace", "projects", "local"));
+    expect(paths.fileCollections).toBe(path.join("/workspace", "files"));
+  });
+
+  it("provisions persistent local-project and file-collection roots", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-workspace-paths-"));
+    const paths = buildWorkspacePaths(path.join(root, "workspace"));
+
+    try {
+      await ensureWorkspace(paths);
+
+      expect((await fs.stat(paths.localProjects)).isDirectory()).toBe(true);
+      expect((await fs.stat(paths.fileCollections)).isDirectory()).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("uses source-scoped directories for extensible source data", () => {
@@ -71,5 +90,18 @@ describe("workspace paths", () => {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("derives readable canonical paths from human names", () => {
+    const paths = buildWorkspacePaths("/workspace");
+
+    expect(workspaceSlug("Jala Cost Report")).toBe("jala-cost-report");
+    expect(workspaceSlug("  Café 2026  ")).toBe("café-2026");
+    expect(localProjectDir(paths, "My App")).toBe(path.join("/workspace", "projects", "local", "my-app"));
+    expect(fileCollectionDir(paths, "Quarterly Invoices")).toBe(path.join("/workspace", "files", "quarterly-invoices"));
+    expect(() => workspaceSlug("..")).toThrow(/usable/i);
+    expect(() => workspaceSlug("///")).toThrow(/separator/i);
+    expect(() => workspaceSlug("team/app")).toThrow(/separator/i);
+    expect(() => workspaceSlug("report\u0000draft")).toThrow(/control/i);
   });
 });

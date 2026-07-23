@@ -160,7 +160,7 @@ function buildPerTurnMessage(cfg: AppConfig, input: TurnInput): string {
   });
   if (skillPermLines.length > 0) {
     lines.push(
-      "permissions_per_skill (server-computed — authoritative, do not re-derive): have=[...] is pre-authorized; for anything under need=[...] emit PERMISSION_REQUIRED first.",
+      "permissions_per_skill (server-computed — authoritative, do not re-derive): have=[...] is pre-authorized and need=[...] is the ungranted declared vocabulary. Request only the permissions that the matched Skill says this operation requires; for each required permission under need=[...], emit PERMISSION_REQUIRED first.",
     );
     if (permSkills.some((skill) => skill.permissions.some((p) => wildcardPrefix(p) !== null))) {
       lines.push(

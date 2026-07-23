@@ -12,6 +12,7 @@ function makeThread(session: SessionState = { busy: false, queue: [], pending_pe
     transcriptFile: "/tmp/thread/transcript.md",
     eventsDir: "/tmp/thread/events",
     attachmentsDir: "/tmp/thread/attachments",
+    workDir: "/tmp/thread/work",
     turnsDir: "/tmp/thread/turns",
     state: {
       thread_key: "mattermost:channel:root",

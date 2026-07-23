@@ -15,21 +15,23 @@ Adapt Matt Pocock's promoted engineering/productivity workflow for Felix. Treat 
 
 ## Permissions
 
-- `repo.write` — Mutations: cloning projects, creating local work artifacts, editing code, changing dependencies, resolving conflicts, staging, or committing.
+- `repo.write` — Hosted Project acquisition and mutations: cloning, editing code, changing dependencies, resolving conflicts, staging, or committing.
 
-Read-only asking is open: explain, plan, review, inspect, list candidate projects, and draft chat-only recommendations without permission. Emit `PERMISSION_REQUIRED` for `software-development:repo.write` before any mutation. Stage, commit, pull, rebase, force, or destructive operations only when explicitly requested and safe for the worktree.
+Read-only work is open. Local Project creation and mutation require no permission. Emit `PERMISSION_REQUIRED` for `software-development:repo.write` before acquiring or mutating a Hosted Project. Stage, commit, pull, rebase, force, or destructive operations only when explicitly requested and safe for the worktree.
 
 ## Execution
 
-1. Resolve the target project under `$WORKSPACE_DIR/projects/<provider>/<namespace>/<repo>`.
-   Completion: one project is selected by explicit path, exact `<provider>/<namespace>/<repo>`, active-session context, or the only candidate; otherwise ask the user to choose.
-2. Acquire the project when missing.
-   Completion: an existing clone is inspected, or an explicit HTTPS/SSH git URL or exact triple is cloned to `projects/<provider>/<namespace>/<repo>/` after `repo.write` is granted. Do not broad-search vague repo names.
+1. Classify and resolve the Project.
+   Completion: a no-remote Project has a readable safe path at `$WORKSPACE_DIR/projects/local/<project>`; a Hosted Project resolves from an explicit path, HTTPS/SSH Git URL, exact `<provider>/<namespace>/<repo>` triple, active-session context, or the only candidate. Otherwise ask.
+2. Acquire or create the Project when missing.
+   Completion: a Local Project is created at `projects/local/<project>/` with no permission, or a Hosted Project is cloned to `projects/<provider>/<namespace>/<repo>/` after `software-development:repo.write` is granted. Do not broad-search vague names.
 3. Inspect before changing.
-   Completion: current branch, remotes, dirty state, relevant docs, manifests, files, and likely checks are known. Existing clones are not automatically pulled; fetch/pull/rebase only when requested or needed and safe.
+   Completion: Project kind, current branch, remotes, dirty state, relevant docs, manifests, files, and likely checks are known. Existing clones are not automatically pulled; fetch/pull/rebase only when requested or needed and safe.
 4. Route the request through the matching branch.
    Completion: the branch below accounts for every requested output, mutation, or non-action.
-5. Verify and report.
+5. Reclassify after remote changes.
+   Completion: when a Local Project has a recognized GitHub or GitLab remote and its canonical Hosted destination is absent, automatically promote the complete Project without merging or overwriting, then verify the remote, Git state, and new path. On ambiguity or collision, stop and ask. Never automatically demote a Hosted Project.
+6. Verify and report.
    Completion: targeted checks were run, or the exact blocker is stated; report changed files, behavior, commands, failures, residual risks, and paths relative to `$WORKSPACE_DIR`.
 
 ## Branches
@@ -58,6 +60,7 @@ Add `references/<branch>.md` only for Felix-specific deltas that do not belong i
 - Prefer `rg` or `rg --files` for search. Use existing frameworks, helpers, test style, and error handling.
 - Read nearby code before adding abstractions.
 - Add tests when behavior changes, a bug is fixed, or a contract is touched.
+- Follow `WORKSPACE_FOLDER_STRUCTURE.md` as an exhaustive placement contract; Skills cannot override it, and unknown legacy folders are not migrated automatically.
 - Create `docs/prds/`, `docs/issues/`, and `docs/handoffs/` lazily inside the selected project; do not create `docs/software-development/`.
 - Report project paths relative to `$WORKSPACE_DIR`, such as `projects/github/acme/shop/docs/prds/change.md`.
 - Keep generated artifacts, dependency updates, formatting churn, and lockfile changes out of scope unless required by the task.

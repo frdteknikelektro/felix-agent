@@ -19,6 +19,8 @@ export interface WorkspacePaths {
   threadKeyIndex: string;
   botMessageIndex: string;
   projects: string;
+  localProjects: string;
+  fileCollections: string;
   tasks: string;
   usage: string;
   memoryDir: string;
@@ -36,6 +38,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
   const runtime = path.join(root, "runtime");
   const index = path.join(root, "index");
   const projects = path.join(root, "projects");
+  const fileCollections = path.join(root, "files");
   const memoryDir = path.join(root, "memory");
   const schedulerDir = path.join(root, "scheduler");
   return {
@@ -55,6 +58,8 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     threadKeyIndex: path.join(index, "thread-key"),
     botMessageIndex: path.join(index, "bot-messages"),
     projects,
+    localProjects: path.join(projects, "local"),
+    fileCollections,
     tasks: path.join(root, "tasks"),
     usage: path.join(root, "usage"),
     memoryDir,
@@ -84,6 +89,8 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(paths.threadKeyIndex),
     ensureDir(paths.botMessageIndex),
     ensureDir(paths.projects),
+    ensureDir(paths.localProjects),
+    ensureDir(paths.fileCollections),
     ensureDir(paths.tasks),
     ensureDir(path.join(paths.tasks, "backlog")),
     ensureDir(path.join(paths.tasks, "active")),
@@ -165,4 +172,108 @@ export function projectNamespaceDir(paths: WorkspacePaths, provider: string, nam
 
 export function projectRepoDir(paths: WorkspacePaths, provider: string, namespace: string, repo: string): string {
   return path.join(projectNamespaceDir(paths, provider, namespace), repo);
+}
+
+/** Convert a human-facing name into one safe, readable workspace path segment. */
+export function workspaceSlug(value: string): string {
+  if (/[\\/]/u.test(value)) {
+    throw new Error("Workspace name must not contain a path separator");
+  }
+  if (/[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error("Workspace name must not contain control characters");
+  }
+  const slug = value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!slug || slug === "." || slug === "..") {
+    throw new Error("Workspace name must contain a usable letter or number");
+  }
+  return slug;
+}
+
+export function localProjectDir(paths: WorkspacePaths, project: string): string {
+  return path.join(paths.localProjects, workspaceSlug(project));
+}
+
+export function fileCollectionDir(paths: WorkspacePaths, collection: string): string {
+  return path.join(paths.fileCollections, workspaceSlug(collection));
+}
+
+/**
+ * Validate a prospective user-work target against both the canonical category
+ * roots and the real workspace path. The target may not exist yet.
+ */
+export async function assertWorkspaceTarget(
+  paths: WorkspacePaths,
+  target: string,
+  options: { threadDir?: string } = {},
+): Promise<string> {
+  const absoluteTarget = path.isAbsolute(target) ? path.resolve(target) : path.resolve(paths.root, target);
+  const canonicalRoots = [
+    paths.fileCollections,
+    paths.localProjects,
+    projectProviderDir(paths, "github"),
+    projectProviderDir(paths, "gitlab"),
+    ...(options.threadDir
+      ? [path.join(options.threadDir, "work"), path.join(options.threadDir, "attachments")]
+      : []),
+  ];
+  if (!canonicalRoots.some((root) => isWithin(root, absoluteTarget))) {
+    throw new Error(`Target is not inside a canonical user-work area: ${target}`);
+  }
+
+  const realRoot = await fs.realpath(paths.root);
+  await assertExistingSymlinksStayWithin(paths.root, absoluteTarget, realRoot);
+  let ancestor = absoluteTarget;
+  let realAncestor: string;
+
+  while (true) {
+    try {
+      realAncestor = await fs.realpath(ancestor);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw error;
+      ancestor = parent;
+    }
+  }
+
+  const resolvedTarget = path.resolve(realAncestor, path.relative(ancestor, absoluteTarget));
+  const relative = path.relative(realRoot, resolvedTarget);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Target resolves outside the workspace: ${target}`);
+  }
+  return absoluteTarget;
+}
+
+async function assertExistingSymlinksStayWithin(root: string, target: string, realRoot: string): Promise<void> {
+  const relative = path.relative(path.resolve(root), target);
+  let current = path.resolve(root);
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment);
+    const stat = await fs.lstat(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!stat) return;
+    if (!stat.isSymbolicLink()) continue;
+    const resolved = await fs.realpath(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        throw new Error(`Cannot validate dangling symbolic link inside the workspace: ${current}`);
+      }
+      throw error;
+    });
+    if (!isWithin(realRoot, resolved)) {
+      throw new Error(`Target resolves outside the workspace through a symbolic link: ${current}`);
+    }
+  }
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
