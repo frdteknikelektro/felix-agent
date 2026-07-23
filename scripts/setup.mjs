@@ -1309,6 +1309,35 @@ export async function main() {
           continue;
         }
         section(skill);
+
+        // Google Workspace OAuth consent screen guide
+        if (skill === "google-workspace") {
+          const hasClientCreds = existing?.GOOGLE_CLIENT_ID && existing?.GOOGLE_CLIENT_SECRET;
+          if (!hasClientCreds) {
+            info(`${c.bold}Before entering credentials, ensure OAuth consent screen is set up:${c.reset}`);
+            console.log();
+            info(`  1. Go to ${c.dim}${link("https://console.cloud.google.com/auth/branding")}${c.reset}`);
+            info(`  2. Select "External" user type`);
+            info(`  3. Fill app name (e.g., "Felix Google Workspace") and your email`);
+            info(`  4. Go to ${c.dim}${link("https://console.cloud.google.com/auth/audience")}${c.reset}`);
+            info(`  5. Click "Publish app" → "Confirm" (no verification needed)`);
+            console.log();
+            const consentReady = await confirm({
+              message: "OAuth consent screen configured and published?",
+              default: false,
+            });
+            if (!consentReady) {
+              warn("Set up OAuth consent screen first, then re-run setup.");
+              for (const v of vars) {
+                if (existing && existing[v.key] && !(v.key in wizard)) {
+                  wizard[v.key] = existing[v.key];
+                }
+              }
+              continue;
+            }
+          }
+        }
+
         for (const v of vars) {
           const envHint = SKILL_ENV_HINTS[v.key];
           if (envHint) info(envHint);
