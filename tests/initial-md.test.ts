@@ -10,6 +10,7 @@ function makeCfg(threadDir: string): AppConfig {
   return {
     WORKSPACE_DIR: "/workspace",
     HARNESS: "codex",
+    OWNER_TZ: "Asia/Jakarta",
     paths: buildWorkspacePaths("/workspace"),
   } as never;
 }
@@ -33,6 +34,8 @@ describe("buildInitialMd", () => {
       expect(content).toContain("sess-123");
       expect(content).toContain("Harness");
       expect(content).toContain("codex");
+      expect(content).toContain("Owner timezone");
+      expect(content).toContain("Asia/Jakarta");
       expect(content).toContain("Do not rewrite it");
     } finally {
       await rm(tmpDir, { recursive: true, force: true });

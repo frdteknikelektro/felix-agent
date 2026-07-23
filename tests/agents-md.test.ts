@@ -58,4 +58,17 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("## Audio attachments");
     expect(agentsMd).toContain(".agents/skills/listen-speak/SKILL.md");
   });
+
+  it("makes Memory always-on and retires Legacy wiki recall", () => {
+    expect(agentsMd).toContain("## Always-on Memory");
+    expect(agentsMd).toContain(".agents/skills/memory/SKILL.md");
+    expect(agentsMd).toContain("MEMORY.md");
+    expect(agentsMd).toContain("memory/daily/");
+    expect(agentsMd).toContain("memory/weekly/");
+    expect(agentsMd).toContain("memory/monthly/");
+    expect(agentsMd).toContain("is_owner");
+    expect(agentsMd).toContain("memory:write");
+    expect(agentsMd).toContain("memory/wiki/` is inactive Legacy memory");
+    expect(agentsMd).not.toContain("personal knowledge wiki");
+  });
 });

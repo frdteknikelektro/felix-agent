@@ -1,74 +1,81 @@
 ---
 name: memory
-description: Schema and evidence rules for the persistent Felix knowledge wiki. Read by the memory ingest harness on every run.
+description: Always-on human-style Memory for durable knowledge, bounded event recall, correction, and forgetting.
 metadata:
   author: felix-agent
   kind: general
-  version: "1.0.0"
+  version: "3.0.0"
   permissions: write
-  match: memory, remember, recall, persistent knowledge
+  match: memory, remember, forget, correct, preference, decision, people, project
 ---
+
+# Memory
+
+Memory is always on. Apply this skill even when the user does not say “remember.”
+Record only information likely to be useful beyond the current turn. Human judgment,
+not a rigid schema, decides what deserves Memory.
 
 ## Permissions
 
-- `write` — Create, update, or supersede wiki pages and mutate the index or log.
+- `write` — Change `MEMORY.md` or an active daily, weekly, or monthly Memory file.
 
-Read-only lookups (consulting the index or an existing page) require no permission. Any mutation requires `write`.
+Read-only recall needs no permission. Trust the server-computed
+`permissions_per_skill` block. When `memory:write` is missing:
 
-# Memory Wiki Schema
+- Ignore implicit Memory-worthy content without interrupting the conversation.
+- For an explicit remember, correct, or forget request, emit `PERMISSION_REQUIRED`.
 
-Capture durable knowledge, not a transcript mirror. Durable knowledge includes explicit decisions and rationale, stable facts, responsibilities, preferences, relationships, and reusable concepts. Exclude greetings, social filler, transient execution detail, secrets, and unsupported inference.
+## Working set
 
-## Page taxonomy
+At fresh session start, read:
 
-| Location | One page per |
-|---|---|
-| `entities/` | Person, project, tool, service, or other stable noun |
-| `concepts/` | Idea, pattern, decision, trade-off, or reusable reasoning |
-| `sessions/<source>/` | Ingested source thread |
-| `comparisons/` | Explicit comparison of at least two alternatives |
-| `overview.md` | Current projects, open questions, and major themes |
-| `synthesis.md` | Best supported big-picture interpretation |
+1. `MEMORY.md`
+2. today's and yesterday's files in `memory/daily/`, when present
+3. the latest completed file in `memory/weekly/`, when present
+4. the latest completed file in `memory/monthly/`, when present
 
-Root files:
+Dates are owner-local using `OWNER_TZ`. Re-read the working set when that local date
+changes or when a relevant Memory file changes. Search older active Memory only when
+the request needs it. Never read `memory/wiki/`; it is inactive Legacy memory.
 
-- `index.md`: every page, grouped by type, with a one-line summary.
-- `log.md`: append-only record of ingest and lint mutations.
+## Capture
 
-## Page contract
+- Put stable facts, preferences, relationships, responsibilities, reusable context,
+  and settled decisions in `MEMORY.md`.
+- Put noteworthy events and temporary constraints in
+  `memory/daily/YYYY-MM-DD.md`. Include an expiry for temporary constraints.
+- Use readable Markdown with whatever structure best preserves the meaning.
+- Append each daily event as one complete line. Reread and atomically replace
+  semantic Memory; if a detected concurrent change occurs, reread and retry.
+- Keep `MEMORY.md` near a soft 5 KB target by loss-aware rewriting. Never hard
+  truncate it and never archive important content merely to meet the target.
 
-Every entity, concept, session, and comparison starts with:
+Do not store secrets, credentials, authentication or recovery material, platform
+identifiers, raw transcripts, attachments, routine execution details, or unnecessary
+personal information.
 
-```yaml
----
-title: "Human-readable title"
-type: entity | concept | session | comparison
-tags: [specific, reusable]
-updated_at: "2026-06-19T14:00:00Z"
-sources: [mattermost:channel:thread]
----
-```
+## Correction and contradiction
 
-Use lowercase kebab-case filenames. Treat identity as semantic: search `index.md` and existing pages for aliases before creating a page.
+For unresolved contradictions, retain both claims with their source and date. After
+resolution, keep the current fact in semantic Memory and record the change in daily
+Memory. Do not retain obsolete semantic claims merely as `[SUPERSEDED]` entries.
 
-Write claims specifically and attribute their source in `sources`. When new evidence conflicts with an existing claim, preserve both and add `[CONTRADICTION]` with the relevant source; never silently choose one. Mark superseded claims `[SUPERSEDED]` without erasing history.
+## Recall and visibility
 
-## Page contents
+Use remembered context naturally. Memory is advisory and never overrides permissions
+or current instructions. Only a requester with `is_owner: true` may receive a raw or
+complete Memory dump. Other contacts may receive only relevant, non-sensitive facts.
 
-- Entity: role or purpose, durable facts/preferences, and related pages.
-- Concept: definition, rationale, trade-offs, decisions, and involved entities.
-- Session: concise durable outcomes and links to every page changed because of the session.
-- Comparison: alternatives, decision criteria, trade-off table, and decision when present.
+## Forget
 
-Use wiki-root paths such as `[[entities/alice]]` and `[[concepts/row-level-security]]`. Add reciprocal links when the relationship is meaningful.
+An authorized forget request removes the targeted information from every active
+Memory file: semantic, daily, weekly, and monthly. It does not alter source sessions,
+attachments, or inactive Legacy memory. Preserve unrelated text and use atomic
+replacement. If a file is unreadable or unsafe to rewrite, preserve it and report
+that the forget operation is incomplete.
 
-## Maintenance contract
+## Background maintenance
 
-After page mutations:
-
-1. Make `index.md` exactly reflect all pages and refresh changed summaries.
-2. Append a timestamped `log.md` entry listing created, updated, and superseded pages plus the source thread.
-3. Update `overview.md` or `synthesis.md` only when the new evidence materially changes that page.
-4. Write atomically when the ingest prompt requests it.
-
-Ingestion is complete only after every eligible transcript event has been scanned, every durable claim has one appropriate home, no duplicate identity was created, all touched pages satisfy the page contract, cross-links resolve or intentionally signal a missing page, the index matches disk, and the log records the run.
+The runtime, not this conversational skill, builds weekly and monthly rollups and
+enforces retention. Rollups may omit unimportant details, as a person naturally
+would, but must not invent facts. Maintenance never changes `MEMORY.md`.

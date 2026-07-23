@@ -63,6 +63,7 @@ describe("9router config", () => {
         "NINEROUTER_ENABLED=true",
         "NINEROUTER_KEY=nr-secret",
         "NINEROUTER_MODEL=gpt-router",
+        "NINEROUTER_MODEL_FOR_MEMORIZING=gpt-router-low-cost",
         "NINEROUTER_URL=https://9router.jala.tech",
       ],
       async (secretEnv, workspace) => {
@@ -101,6 +102,7 @@ describe("9router harness settings", () => {
       NINEROUTER_ENABLED: true,
       NINEROUTER_KEY: "nr-secret",
       NINEROUTER_MODEL: "router-model",
+      NINEROUTER_MODEL_FOR_MEMORIZING: "router-memory-model",
       NINEROUTER_URL: "https://9router.jala.tech",
       OPENAI_API_KEY: "openai-secret",
       OPENAI_BASE_URL: "https://api.openai.example",

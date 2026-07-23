@@ -29,6 +29,7 @@ export async function buildInitialMd(input: InitialMdInput): Promise<string> {
     `|-----|-------|`,
     `| Session ID | \`${sessionId}\` |`,
     `| Harness | \`${harnessType}\` |`,
+    `| Owner timezone | \`${cfg.OWNER_TZ}\` |`,
     `| Working directory | \`${cfg.paths.root}\` |`,
     `| Workspace root | \`${cfg.WORKSPACE_DIR}\` |`,
     "",

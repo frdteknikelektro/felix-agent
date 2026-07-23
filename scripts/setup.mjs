@@ -619,8 +619,11 @@ export async function main() {
       wizard.NINEROUTER_MODEL = nrModel;
 
       const nrMemModel = await input({
-        message: `NINEROUTER_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.NINEROUTER_MODEL_FOR_MEMORIZING || nrModel,
+        message: `NINEROUTER_MODEL_FOR_MEMORIZING  ${reqTag(true)}:`,
+        default: existing.NINEROUTER_MODEL_FOR_MEMORIZING || "",
+        validate: (v) => v.trim().length > 0
+          ? true
+          : "A dedicated low-cost Memory rollup model is required when 9router is enabled",
       });
       wizard.NINEROUTER_MODEL_FOR_MEMORIZING = nrMemModel;
     } else {
@@ -727,10 +730,10 @@ export async function main() {
       wizard.CODEX_MODEL = codexModel;
 
       console.log();
-      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to CODEX_MODEL.");
+      info("Dedicated low-cost model for Memory rollups; it never falls back to CODEX_MODEL.");
       const codexMemModel = await promptModelWithValidation({
         message: `CODEX_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.CODEX_MODEL_FOR_MEMORIZING || codexModel,
+        default: existing.CODEX_MODEL_FOR_MEMORIZING || "gpt-5.4-mini",
         check: checkCodexModel,
         providerLabel: "OpenAI",
       });
@@ -771,10 +774,10 @@ export async function main() {
       wizard.OPENCODE_MODEL = ocModel;
 
       console.log();
-      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to OPENCODE_MODEL.");
+      info("Dedicated low-cost model for Memory rollups; it never falls back to OPENCODE_MODEL.");
       const ocMemModel = await promptModelWithValidation({
         message: `OPENCODE_MODEL_FOR_MEMORIZING  ${reqTag(false)}:`,
-        default: existing.OPENCODE_MODEL_FOR_MEMORIZING || ocModel,
+        default: existing.OPENCODE_MODEL_FOR_MEMORIZING || "opencode/deepseek-v4-flash-free",
         check: null,
         providerLabel: "OpenCode",
       });
@@ -965,10 +968,10 @@ export async function main() {
       wizard.CLAUDE_CODE_MODEL = ccModel;
 
       console.log();
-      info("Cheaper model for background tasks (memory ingestion, wiki linting). Defaults to CLAUDE_CODE_MODEL.");
+      info("Dedicated low-cost model for Memory rollups; it never falls back to CLAUDE_CODE_MODEL.");
       const ccMemModel = await pickClaudeModel({
         envKey: "CLAUDE_CODE_MODEL_FOR_MEMORIZING",
-        defaultValue: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || ccModel,
+        defaultValue: existing.CLAUDE_CODE_MODEL_FOR_MEMORIZING || "haiku",
         check: checkClaudeModel,
       });
       wizard.CLAUDE_CODE_MODEL_FOR_MEMORIZING = ccMemModel;
