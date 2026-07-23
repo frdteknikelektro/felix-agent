@@ -268,6 +268,12 @@ const CHANNEL_TOKEN_HINTS = {
   TELEGRAM_BOT_TOKEN: `Bot token (looks like 123456789:AA...), from @BotFather — send /newbot. ${c.dim}${link("https://t.me/BotFather")}${c.reset}`,
 };
 
+// Where each skill env var comes from — shown before its prompt.
+const SKILL_ENV_HINTS = {
+  GOOGLE_CLIENT_ID: `OAuth 2.0 Client ID from Google Cloud Console → Credentials → Create Credentials → OAuth client ID → Desktop app. ${c.dim}${link("https://console.cloud.google.com/auth/clients")}${c.reset}`,
+  GOOGLE_CLIENT_SECRET: `OAuth 2.0 Client Secret, generated alongside the Client ID above. Found in the downloaded JSON or Credentials page. ${c.dim}${link("https://console.cloud.google.com/auth/clients")}${c.reset}`,
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function readEnv(path) {
@@ -1282,6 +1288,8 @@ export async function main() {
         }
         section(skill);
         for (const v of vars) {
+          const envHint = SKILL_ENV_HINTS[v.key];
+          if (envHint) info(envHint);
           const hasExisting = existing && existing[v.key];
           const hint = hasExisting
             ? `  ${c.dim}(current: ${displayEnvValue(v.key, existing[v.key])} — Enter to keep)${c.reset}`
