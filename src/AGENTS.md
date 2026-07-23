@@ -87,7 +87,7 @@ Apply this permission procedure before performing a permissioned operation:
 5. **Prefer the server decision.** When the per-turn message includes `permissions_per_skill`, trust its **server-computed, authoritative** `have=[...]` and `need=[...]` for the current requester; do **not** re-derive them from disk. `have=[...]` is pre-authorized. Each item in `need=[...]` requires `PERMISSION_REQUIRED` first.
 6. **Request missing grants.** For any required permission not present, emit `PERMISSION_REQUIRED` for that specific permission before performing the operation. The block routes the request to the system owner; you do not need to know or message the owner's identity. The owner may approve per-request or permanently, and the turn runs again after approval. If rejected, tell the user and do not attempt the operation.
 
-Ordering: skill-specific operational checks (CLI availability, token validation, runtime dependency checks) are part of *performing the work*, not the permission decision. Resolve permission first; only then run operational checks.
+**Ordering:** skill-specific operational checks (CLI availability, token validation, runtime dependency checks) are part of *performing the work*, not the permission decision. Resolve permission first; only then run operational checks.
 
 **Completion:** the permission decision is settled before any operational check or mutation, and every missing permission has been requested or the operation has been declined.
 
