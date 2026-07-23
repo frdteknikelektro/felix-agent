@@ -22,7 +22,7 @@ Read-only work is open. Local Project creation and mutation require no permissio
 ## Execution
 
 1. Classify and resolve the Project.
-   Completion: a no-remote Project resolves through `felix-workspace-path local-project "<project>"`; a Hosted Project resolves through `felix-workspace-path hosted-project "<provider>" "<namespace>" "<repo>"` from an explicit path, HTTPS/SSH Git URL, exact `<provider>/<namespace>/<repo>` triple, active-session context, or the only candidate. Use exactly the absolute path the command prints for every user-work filesystem mutation; if it rejects the target, stop instead of hand-building a path. Otherwise ask.
+   Completion: a no-remote Project has the complete path `$WORKSPACE_DIR/projects/local/<project>`; a Hosted Project has `$WORKSPACE_DIR/projects/<provider>/<namespace>/<repo>` derived from an explicit path, HTTPS/SSH Git URL, exact `<provider>/<namespace>/<repo>` triple, active-session context, or the only candidate. Apply `WORKSPACE_FOLDER_STRUCTURE.md` to the selected Project category before mutation. Otherwise ask.
 2. Acquire or create the Project when missing.
    Completion: a Local Project is created at `projects/local/<project>/` with no permission, or a Hosted Project is cloned to `projects/<provider>/<namespace>/<repo>/` after `software-development:repo.write` is granted. Do not broad-search vague names.
 3. Inspect before changing.
@@ -30,7 +30,7 @@ Read-only work is open. Local Project creation and mutation require no permissio
 4. Route the request through the matching branch.
    Completion: the branch below accounts for every requested output, mutation, or non-action.
 5. Reclassify after remote changes.
-   Completion: before promoting a Local Project, require `software-development:repo.write`, resolve both complete paths with `felix-workspace-path`, and confirm the recognized GitHub or GitLab remote is unambiguous and the Hosted destination is absent. If permission is missing, emit `PERMISSION_REQUIRED` and wait for the Owner decision. Then automatically promote the complete Project without an additional user confirmation and without merging or overwriting; verify the remote, Git state, and new path. On ambiguity or collision, stop and ask. Never automatically demote a Hosted Project.
+   Completion: before promoting a Local Project, require `software-development:repo.write`, derive and inspect both complete canonical Project paths, and confirm the recognized GitHub or GitLab remote is unambiguous and the Hosted destination is absent. If permission is missing, emit `PERMISSION_REQUIRED` and wait for the Owner decision. Then automatically promote the complete Project without an additional user confirmation and without merging or overwriting; verify the remote, Git state, and new path. On ambiguity or collision, stop and ask. Never automatically demote a Hosted Project.
 6. Verify and report.
    Completion: targeted checks were run, or the exact blocker is stated; report changed files, behavior, commands, failures, residual risks, and paths relative to `$WORKSPACE_DIR`.
 

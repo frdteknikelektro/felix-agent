@@ -59,13 +59,14 @@ another service never authorizes mutation.
    Identify the correct `gog <service> <command>` — consult
    `references/commands.md` for the mapping, or run `gog schema --json` to
    discover flags when the command is unknown. Run with `--json`. Before a
-   Drive/Photos download or any file attachment output, classify and resolve
-   the complete local target with `felix-workspace-path`: use
-   `session-attachment "$FELIX_THREAD_DIR" "<filename>"` for a current
-   deliverable, `session-work "$FELIX_THREAD_DIR" "<work-name>" ["<relative>"]`
-   for intermediate work, or `file-collection "<collection>" ["<relative>"]`
-   for a persistent collection. Pass exactly the returned path to `--out` and
-   stop if resolution fails.
+   Drive/Photos download or any file attachment output, read
+   `WORKSPACE_FOLDER_STRUCTURE.md`, classify the local artifact, and derive its
+   complete canonical path: current deliverables use
+   `{thread_dir}/attachments/<filename>`, intermediates use
+   `{thread_dir}/work/<work_name>/`, and persistent non-software content uses
+   `$WORKSPACE_DIR/files/<collection>/`. Apply the corresponding naming,
+   collision, link-safety, and containment rules from that contract before
+   passing the derived target to `--out`.
    Completion: result delivered — inline for ≤30 lines, file attachment for larger.
 
 Automated wrappers can use `scripts/run-workflow.mjs` to preserve this ordering:

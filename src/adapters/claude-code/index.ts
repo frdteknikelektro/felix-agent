@@ -320,7 +320,7 @@ export class ClaudeCodeHarness implements Harness {
         this.cfg.CLAUDE_CODE_BIN,
         args,
         this.cfg.paths.root,
-        { ...this.buildEnv(), FELIX_THREAD_DIR: input.thread.dir },
+        this.buildEnv(),
         logPath,
         input.signal,
         input.progress,

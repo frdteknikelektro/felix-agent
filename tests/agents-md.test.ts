@@ -84,8 +84,7 @@ describe("AGENTS.md", () => {
     expect(agentsMd).toContain("files/<collection>/");
     expect(agentsMd).toContain("{thread_dir}/work/<work_name>/");
     expect(agentsMd).toContain("{thread_dir}/attachments/");
-    expect(agentsMd).toContain("felix-workspace-path");
-    expect(agentsMd).toMatch(/before every user-work filesystem mutation/i);
+    expect(agentsMd).toMatch(/before every user-work filesystem mutation.*classify/is);
     expect(agentsMd).toContain("Skills cannot override");
     expect(agentsMd).toContain("explicit confirmation");
     expect(agentsMd).toContain("symbolic link");

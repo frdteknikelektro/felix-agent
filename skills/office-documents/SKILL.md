@@ -50,7 +50,7 @@ Bundled helpers in `scripts/`:
 ## Execution
 
 1. Identify the format and intent (read / create / edit / convert).
-   Completion: one of read|create|edit|convert is fixed; every intermediate target is resolved with `felix-workspace-path session-work "$FELIX_THREAD_DIR" "office-document" "<filename>"`, and the final target is resolved with `felix-workspace-path session-attachment "$FELIX_THREAD_DIR" "<filename>"`. Use exactly the returned paths and stop if the resolver rejects either target.
+   Completion: one of read|create|edit|convert is fixed; intermediate targets use `{thread_dir}/work/office-document/<filename>` and the final target uses `{thread_dir}/attachments/<filename>`, with the corresponding `WORKSPACE_FOLDER_STRUCTURE.md` rules applied before writing.
 2. For reads, extract and answer directly.
    Completion: requested content is returned, or the file is reported unreadable.
 3. Build the deliverable with the matching tool (see the per-format reference).

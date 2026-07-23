@@ -275,7 +275,7 @@ export class OpencodeHarness implements Harness {
         this.cfg.OPENCODE_BIN,
         args,
         this.cfg.paths.root,
-        { ...(await this.buildEnv()), FELIX_THREAD_DIR: input.thread.dir },
+        await this.buildEnv(),
         logPath,
         input.signal,
         { progress: input.progress },

@@ -25,11 +25,7 @@ Answer conversational requests directly and perform ordinary computer-assistant 
    - Request-specific intermediate work → `{thread_dir}/work/<work_name>/` (Session work).
    - Received input or a finished artifact for this conversation → `{thread_dir}/attachments/`.
    - Software → defer to `software-development`.
-4. Before every user-work filesystem mutation, resolve the complete destination with `felix-workspace-path` and use exactly the absolute path it prints:
-   - File Collection: `felix-workspace-path file-collection "<collection>" ["<relative>"]`
-   - Session work: `felix-workspace-path session-work "$FELIX_THREAD_DIR" "<work-name>" ["<relative>"]`
-   - Session attachment: `felix-workspace-path session-attachment "$FELIX_THREAD_DIR" "<filename>"`
-   If it rejects the target, stop instead of hand-building a path or bypassing the check.
+4. Before every user-work filesystem mutation, derive the complete target from the classification above, then apply the naming, collision, link-safety, and category-containment rules in `WORKSPACE_FOLDER_STRUCTURE.md`. Start persistent paths at `$WORKSPACE_DIR`; start Session paths at the exact current `thread_dir` supplied in the turn.
 5. Inspect an existing target. Reuse only a clearly identical artifact; otherwise ask. Never invent a numeric suffix, merge a collision, or overwrite silently.
 6. Create, edit, rename, move, or organize the narrow requested content, then verify and report its path relative to `$WORKSPACE_DIR`.
 7. Before overwriting or deleting existing content, inspect the exact target and obtain explicit confirmation. Refuse hacking, credential access, permission bypass, external-path links, server disruption, and broad destructive commands.

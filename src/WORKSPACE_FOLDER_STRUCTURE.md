@@ -112,7 +112,6 @@ $WORKSPACE_DIR
 | `projects/local/<project>/` | Persistent Local Project without a remote |
 | `projects/<provider>/<namespace>/<repo>/` | Hosted Project |
 | `runtime/bin/` | Installed CLI tools on PATH |
-| `runtime/bin/felix-workspace-path` | Canonical user-work target resolver installed at boot |
 
 ## Environment
 
@@ -124,7 +123,7 @@ $WORKSPACE_DIR
 
 This layout is an **exhaustive placement contract** for agent-created directories, not an example. Skills and users may create descendants inside a canonical area, but must not introduce an undocumented Workspace-root category.
 
-1. **Never write outside `$WORKSPACE_DIR`.** Resolve the real target or its nearest existing parent first; symbolic and hard links must not escape the Workspace.
+1. **Never write outside `$WORKSPACE_DIR` or across canonical categories.** Resolve the real target or its nearest existing parent first and require it to remain inside both `$WORKSPACE_DIR` and the selected canonical category (and the active Session area when applicable). Reject dangling or escaping symbolic links. Before mutating an existing regular file, inspect its link count and reject it when it has multiple hard links.
 2. **Classify before creating.** Software belongs in a Local or Hosted Project, persistent non-software content in a File Collection, request-specific intermediates in Session work, and conversational inputs or finished deliverables in Session attachments.
 3. **Default generic folders to File Collections.** Use `files/<collection>/` unless the request clearly identifies software or Session work.
 4. **Clone repos to `projects/<provider>/<namespace>/<repo>/`.** Never clone into Sessions, File Collections, or temporary directories.
@@ -133,4 +132,4 @@ This layout is an **exhaustive placement contract** for agent-created directorie
 7. **Inspect collisions.** Reuse only a clearly identical target; otherwise ask. Never invent numeric suffixes, merge directories, or overwrite a collision silently.
 8. **Skills cannot override placement.** A Skill-specific path must remain inside the canonical area for its artifact.
 9. **No automatic legacy migration or Hosted Project demotion.** Existing unknown folders remain untouched until an explicit migration task.
-10. **Resolve every user-work mutation through `felix-workspace-path`.** Select one complete artifact category, use the returned absolute target, and stop if validation rejects the category shape, active Session binding, relative path, link safety, or real-path containment.
+10. **Apply this contract before every user-work mutation.** Select one complete artifact category, derive the target from its documented pattern, use only the active Session when applicable, and apply Rules 1 and 6–9 before acting. Stop when any classification, collision, link-safety, or containment check is uncertain.
