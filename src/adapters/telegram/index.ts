@@ -13,7 +13,7 @@ import {
   handleSourceReactionIntake,
 } from "../../core/source-intake.js";
 import { isOwnerDecisionReactionToken } from "../../slices/approvals/index.js";
-import { buildOwnerPermissionNotification } from "../../core/harness-common.js";
+import { buildOwnerPermissionNotification, convertNotificationTableToPlainLines } from "../../core/harness-common.js";
 import { toDialect } from "../../core/message-dialect.js";
 import type {
   SourceMessageAnchor,
@@ -122,40 +122,6 @@ function sendJson(
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.end(JSON.stringify(data));
-}
-
-// ─── Notification table → Telegram-friendly format ─────────────────────────────
-
-/**
- * The shared `buildOwnerPermissionNotification` produces Markdown tables
- * (`| Field | Value |`) which render poorly in Telegram.  This converts the
- * table rows into a simple `**Field:** Value` layout that maps cleanly to
- * `<b>Field:</b> Value` after HTML conversion.
- */
-function convertNotificationTableForTelegram(md: string): string {
-  const lines = md.split("\n");
-  const out: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // skip table header/separator rows
-    if (/^\|[-\s|]+\|$/.test(trimmed)) continue;
-    if (/^\|\s*Field\s*\|\s*Value\s*\|$/.test(trimmed)) continue;
-
-    // convert table data rows:  | **Field** | Value |
-    const dataRow = trimmed.match(/^\|\s*(.+?)\s*\|\s*(.+?)\s*\|$/);
-    if (dataRow) {
-      // strip existing ** wrappers before re-wrapping to avoid ****
-      const field = dataRow[1].replace(/^\*\*(.+?)\*\*$/, "$1");
-      out.push(`**${field}** ${dataRow[2]}`);
-      continue;
-    }
-
-    out.push(line);
-  }
-
-  return out.join("\n");
 }
 
 // ─── Telegram Bot API types ───────────────────────────────────────────────────
@@ -984,7 +950,7 @@ class TelegramAdapter implements SourceAdapter {
     decidedAt?: string;
   }): Promise<string> {
     const md = buildOwnerPermissionNotification(input);
-    return convertNotificationTableForTelegram(md);
+    return convertNotificationTableToPlainLines(md);
   }
 
   async downloadAttachment(input: {

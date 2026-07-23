@@ -60,7 +60,7 @@ describe.each(["mattermost", "discord"] as const)("%s formatOwnerNotification", 
 
 describe("slack formatOwnerNotification", () => {
   // Slack has no pipe-table rendering at all — the shared table is converted
-  // to plain `**Field** Value` lines (see convertNotificationTableForSlack).
+  // to plain `**Field** Value` lines (see convertNotificationTableToPlainLines).
   it("includes all fields with thread link, table converted to plain lines", async () => {
     const cfg = await makeTestConfig("format-test-slack");
     const adapter = createSlackAdapter(cfg);

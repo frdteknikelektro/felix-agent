@@ -1046,8 +1046,9 @@ export async function main() {
       if (src === "slack") {
         info(`Create an app at ${c.dim}${link("https://api.slack.com/apps")}${c.reset} with Socket Mode enabled.`);
         info(`${c.bold}App Home${c.reset} → Messages Tab → check "Allow users to send messages" (off by default — blocks DMs).`);
-        info("Bot scopes: channels:history, groups:history, im:history, mpim:history, chat:write, reactions:write, reactions:read, files:read, users:read.");
-        info("Event Subscriptions → Subscribe to bot events → message.im.");
+        info("Bot scopes: channels:history, groups:history, im:history, mpim:history, chat:write, reactions:write, reactions:read, files:read, files:write, users:read.");
+        info("Event Subscriptions → Subscribe to bot events → message.channels, message.groups, message.im, message.mpim, reaction_added.");
+        info("A scope alone isn't enough — each of those bot events must be added explicitly, or Slack never delivers it (e.g. private channels or reaction-based approvals stay silent).");
         info("App-Level Token needs the connections:write scope.");
         console.log();
       }
