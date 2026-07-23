@@ -6,6 +6,7 @@ import path from "node:path";
 import { loadConfig } from "./config.js";
 import { migrateWorkspaceLayout } from "./migrations.js";
 import { ensureWorkspace, syncBundledSkills } from "./workspace.js";
+import { installWorkspacePathCommand } from "./workspace-command.js";
 import { log } from "./lib/log.js";
 import { FelixEngine } from "./engine.js";
 import { stopScheduler } from "./slices/scheduler/index.js";
@@ -138,6 +139,10 @@ async function main(): Promise<void> {
   // Runs before ensureWorkspace so rename targets don't pre-exist.
   await migrateWorkspaceLayout(cfg);
   await ensureWorkspace(cfg.paths);
+  await installWorkspacePathCommand(
+    cfg.paths,
+    path.resolve(import.meta.dirname, "cli", "workspace-path.js"),
+  );
   await syncBundledSkills(cfg.paths, {
     // 9router skill is only useful when the gateway is configured; hide it
     // otherwise so non-9router users don't see an irrelevant skill.

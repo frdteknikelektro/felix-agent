@@ -22,6 +22,7 @@ describe("shipped workspace placement contract", () => {
     expect(general).toContain("Session work");
     expect(general).toContain("No permissions required");
     expect(general).toContain("explicit confirmation");
+    expect(general).toContain("felix-workspace-path");
     expect(general).not.toContain("Reply-only.");
   });
 
@@ -33,6 +34,21 @@ describe("shipped workspace placement contract", () => {
     expect(softwareDevelopment).toContain("no permission");
     expect(softwareDevelopment).toContain("Hosted Project");
     expect(softwareDevelopment).toContain("software-development:repo.write");
+    expect(softwareDevelopment).toMatch(/before.*promot.*software-development:repo\.write/is);
+    expect(softwareDevelopment).toContain("felix-workspace-path");
+    expect(softwareDevelopment).toMatch(/Local Project.*explicit confirmation.*no Owner permission/is);
     expect(softwareDevelopment).toContain("automatically promote");
+  });
+
+  it("routes specialized user-work artifacts through the canonical resolver", async () => {
+    for (const skill of ["felix-browser", "listen-speak", "office-documents", "database", "google-workspace"]) {
+      const raw = await fs.readFile(`skills/${skill}/SKILL.md`, "utf8");
+      expect(raw, skill).toContain("felix-workspace-path");
+    }
+    const browserCommands = await fs.readFile("skills/felix-browser/references/commands.md", "utf8");
+    const sshTransfer = await fs.readFile("skills/ssh/references/transfer.md", "utf8");
+    expect(browserCommands).toContain("felix-workspace-path");
+    expect(browserCommands).not.toContain('mkdir -p "$THREAD_DIR/attachments"');
+    expect(sshTransfer).toContain("felix-workspace-path");
   });
 });

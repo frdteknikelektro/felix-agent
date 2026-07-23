@@ -202,38 +202,174 @@ export function fileCollectionDir(paths: WorkspacePaths, collection: string): st
   return path.join(paths.fileCollections, workspaceSlug(collection));
 }
 
+export type HostedProjectProvider = "github" | "gitlab";
+
+export type WorkspaceTarget =
+  | { kind: "file_collection"; collection: string; relative?: string }
+  | { kind: "local_project"; project: string; relative?: string }
+  | {
+      kind: "hosted_project";
+      provider: HostedProjectProvider;
+      namespace: string[];
+      repo: string;
+      relative?: string;
+    }
+  | { kind: "session_work"; threadDir: string; workName: string; relative?: string }
+  | { kind: "session_attachment"; threadDir: string; filename: string };
+
 /**
- * Validate a prospective user-work target against both the canonical category
- * roots and the real workspace path. The target may not exist yet.
+ * Build and validate a complete canonical destination. Callers select a
+ * category rather than supplying an arbitrary path, so incomplete roots such
+ * as `files/report.pdf` or `projects/github/acme` cannot pass validation.
  */
-export async function assertWorkspaceTarget(
-  paths: WorkspacePaths,
-  target: string,
-  options: { threadDir?: string } = {},
-): Promise<string> {
-  const absoluteTarget = path.isAbsolute(target) ? path.resolve(target) : path.resolve(paths.root, target);
-  const canonicalRoots = [
-    paths.fileCollections,
-    paths.localProjects,
-    projectProviderDir(paths, "github"),
-    projectProviderDir(paths, "gitlab"),
-    ...(options.threadDir
-      ? [path.join(options.threadDir, "work"), path.join(options.threadDir, "attachments")]
-      : []),
-  ];
-  if (!canonicalRoots.some((root) => isWithin(root, absoluteTarget))) {
-    throw new Error(`Target is not inside a canonical user-work area: ${target}`);
+export async function resolveWorkspaceTarget(paths: WorkspacePaths, target: WorkspaceTarget): Promise<string> {
+  let categoryRoot: string;
+  let absoluteTarget: string;
+  let categoryLabel: string;
+
+  switch (target.kind) {
+    case "file_collection": {
+      categoryRoot = paths.fileCollections;
+      categoryLabel = "File Collection";
+      absoluteTarget = appendRelative(fileCollectionDir(paths, target.collection), target.relative, true);
+      break;
+    }
+    case "local_project": {
+      categoryRoot = paths.localProjects;
+      categoryLabel = "Local Project";
+      absoluteTarget = appendRelative(localProjectDir(paths, target.project), target.relative);
+      break;
+    }
+    case "hosted_project": {
+      if (target.provider !== "github" && target.provider !== "gitlab") {
+        throw new Error(`Unsupported Hosted Project provider: ${String(target.provider)}`);
+      }
+      if (target.namespace.length === 0) {
+        throw new Error("Hosted Project namespace must contain at least one segment");
+      }
+      const namespace = target.namespace.map(workspaceSlug);
+      const providerRoot = projectProviderDir(paths, target.provider);
+      const projectRoot = path.join(providerRoot, ...namespace, workspaceSlug(target.repo));
+      categoryRoot = providerRoot;
+      categoryLabel = "Hosted Project";
+      absoluteTarget = appendRelative(projectRoot, target.relative);
+      break;
+    }
+    case "session_work": {
+      await assertSessionDir(paths, target.threadDir);
+      categoryRoot = path.join(path.resolve(target.threadDir), "work");
+      categoryLabel = "Session work";
+      absoluteTarget = appendRelative(path.join(categoryRoot, workspaceSlug(target.workName)), target.relative, true);
+      break;
+    }
+    case "session_attachment": {
+      await assertSessionDir(paths, target.threadDir);
+      categoryRoot = path.join(path.resolve(target.threadDir), "attachments");
+      categoryLabel = "Session attachments";
+      absoluteTarget = path.join(categoryRoot, canonicalFileName(target.filename, "Attachment filename"));
+      break;
+    }
   }
 
-  const realRoot = await fs.realpath(paths.root);
-  await assertExistingSymlinksStayWithin(paths.root, absoluteTarget, realRoot);
-  let ancestor = absoluteTarget;
-  let realAncestor: string;
+  await assertResolvedWithinCategory(paths.root, categoryRoot, absoluteTarget, categoryLabel);
+  return absoluteTarget;
+}
 
+function appendRelative(root: string, relative?: string, canonicalNames = false): string {
+  if (relative === undefined || relative === "") return root;
+  if (path.isAbsolute(relative) || relative.includes("\\")) {
+    throw new Error("Relative path must use non-absolute forward-slash segments");
+  }
+  const segments = relative.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new Error("Relative path must not contain empty, current-directory, or parent-directory segments");
+  }
+  return path.join(
+    root,
+    ...segments.map((segment, index) =>
+      canonicalNames
+        ? canonicalDescendantSegment(segment, index === segments.length - 1)
+        : safePathSegment(segment, "Relative path"),
+    ),
+  );
+}
+
+function safePathSegment(value: string, label: string): string {
+  if (!value || value === "." || value === ".." || /[\\/]/u.test(value)) {
+    throw new Error(`${label} must be one non-empty path segment`);
+  }
+  if (/[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error(`${label} must not contain control characters`);
+  }
+  return value;
+}
+
+function canonicalDescendantSegment(value: string, finalSegment: boolean): string {
+  const safe = safePathSegment(value.normalize("NFKC").trim(), "Relative path");
+  return finalSegment ? canonicalFileName(safe, "Relative path") : workspaceSlug(safe);
+}
+
+function canonicalFileName(value: string, label: string): string {
+  const safe = safePathSegment(value.normalize("NFKC").trim(), label);
+  const extensionMatch = safe.match(/((?:\.[\p{L}\p{N}]+)+)$/u);
+  if (!extensionMatch || extensionMatch.index === 0) return workspaceSlug(safe);
+  const stem = safe.slice(0, extensionMatch.index);
+  const extensions = extensionMatch[1]!
+    .split(".")
+    .filter(Boolean)
+    .map(workspaceSlug)
+    .join(".");
+  return `${workspaceSlug(stem)}.${extensions}`;
+}
+
+async function assertSessionDir(paths: WorkspacePaths, threadDir: string): Promise<void> {
+  const absoluteThreadDir = path.resolve(threadDir);
+  if (!isWithin(paths.sessions, absoluteThreadDir)) {
+    throw new Error(`Session directory is outside the Workspace sessions area: ${threadDir}`);
+  }
+  const sessionSegments = path.relative(path.resolve(paths.sessions), absoluteThreadDir).split(path.sep).filter(Boolean);
+  if (sessionSegments.length !== 2) {
+    throw new Error(`Session directory must identify exactly one source and session id: ${threadDir}`);
+  }
+  const stat = await fs.stat(absoluteThreadDir).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!stat?.isDirectory()) {
+    throw new Error(`Session directory does not exist: ${threadDir}`);
+  }
+  await assertResolvedWithinCategory(paths.root, paths.sessions, absoluteThreadDir, "Session");
+}
+
+async function assertResolvedWithinCategory(
+  workspaceRoot: string,
+  root: string,
+  target: string,
+  label: string,
+): Promise<void> {
+  if (!isWithin(root, target)) {
+    throw new Error(`Target is outside its canonical ${label} area: ${target}`);
+  }
+  const realWorkspace = await fs.realpath(workspaceRoot);
+  const expectedRealRoot = path.resolve(realWorkspace, path.relative(path.resolve(workspaceRoot), path.resolve(root)));
+  const { ancestor: rootAncestor, realAncestor: realRootAncestor } = await nearestRealAncestor(root);
+  const realRoot = path.resolve(realRootAncestor, path.relative(rootAncestor, root));
+  if (realRoot !== expectedRealRoot) {
+    throw new Error(`Canonical ${label} area is redirected through a symbolic link: ${root}`);
+  }
+  await assertExistingSymlinksStayWithin(root, target, realRoot, label);
+  const { ancestor, realAncestor } = await nearestRealAncestor(target);
+  const resolvedTarget = path.resolve(realAncestor, path.relative(ancestor, target));
+  if (!isWithin(realRoot, resolvedTarget)) {
+    throw new Error(`Target resolves outside its canonical ${label} area: ${target}`);
+  }
+}
+
+async function nearestRealAncestor(target: string): Promise<{ ancestor: string; realAncestor: string }> {
+  let ancestor = target;
   while (true) {
     try {
-      realAncestor = await fs.realpath(ancestor);
-      break;
+      return { ancestor, realAncestor: await fs.realpath(ancestor) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       const parent = path.dirname(ancestor);
@@ -241,16 +377,14 @@ export async function assertWorkspaceTarget(
       ancestor = parent;
     }
   }
-
-  const resolvedTarget = path.resolve(realAncestor, path.relative(ancestor, absoluteTarget));
-  const relative = path.relative(realRoot, resolvedTarget);
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error(`Target resolves outside the workspace: ${target}`);
-  }
-  return absoluteTarget;
 }
 
-async function assertExistingSymlinksStayWithin(root: string, target: string, realRoot: string): Promise<void> {
+async function assertExistingSymlinksStayWithin(
+  root: string,
+  target: string,
+  realRoot: string,
+  label: string,
+): Promise<void> {
   const relative = path.relative(path.resolve(root), target);
   let current = path.resolve(root);
   for (const segment of relative.split(path.sep).filter(Boolean)) {
@@ -260,6 +394,9 @@ async function assertExistingSymlinksStayWithin(root: string, target: string, re
       throw error;
     });
     if (!stat) return;
+    if (stat.isFile() && stat.nlink > 1) {
+      throw new Error(`Cannot validate a hard link used as a user-work target: ${current}`);
+    }
     if (!stat.isSymbolicLink()) continue;
     const resolved = await fs.realpath(current).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
@@ -267,8 +404,12 @@ async function assertExistingSymlinksStayWithin(root: string, target: string, re
       }
       throw error;
     });
+    const resolvedStat = await fs.stat(resolved);
+    if (resolvedStat.isFile() && resolvedStat.nlink > 1) {
+      throw new Error(`Cannot validate a symbolic link to a hard link used as a user-work target: ${current}`);
+    }
     if (!isWithin(realRoot, resolved)) {
-      throw new Error(`Target resolves outside the workspace through a symbolic link: ${current}`);
+      throw new Error(`Target resolves outside its canonical ${label} area through a symbolic link: ${current}`);
     }
   }
 }

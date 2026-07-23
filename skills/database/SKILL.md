@@ -59,7 +59,7 @@ CRUD on connection config files:
    Completion: operation complete, results available.
 
 5. **Format and deliver.**
-   Small result (< 20 rows): inline in chat. Large result: write to `<thread_dir>/attachments/` as CSV or JSON, attach with summary. Destructive write: show affected rows and sample of changes in reply. Schema changes: confirm DDL executed.
+   Small result (< 20 rows): inline in chat. Large result: resolve a CSV or JSON target with `felix-workspace-path session-attachment "$FELIX_THREAD_DIR" "<filename>"`, write only to the returned path, and attach it with a summary; stop if the resolver rejects the target. Destructive write: show affected rows and sample of changes in reply. Schema changes: confirm DDL executed.
    Completion: user received results.
 
 ## Branch reference

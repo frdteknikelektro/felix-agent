@@ -58,7 +58,14 @@ another service never authorizes mutation.
 3. **Execute the command.**
    Identify the correct `gog <service> <command>` — consult
    `references/commands.md` for the mapping, or run `gog schema --json` to
-   discover flags when the command is unknown. Run with `--json`.
+   discover flags when the command is unknown. Run with `--json`. Before a
+   Drive/Photos download or any file attachment output, classify and resolve
+   the complete local target with `felix-workspace-path`: use
+   `session-attachment "$FELIX_THREAD_DIR" "<filename>"` for a current
+   deliverable, `session-work "$FELIX_THREAD_DIR" "<work-name>" ["<relative>"]`
+   for intermediate work, or `file-collection "<collection>" ["<relative>"]`
+   for a persistent collection. Pass exactly the returned path to `--out` and
+   stop if resolution fails.
    Completion: result delivered — inline for ≤30 lines, file attachment for larger.
 
 Automated wrappers can use `scripts/run-workflow.mjs` to preserve this ordering:

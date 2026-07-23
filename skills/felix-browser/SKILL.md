@@ -56,4 +56,4 @@ Filling a field is navigation; committing it to a server is submit. Before a sub
    - Never reuse refs after the page changes.
 6. Stop when the requested page state or extracted value is observed. Report the result conversationally, not as raw CLI output.
 
-Save screenshots only under `$THREAD_DIR/attachments/` after creating the directory. Close the session only when the user explicitly asks; closing the session does not close Chrome.
+Before saving a screenshot, resolve its complete target with `felix-workspace-path session-attachment "$FELIX_THREAD_DIR" "<filename>.png"` and pass exactly the returned path to the browser command. If the resolver rejects it, stop; never hand-build the attachment path. Close the session only when the user explicitly asks; closing the session does not close Chrome.

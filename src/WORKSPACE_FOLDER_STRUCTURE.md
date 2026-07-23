@@ -112,6 +112,7 @@ $WORKSPACE_DIR
 | `projects/local/<project>/` | Persistent Local Project without a remote |
 | `projects/<provider>/<namespace>/<repo>/` | Hosted Project |
 | `runtime/bin/` | Installed CLI tools on PATH |
+| `runtime/bin/felix-workspace-path` | Canonical user-work target resolver installed at boot |
 
 ## Environment
 
@@ -128,7 +129,8 @@ This layout is an **exhaustive placement contract** for agent-created directorie
 3. **Default generic folders to File Collections.** Use `files/<collection>/` unless the request clearly identifies software or Session work.
 4. **Clone repos to `projects/<provider>/<namespace>/<repo>/`.** Never clone into Sessions, File Collections, or temporary directories.
 5. **Create no-remote software under `projects/local/<project>/`.** When a recognized GitHub or GitLab remote later identifies an unambiguous absent destination, promote the complete Project automatically without merging or overwriting.
-6. **Use readable safe names.** Convert human names to lowercase kebab-case, preserve safe Unicode letters and numbers, and reject separators, controls, empty names, `.` and `..`.
+6. **Use readable safe names.** Convert human-created artifact names and non-project descendants to lowercase kebab-case, preserve safe Unicode letters, numbers, and lowercase file extensions, and reject separators, controls, empty names, `.` and `..`. Project descendants may retain names required by their language or tooling.
 7. **Inspect collisions.** Reuse only a clearly identical target; otherwise ask. Never invent numeric suffixes, merge directories, or overwrite a collision silently.
 8. **Skills cannot override placement.** A Skill-specific path must remain inside the canonical area for its artifact.
 9. **No automatic legacy migration or Hosted Project demotion.** Existing unknown folders remain untouched until an explicit migration task.
+10. **Resolve every user-work mutation through `felix-workspace-path`.** Select one complete artifact category, use the returned absolute target, and stop if validation rejects the category shape, active Session binding, relative path, link safety, or real-path containment.

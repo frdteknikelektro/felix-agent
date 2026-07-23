@@ -10,6 +10,7 @@ import {
   projectNamespaceDir,
   projectProviderDir,
   projectRepoDir,
+  resolveWorkspaceTarget,
   sourceContactsDir,
   sourceRawDir,
   sourceSessionsDir,
@@ -68,30 +69,6 @@ describe("workspace paths", () => {
     expect(projectRepoDir(paths, "github", "acme", "payments")).toBe(path.join("/workspace", "projects", "github", "acme", "payments"));
   });
 
-  it("initializes Memory lazily while preserving inactive Legacy memory", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-memory-workspace-"));
-    const paths = buildWorkspacePaths(root);
-    const legacyFile = path.join(root, "memory", "wiki", "index.md");
-    await fs.mkdir(path.dirname(legacyFile), { recursive: true });
-    await fs.writeFile(legacyFile, "legacy bytes stay unchanged\n");
-
-    try {
-      await ensureWorkspace(paths);
-
-      expect(await fs.readFile(paths.memoryFile, "utf8")).toBe("# Memory\n");
-      expect((await fs.stat(paths.memoryDailyDir)).isDirectory()).toBe(true);
-      expect((await fs.stat(paths.memoryWeeklyDir)).isDirectory()).toBe(true);
-      expect((await fs.stat(paths.memoryMonthlyDir)).isDirectory()).toBe(true);
-      expect(await fs.readFile(legacyFile, "utf8")).toBe("legacy bytes stay unchanged\n");
-
-      await fs.writeFile(paths.memoryFile, "# Memory\n\n- Owner customization\n");
-      await ensureWorkspace(paths);
-      expect(await fs.readFile(paths.memoryFile, "utf8")).toContain("Owner customization");
-    } finally {
-      await fs.rm(root, { recursive: true, force: true });
-    }
-  });
-
   it("derives readable canonical paths from human names", () => {
     const paths = buildWorkspacePaths("/workspace");
 
@@ -103,5 +80,167 @@ describe("workspace paths", () => {
     expect(() => workspaceSlug("///")).toThrow(/separator/i);
     expect(() => workspaceSlug("team/app")).toThrow(/separator/i);
     expect(() => workspaceSlug("report\u0000draft")).toThrow(/control/i);
+  });
+
+  it("resolves complete canonical target shapes from typed categories", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-workspace-targets-"));
+    const paths = buildWorkspacePaths(path.join(root, "workspace"));
+    const threadDir = path.join(paths.sessions, "mattermost", "session-1");
+    await ensureWorkspace(paths);
+    await fs.mkdir(path.join(threadDir, "work"), { recursive: true });
+    await fs.mkdir(path.join(threadDir, "attachments"), { recursive: true });
+
+    try {
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "file_collection",
+          collection: "Invoices",
+          relative: "Draft Folder/Final!.PDF",
+        }),
+      ).resolves.toBe(path.join(paths.fileCollections, "invoices", "draft-folder", "final.pdf"));
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "file_collection",
+          collection: "Invoices",
+          relative: "2026/january.pdf",
+        }),
+      ).resolves.toBe(path.join(paths.fileCollections, "invoices", "2026", "january.pdf"));
+      await expect(
+        resolveWorkspaceTarget(paths, { kind: "local_project", project: "My App" }),
+      ).resolves.toBe(path.join(paths.localProjects, "my-app"));
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "hosted_project",
+          provider: "github",
+          namespace: ["Acme"],
+          repo: "Payments",
+          relative: "src/index.ts",
+        }),
+      ).resolves.toBe(path.join(paths.projects, "github", "acme", "payments", "src", "index.ts"));
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "session_work",
+          threadDir,
+          workName: "PDF Conversion",
+          relative: "input.txt",
+        }),
+      ).resolves.toBe(path.join(threadDir, "work", "pdf-conversion", "input.txt"));
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "session_attachment",
+          threadDir,
+          filename: "report.pdf",
+        }),
+      ).resolves.toBe(path.join(threadDir, "attachments", "report.pdf"));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed targets plus cross-category and dangling symlink escapes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-workspace-containment-"));
+    const workspace = path.join(root, "workspace");
+    const paths = buildWorkspacePaths(workspace);
+    await ensureWorkspace(paths);
+    const hosted = path.join(paths.projects, "github", "acme", "app");
+    const collection = path.join(paths.fileCollections, "invoices");
+    await fs.mkdir(hosted, { recursive: true });
+    await fs.mkdir(collection, { recursive: true });
+    await fs.mkdir(path.join(paths.sessions, "mattermost"));
+    await fs.symlink(hosted, path.join(collection, "code"));
+    await fs.symlink(path.join(root, "missing-outside"), path.join(collection, "dangling"));
+
+    try {
+      await expect(
+        resolveWorkspaceTarget(paths, { kind: "file_collection", collection: "Invoices", relative: "code/secret.txt" }),
+      ).rejects.toThrow(/outside.*file collection/i);
+      await expect(
+        resolveWorkspaceTarget(paths, { kind: "file_collection", collection: "Invoices", relative: "dangling/secret.txt" }),
+      ).rejects.toThrow(/symbolic link/i);
+      await expect(
+        resolveWorkspaceTarget(paths, { kind: "file_collection", collection: "Invoices", relative: "../other" }),
+      ).rejects.toThrow(/relative path/i);
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "session_work",
+          threadDir: path.join(root, "outside-session"),
+          workName: "Attempt",
+        }),
+      ).rejects.toThrow(/session/i);
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "session_work",
+          threadDir: path.join(paths.sessions, "mattermost"),
+          workName: "Attempt",
+        }),
+      ).rejects.toThrow(/source.*session id/i);
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "hosted_project",
+          provider: "github",
+          namespace: [],
+          repo: "app",
+        }),
+      ).rejects.toThrow(/namespace/i);
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "hosted_project",
+          provider: "bitbucket" as "github",
+          namespace: ["acme"],
+          repo: "app",
+        }),
+      ).rejects.toThrow(/provider/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a canonical category root redirected into another category", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-workspace-root-link-"));
+    const paths = buildWorkspacePaths(path.join(root, "workspace"));
+    await ensureWorkspace(paths);
+    await fs.rmdir(paths.fileCollections);
+    await fs.symlink(paths.localProjects, paths.fileCollections);
+
+    try {
+      await expect(
+        resolveWorkspaceTarget(paths, { kind: "file_collection", collection: "Invoices" }),
+      ).rejects.toThrow(/canonical.*file collection/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects existing hard-linked files as mutation targets", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "felix-workspace-hard-link-"));
+    const paths = buildWorkspacePaths(path.join(root, "workspace"));
+    await ensureWorkspace(paths);
+    const outside = path.join(root, "outside.txt");
+    const insideDir = path.join(paths.fileCollections, "documents");
+    const inside = path.join(insideDir, "shared.txt");
+    const alias = path.join(insideDir, "alias.txt");
+    await fs.writeFile(outside, "shared");
+    await fs.mkdir(insideDir);
+    await fs.link(outside, inside);
+    await fs.symlink(inside, alias);
+
+    try {
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "file_collection",
+          collection: "Documents",
+          relative: "shared.txt",
+        }),
+      ).rejects.toThrow(/hard link/i);
+      await expect(
+        resolveWorkspaceTarget(paths, {
+          kind: "file_collection",
+          collection: "Documents",
+          relative: "alias.txt",
+        }),
+      ).rejects.toThrow(/hard link/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

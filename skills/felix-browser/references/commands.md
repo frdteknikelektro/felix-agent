@@ -74,11 +74,11 @@ agent-browser --cdp "$CDP_URL" --session "$SESSION" get value @e3
 ## Screenshot
 
 ```bash
-mkdir -p "$THREAD_DIR/attachments"
-agent-browser --cdp "$CDP_URL" --session "$SESSION" screenshot "$THREAD_DIR/attachments/screenshot.png"
+SCREENSHOT_PATH=$(felix-workspace-path session-attachment "$FELIX_THREAD_DIR" "screenshot.png")
+agent-browser --cdp "$CDP_URL" --session "$SESSION" screenshot "$SCREENSHOT_PATH"
 ```
 
-Add `--annotate` before the path for an annotated screenshot. Return the path relative to the thread.
+Stop if target resolution fails. Add `--annotate` before the path for an annotated screenshot. Return the path relative to the thread.
 
 ## JavaScript
 

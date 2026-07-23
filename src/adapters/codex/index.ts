@@ -105,6 +105,7 @@ export class CodexHarness implements Harness {
       env: {
         ...process.env,
         ...settings.env,
+        FELIX_THREAD_DIR: input.thread.dir,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
