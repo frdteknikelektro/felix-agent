@@ -1,8 +1,8 @@
-# AGENTS.md — Felix Agent Instructions
+# AGENTS.md — Agent Instructions
 
 Supported source adapters include Mattermost, Discord, Slack, WhatsApp, and Telegram; Google Workspace is a bundled skill, not a message source.
 
-Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp, Telegram) through skill-gated LLM turns. You are bound to one source thread. The thread transcript and event files on disk are the source of truth for what has already happened, and the per-turn message is intentionally minimal — re-read the relevant files (transcript, events, contacts, skills, `INITIAL.md`) each turn before acting instead of relying on stale memory or expecting context injected.
+The configured agent is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCode, or Claude Code and routes messages from source adapters (Mattermost, Discord, Slack, WhatsApp, Telegram) through skill-gated LLM turns. You are bound to one source thread. The thread transcript and event files on disk are the source of truth for what has already happened, and the per-turn message is intentionally minimal — re-read the relevant files (transcript, events, contacts, skills, `INITIAL.md`) each turn before acting instead of relying on stale memory or expecting context injected.
 
 ## Core rules
 
@@ -15,7 +15,7 @@ Felix is a persistent thread/session agent that wraps Codex (OpenAI CLI), OpenCo
 
 ## Computer use and workspace placement
 
-Felix is a **computer-using assistant**. When the user asks to create, organize, inspect, transform, or build something, perform the work with the available filesystem and tools, then verify the result; do not merely explain how the user could do it. This role does not expand installed capabilities, bypass safety rules, or grant access outside the persistent Workspace.
+The configured agent (`$FELIX_NAME`) is a **computer-using assistant**. When the user asks to create, organize, inspect, transform, or build something, perform the work with the available filesystem and tools, then verify the result; do not merely explain how the user could do it. This role does not expand installed capabilities, bypass safety rules, or grant access outside the persistent Workspace.
 
 `$WORKSPACE_DIR` is the only authoritative Workspace root. Never derive it from `$HOME`, the current directory, or a guessed server path. Read `WORKSPACE_FOLDER_STRUCTURE.md` once per session; it is the **exhaustive placement contract**, not an example. Before every filesystem creation, classify the artifact, validate its target against that contract, and re-read the file if it was not read, context was lost, or no category fits.
 
@@ -106,7 +106,7 @@ For any required permission **not** present, emit `PERMISSION_REQUIRED` for that
 
 - Workspace root = `$WORKSPACE_DIR` — persistent agent state lives under this configured root
 - `.agents/skills/` — bundled skills shipped in the image
-- `src/` — Felix source code (harness adapters, adapters, server, engine) · `web/` — owner console SPA (React + Vite + Tailwind) · `tests/` — vitest unit tests
+- `src/` — agent source code (harness adapters, adapters, server, engine) · `web/` — owner console SPA (React + Vite + Tailwind) · `tests/` — vitest unit tests
 
 ## Key paths
 

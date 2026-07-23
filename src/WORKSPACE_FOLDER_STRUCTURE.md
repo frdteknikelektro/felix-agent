@@ -5,7 +5,7 @@
 ```
 $WORKSPACE_DIR
 │
-├── AGENTS.md                      Felix behavior contract (boot-written)
+├── AGENTS.md                      Agent behavior contract (boot-written)
 ├── CLAUDE.md                      Claude Code alias (identical copy)
 ├── PERSONALITY.md                 Global role, tone, and style (copy-if-absent)
 ├── MEMORY.md                      Durable semantic Memory (created if absent)
