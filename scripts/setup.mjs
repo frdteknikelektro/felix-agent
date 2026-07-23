@@ -831,15 +831,26 @@ export async function main() {
           // one thing the user actually needs — the first time it appears.
           // stdin stays inherited so a pasted callback code still reaches
           // `claude` directly, even though we never show its own prompt text.
+          //
+          // The child's own masked-input feedback lives inside that suppressed
+          // frame-spam too, and there's no reliable way to tell from here
+          // whether or in what form it renders — so don't try to mirror it.
+          // Set the right expectation up front instead, and nudge if nothing
+          // has happened in a while, so silence doesn't read as "did my
+          // paste even register?"
           let output = "";
           let printedUrl = false;
-          let maskLength = 0;
+          let lastActivityAt = Date.now();
+          let idleNoticeShown = false;
+          info("Typing or pasting the code won't show anything here — that's expected. Paste it, then press Enter.");
           const child = spawn("claude", ["setup-token"], {
             env: { ...process.env },
             stdio: ["inherit", "pipe", "inherit"],
           });
           child.stdout.on("data", (chunk) => {
             output += chunk.toString("utf8");
+            lastActivityAt = Date.now();
+            idleNoticeShown = false;
             if (!printedUrl) {
               const urlMatch = stripAnsi(output).match(/https:\S*oauth\/authorize\S*/);
               if (urlMatch) {
@@ -849,17 +860,13 @@ export async function main() {
                 info("If it asks you to paste a code back, type it here and press Enter.");
               }
             }
-            // The child masks pasted-code keystrokes with "*", but that only
-            // exists inside the frame-spam we're suppressing above — recreate
-            // it ourselves as a single line that grows in place (\r, no \n).
-            // Runs of 2+ avoid the stray single "*" sparkles in the splash art.
-            const runs = output.match(/\*{2,}/g);
-            const longest = runs ? Math.max(...runs.map((run) => run.length)) : 0;
-            if (longest > maskLength) {
-              maskLength = longest;
-              process.stdout.write(`\r  ${c.dim}Paste code:${c.reset} ${"*".repeat(maskLength)}`);
-            }
           });
+          const idleReminder = setInterval(() => {
+            if (printedUrl && !idleNoticeShown && Date.now() - lastActivityAt > 20_000) {
+              idleNoticeShown = true;
+              info("Still here — paste the code (nothing will show) and press Enter.");
+            }
+          }, 5_000);
           const exitCode = await new Promise((resolve) => {
             // Containers commonly can't reach the local OAuth callback server
             // (Anthropic's own docs flag this), falling back to a manual
@@ -874,6 +881,7 @@ export async function main() {
               resolve(code ?? -1);
             });
           });
+          clearInterval(idleReminder);
           console.log();
 
           // \S+ rather than a fixed charset — the exact token alphabet isn't
