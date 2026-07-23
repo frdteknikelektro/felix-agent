@@ -5,7 +5,7 @@
 ```
 $WORKSPACE_DIR
 │
-├── AGENTS.md                      Felix behavior contract (boot-written)
+├── AGENTS.md                      Agent behavior contract (boot-written)
 ├── CLAUDE.md                      Claude Code alias (identical copy)
 ├── PERSONALITY.md                 Global role, tone, and style (copy-if-absent)
 ├── MEMORY.md                      Durable semantic Memory (created if absent)
@@ -30,7 +30,8 @@ $WORKSPACE_DIR
 │       ├── INITIAL.md
 │       ├── events/
 │       ├── turns/
-│       └── attachments/
+│       ├── work/                         Request-specific intermediate work
+│       └── attachments/                  Received inputs and finished deliverables
 │
 ├── approvals/
 │   ├── _classify/                       Classification scratch dir
@@ -55,8 +56,13 @@ $WORKSPACE_DIR
 │   ├── cancelled/
 │   └── paused/
 │
+├── files/
+│   └── <collection>/                     Persistent non-software File Collection
+│
 ├── projects/
-│   └── <provider>/<namespace>/<repo>/   Checked-out repositories
+│   ├── local/
+│   │   └── <project>/                    Persistent Project without a remote
+│   └── <provider>/<namespace>/<repo>/    Hosted repository
 │
 └── runtime/                             Installed tools
     ├── bin/                             CLI tool symlinks/wrappers
@@ -79,6 +85,9 @@ $WORKSPACE_DIR
 | `<provider>` | `github`, `gitlab` | Git platform |
 | `<namespace>` | `Atnic`, `frdteknikelektro` | Organization, group, or user scope |
 | `<repo>` | `jala-web`, `felix-agent` | Repository name |
+| `<project>` | `cost-dashboard` | Local Project name |
+| `<collection>` | `invoices` | Persistent non-software collection name |
+| `<work_name>` | `pdf-conversion` | Request-specific Session work name |
 | `<name>` | `vercel`, `agent-browser` | Tool name under runtime/tools/ |
 | `<request_id>` | `req-abc123` | Approval request identifier |
 
@@ -96,8 +105,12 @@ $WORKSPACE_DIR
 | `memory/monthly/` | Completed monthly rollups |
 | `sessions/<source>/<sid>/transcript.md` | Session transcript |
 | `sessions/<source>/<sid>/INITIAL.md` | Per-session context (read once per session) |
+| `sessions/<source>/<sid>/work/<work_name>/` | Request-specific intermediate Session work |
+| `sessions/<source>/<sid>/attachments/` | Received inputs and finished conversational deliverables |
 | `tasks/active/` | Current active task |
-| `projects/<provider>/<namespace>/<repo>/` | Checked-out repository |
+| `files/<collection>/` | Persistent non-software File Collection |
+| `projects/local/<project>/` | Persistent Local Project without a remote |
+| `projects/<provider>/<namespace>/<repo>/` | Hosted Project |
 | `runtime/bin/` | Installed CLI tools on PATH |
 
 ## Environment
@@ -108,6 +121,15 @@ $WORKSPACE_DIR
 
 ## Rules
 
-1. **Never write outside `$WORKSPACE_DIR`.** Only the workspace volume is writable.
-2. **Thread attachments go under `sessions/<sid>/attachments/`.** Never write to system temp.
-3. **Clone repos to `projects/<provider>/<ns>/<repo>/`.** Never clone into sessions or tmp.
+This layout is an **exhaustive placement contract** for agent-created directories, not an example. Skills and users may create descendants inside a canonical area, but must not introduce an undocumented Workspace-root category.
+
+1. **Never write outside `$WORKSPACE_DIR` or across canonical categories.** Resolve the real target or its nearest existing parent first and require it to remain inside both `$WORKSPACE_DIR` and the selected canonical category (and the active Session area when applicable). Reject dangling or escaping symbolic links. Before mutating an existing regular file, inspect its link count and reject it when it has multiple hard links.
+2. **Classify before creating.** Software belongs in a Local or Hosted Project, persistent non-software content in a File Collection, request-specific intermediates in Session work, and conversational inputs or finished deliverables in Session attachments.
+3. **Default generic folders to File Collections.** Use `files/<collection>/` unless the request clearly identifies software or Session work.
+4. **Clone repos to `projects/<provider>/<namespace>/<repo>/`.** Never clone into Sessions, File Collections, or temporary directories.
+5. **Create no-remote software under `projects/local/<project>/`.** When a recognized GitHub or GitLab remote later identifies an unambiguous absent destination, promote the complete Project automatically without merging or overwriting.
+6. **Use readable safe names.** Convert human-created artifact names and non-project descendants to lowercase kebab-case, preserve safe Unicode letters, numbers, and lowercase file extensions, and reject separators, controls, empty names, `.` and `..`. Project descendants may retain names required by their language or tooling.
+7. **Inspect collisions.** Reuse only a clearly identical target; otherwise ask. Never invent numeric suffixes, merge directories, or overwrite a collision silently.
+8. **Skills cannot override placement.** A Skill-specific path must remain inside the canonical area for its artifact.
+9. **No automatic legacy migration or Hosted Project demotion.** Existing unknown folders remain untouched until an explicit migration task.
+10. **Apply this contract before every user-work mutation.** Select one complete artifact category, derive the target from its documented pattern, use only the active Session when applicable, and apply Rules 1 and 6–9 before acting. Stop when any classification, collision, link-safety, or containment check is uncertain.

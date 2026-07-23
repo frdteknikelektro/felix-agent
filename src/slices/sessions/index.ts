@@ -25,6 +25,7 @@ export interface ThreadHandle {
   transcriptFile: string;
   eventsDir: string;
   attachmentsDir: string;
+  workDir: string;
   turnsDir: string;
   state: ThreadState;
   session: SessionState;
@@ -42,14 +43,10 @@ export async function createOrLoadThread(
 
   const createdAt = event.received_at;
   const dir = path.join(sourceSessionsDir(cfg.paths, event.source), buildThreadDirName(event.thread_key, createdAt));
-  const threadFile = path.join(dir, "thread.json");
-  const sessionFile = path.join(dir, "session.json");
-  const transcriptFile = path.join(dir, "transcript.md");
-  const eventsDir = path.join(dir, "events");
-  const attachmentsDir = path.join(dir, "attachments");
-  const turnsDir = path.join(dir, "turns");
+  const layout = threadLayout(dir);
+  const { threadFile, sessionFile, transcriptFile, eventsDir, attachmentsDir, workDir, turnsDir } = layout;
   await ensureDir(dir);
-  await Promise.all([ensureDir(eventsDir), ensureDir(attachmentsDir), ensureDir(turnsDir)]);
+  await provisionThreadDirs(layout);
 
   const state: ThreadState = {
     thread_key: event.thread_key,
@@ -76,6 +73,7 @@ export async function createOrLoadThread(
     transcriptFile,
     eventsDir,
     attachmentsDir,
+    workDir,
     turnsDir,
     state,
     session,
@@ -457,18 +455,14 @@ async function touchThread(handle: ThreadHandle): Promise<void> {
 
 async function loadThreadHandle(dir: string, state: ThreadState): Promise<ThreadHandle> {
   state = await repairThreadStateByDir(dir, state);
-  const threadFile = path.join(dir, "thread.json");
-  const sessionFile = path.join(dir, "session.json");
-  const transcriptFile = path.join(dir, "transcript.md");
-  const eventsDir = path.join(dir, "events");
-  const attachmentsDir = path.join(dir, "attachments");
-  const turnsDir = path.join(dir, "turns");
+  const layout = threadLayout(dir);
+  const { threadFile, sessionFile, transcriptFile, eventsDir, attachmentsDir, workDir, turnsDir } = layout;
   const session = await readJsonParsed(sessionFile, SessionStateSchema, {
     busy: false,
     queue: [],
     pending_permission: null,
   });
-  await Promise.all([ensureDir(eventsDir), ensureDir(attachmentsDir), ensureDir(turnsDir)]);
+  await provisionThreadDirs(layout);
   return {
     dir,
     threadFile,
@@ -476,10 +470,32 @@ async function loadThreadHandle(dir: string, state: ThreadState): Promise<Thread
     transcriptFile,
     eventsDir,
     attachmentsDir,
+    workDir,
     turnsDir,
     state,
     session,
   };
+}
+
+function threadLayout(dir: string) {
+  return {
+    threadFile: path.join(dir, "thread.json"),
+    sessionFile: path.join(dir, "session.json"),
+    transcriptFile: path.join(dir, "transcript.md"),
+    eventsDir: path.join(dir, "events"),
+    attachmentsDir: path.join(dir, "attachments"),
+    workDir: path.join(dir, "work"),
+    turnsDir: path.join(dir, "turns"),
+  };
+}
+
+async function provisionThreadDirs(layout: ReturnType<typeof threadLayout>): Promise<void> {
+  await Promise.all([
+    ensureDir(layout.eventsDir),
+    ensureDir(layout.attachmentsDir),
+    ensureDir(layout.workDir),
+    ensureDir(layout.turnsDir),
+  ]);
 }
 
 function buildThreadDirName(threadKey: string, createdAt: string): string {

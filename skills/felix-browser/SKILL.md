@@ -56,4 +56,4 @@ Filling a field is navigation; committing it to a server is submit. Before a sub
    - Never reuse refs after the page changes.
 6. Stop when the requested page state or extracted value is observed. Report the result conversationally, not as raw CLI output.
 
-Save screenshots only under `$THREAD_DIR/attachments/` after creating the directory. Close the session only when the user explicitly asks; closing the session does not close Chrome.
+Save screenshots only at `{thread_dir}/attachments/<filename>.png` for the current turn and apply the Session-attachment rules in `WORKSPACE_FOLDER_STRUCTURE.md` before writing. Close the session only when the user explicitly asks; closing the session does not close Chrome.

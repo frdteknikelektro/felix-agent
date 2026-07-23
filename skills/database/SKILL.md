@@ -59,7 +59,7 @@ CRUD on connection config files:
    Completion: operation complete, results available.
 
 5. **Format and deliver.**
-   Small result (< 20 rows): inline in chat. Large result: write to `<thread_dir>/attachments/` as CSV or JSON, attach with summary. Destructive write: show affected rows and sample of changes in reply. Schema changes: confirm DDL executed.
+   Small result (< 20 rows): inline in chat. Large result: write the CSV or JSON under the current `{thread_dir}/attachments/` after applying the Session-attachment rules in `WORKSPACE_FOLDER_STRUCTURE.md`, then attach it with a summary. Destructive write: show affected rows and sample of changes in reply. Schema changes: confirm DDL executed.
    Completion: user received results.
 
 ## Branch reference

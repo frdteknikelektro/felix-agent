@@ -74,11 +74,11 @@ agent-browser --cdp "$CDP_URL" --session "$SESSION" get value @e3
 ## Screenshot
 
 ```bash
-mkdir -p "$THREAD_DIR/attachments"
-agent-browser --cdp "$CDP_URL" --session "$SESSION" screenshot "$THREAD_DIR/attachments/screenshot.png"
+SCREENSHOT_PATH="{thread_dir}/attachments/screenshot.png"
+agent-browser --cdp "$CDP_URL" --session "$SESSION" screenshot "$SCREENSHOT_PATH"
 ```
 
-Add `--annotate` before the path for an annotated screenshot. Return the path relative to the thread.
+Replace `{thread_dir}` with the exact current turn value and apply the Session-attachment rules in `WORKSPACE_FOLDER_STRUCTURE.md` before writing. Add `--annotate` before the path for an annotated screenshot. Return the path relative to the thread.
 
 ## JavaScript
 

@@ -330,6 +330,7 @@ describe("codex output parser", () => {
 
       // Server-computed permission gate is injected and authoritative
       expect(prompt).toContain("permissions_per_skill (server-computed — authoritative");
+      expect(prompt).toContain("only the permissions that the matched Skill says this operation requires");
       expect(prompt).toContain("deploy: have=[read], need=[run]");
       // Skills with no permissions are not listed in the gate
       expect(prompt).not.toContain("general: have=");

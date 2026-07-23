@@ -19,6 +19,8 @@ export interface WorkspacePaths {
   threadKeyIndex: string;
   botMessageIndex: string;
   projects: string;
+  localProjects: string;
+  fileCollections: string;
   tasks: string;
   usage: string;
   memoryDir: string;
@@ -36,6 +38,7 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
   const runtime = path.join(root, "runtime");
   const index = path.join(root, "index");
   const projects = path.join(root, "projects");
+  const fileCollections = path.join(root, "files");
   const memoryDir = path.join(root, "memory");
   const schedulerDir = path.join(root, "scheduler");
   return {
@@ -55,6 +58,8 @@ export function buildWorkspacePaths(root: string): WorkspacePaths {
     threadKeyIndex: path.join(index, "thread-key"),
     botMessageIndex: path.join(index, "bot-messages"),
     projects,
+    localProjects: path.join(projects, "local"),
+    fileCollections,
     tasks: path.join(root, "tasks"),
     usage: path.join(root, "usage"),
     memoryDir,
@@ -84,6 +89,8 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<void> {
     ensureDir(paths.threadKeyIndex),
     ensureDir(paths.botMessageIndex),
     ensureDir(paths.projects),
+    ensureDir(paths.localProjects),
+    ensureDir(paths.fileCollections),
     ensureDir(paths.tasks),
     ensureDir(path.join(paths.tasks, "backlog")),
     ensureDir(path.join(paths.tasks, "active")),
@@ -165,4 +172,32 @@ export function projectNamespaceDir(paths: WorkspacePaths, provider: string, nam
 
 export function projectRepoDir(paths: WorkspacePaths, provider: string, namespace: string, repo: string): string {
   return path.join(projectNamespaceDir(paths, provider, namespace), repo);
+}
+
+/** Convert a human-facing name into one safe, readable workspace path segment. */
+export function workspaceSlug(value: string): string {
+  if (/[\\/]/u.test(value)) {
+    throw new Error("Workspace name must not contain a path separator");
+  }
+  if (/[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error("Workspace name must not contain control characters");
+  }
+  const slug = value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!slug || slug === "." || slug === "..") {
+    throw new Error("Workspace name must contain a usable letter or number");
+  }
+  return slug;
+}
+
+export function localProjectDir(paths: WorkspacePaths, project: string): string {
+  return path.join(paths.localProjects, workspaceSlug(project));
+}
+
+export function fileCollectionDir(paths: WorkspacePaths, collection: string): string {
+  return path.join(paths.fileCollections, workspaceSlug(collection));
 }

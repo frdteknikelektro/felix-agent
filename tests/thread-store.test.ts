@@ -22,6 +22,25 @@ const item = (id: string) => ({
 });
 
 describe("thread store", () => {
+  it("provisions and exposes Session work for new and loaded threads", async () => {
+    const cfg = await makeTestConfig("felix-session-work-");
+    const event = {
+      source: "mattermost",
+      thread_key: "mattermost:chan:root",
+      source_thread_ref: mattermostThreadRef("chan", "root"),
+      received_at: "2026-05-25T00:00:00.000Z",
+    } as const;
+
+    const created = await createOrLoadThread(cfg, event);
+    expect(created.workDir).toBe(path.join(created.dir, "work"));
+    await expect(fs.stat(created.workDir)).resolves.toMatchObject({ isDirectory: expect.any(Function) });
+
+    await fs.rm(created.workDir, { recursive: true });
+    const loaded = await createOrLoadThread(cfg, event);
+    expect(loaded.workDir).toBe(created.workDir);
+    await expect(fs.stat(loaded.workDir)).resolves.toMatchObject({ isDirectory: expect.any(Function) });
+  });
+
   it("deduplicates queued events by source event id", async () => {
     const cfg = await makeTestConfig("felix-thread-store-");
     const thread = await createOrLoadThread(cfg, {
