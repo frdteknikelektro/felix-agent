@@ -268,6 +268,34 @@ const CHANNEL_TOKEN_HINTS = {
   TELEGRAM_BOT_TOKEN: `Bot token (looks like 123456789:AA...), from @BotFather — send /newbot. ${c.dim}${link("https://t.me/BotFather")}${c.reset}`,
 };
 
+// Where each skill env var comes from — shown before its prompt.
+const GOOGLE_OAUTH_SETUP_GUIDE = [
+  `Full setup guide: ${c.dim}${link("https://github.com/frdteknikelektro/felix-agent/blob/main/skills/google-workspace/references/setup.md")}${c.reset}`,
+  ``,
+  `Quick steps:`,
+  `  1. Open ${c.dim}${link("https://console.cloud.google.com")}${c.reset} → create a new project`,
+  `  2. APIs & Services → Library → enable these APIs:`,
+  `     • Gmail API`,
+  `     • Google Calendar API`,
+  `     • Google Drive API`,
+  `     • Google Docs API`,
+  `     • Google Sheets API`,
+  `     • Google Slides API`,
+  `     • Google Forms API`,
+  `     • Google People API (Contacts)`,
+  `     • Google Tasks API`,
+  `  3. APIs & Services → OAuth consent screen → select "External"`,
+  `     → fill app name & your email → add your email as test user`,
+  `     → go to Audience → Publish app (no verification needed)`,
+  `  4. APIs & Services → Credentials → Create Credentials → OAuth client ID`,
+  `     → select "Desktop app" → copy the Client ID and Secret below`,
+].join("\n");
+
+const SKILL_ENV_HINTS = {
+  GOOGLE_CLIENT_ID: GOOGLE_OAUTH_SETUP_GUIDE,
+  GOOGLE_CLIENT_SECRET: `Generated together with the Client ID above. Find it in the downloaded JSON or Credentials page.`,
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function readEnv(path) {
@@ -1281,7 +1309,38 @@ export async function main() {
           continue;
         }
         section(skill);
+
+        // Google Workspace OAuth consent screen guide
+        if (skill === "google-workspace") {
+          const hasClientCreds = existing?.GOOGLE_CLIENT_ID && existing?.GOOGLE_CLIENT_SECRET;
+          if (!hasClientCreds) {
+            info(`${c.bold}Before entering credentials, ensure OAuth consent screen is set up:${c.reset}`);
+            console.log();
+            info(`  1. Go to ${c.dim}${link("https://console.cloud.google.com/auth/branding")}${c.reset}`);
+            info(`  2. Select "External" user type`);
+            info(`  3. Fill app name (e.g., "Felix Google Workspace") and your email`);
+            info(`  4. Go to ${c.dim}${link("https://console.cloud.google.com/auth/audience")}${c.reset}`);
+            info(`  5. Click "Publish app" → "Confirm" (no verification needed)`);
+            console.log();
+            const consentReady = await confirm({
+              message: "OAuth consent screen configured and published?",
+              default: false,
+            });
+            if (!consentReady) {
+              warn("Set up OAuth consent screen first, then re-run setup.");
+              for (const v of vars) {
+                if (existing && existing[v.key] && !(v.key in wizard)) {
+                  wizard[v.key] = existing[v.key];
+                }
+              }
+              continue;
+            }
+          }
+        }
+
         for (const v of vars) {
+          const envHint = SKILL_ENV_HINTS[v.key];
+          if (envHint) info(envHint);
           const hasExisting = existing && existing[v.key];
           const hint = hasExisting
             ? `  ${c.dim}(current: ${displayEnvValue(v.key, existing[v.key])} — Enter to keep)${c.reset}`
