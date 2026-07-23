@@ -20,8 +20,12 @@ import {
   type TurnOutcomePorts,
   type TurnOutcomeResult,
 } from "./turn-outcome.js";
+import { isOwnerMessage } from "./routing.js";
 
-type TurnSourceAdapter = Pick<SourceAdapter, "getTurnContext" | "sendTyping">;
+type TurnSourceAdapter = Pick<
+  SourceAdapter,
+  "ownerUserId" | "getTurnContext" | "sendTyping"
+>;
 
 export interface TurnRunnerPorts extends Omit<
   TurnOutcomePorts,
@@ -58,6 +62,11 @@ export class TurnRunner {
   async run(input: TurnRunnerInput): Promise<TurnRunnerResult> {
     const adapter = this.ports.sourceAdapter(input.event.source);
     const sourceContext = await adapter.getTurnContext({ event: input.event });
+    const requesterIsOwner = isOwnerMessage(
+      input.event,
+      input.event.source,
+      adapter.ownerUserId,
+    );
     let resumed = Boolean(input.session.harness_session_id);
     let retriedFreshStart = false;
 
@@ -82,6 +91,7 @@ export class TurnRunner {
       const outcomePorts = this.outcomePorts(
         input,
         sourceContext,
+        requesterIsOwner,
         progress,
         (correctionProgress) => {
           terminalProgress = correctionProgress;
@@ -94,6 +104,7 @@ export class TurnRunner {
           input,
           adapter,
           sourceContext,
+          requesterIsOwner,
           resumed,
           progress,
         );
@@ -165,6 +176,7 @@ export class TurnRunner {
     input: TurnRunnerInput,
     adapter: TurnSourceAdapter,
     sourceContext: SourceTurnContext,
+    requesterIsOwner: boolean,
     resumed: boolean,
     progress?: ProgressReporter,
   ): Promise<TurnResult> {
@@ -173,7 +185,13 @@ export class TurnRunner {
     }, 100);
     try {
       return await this.harness.run(
-        this.turnInput(input, sourceContext, resumed, progress),
+        this.turnInput(
+          input,
+          sourceContext,
+          requesterIsOwner,
+          resumed,
+          progress,
+        ),
       );
     } finally {
       clearInterval(typingInterval);
@@ -183,6 +201,7 @@ export class TurnRunner {
   private outcomePorts(
     input: TurnRunnerInput,
     sourceContext: SourceTurnContext,
+    requesterIsOwner: boolean,
     progress?: ProgressReporter,
     onCorrectionProgress?: (progress: ProgressReporter) => void,
     onCorrectionFailure?: () => void,
@@ -198,7 +217,13 @@ export class TurnRunner {
         }
         try {
           return await this.harness.run({
-            ...this.turnInput(input, sourceContext, true, correctionProgress),
+            ...this.turnInput(
+              input,
+              sourceContext,
+              requesterIsOwner,
+              true,
+              correctionProgress,
+            ),
             promptOverride,
           });
         } catch (error) {
@@ -212,6 +237,7 @@ export class TurnRunner {
   private turnInput(
     input: TurnRunnerInput,
     sourceContext: SourceTurnContext,
+    requesterIsOwner: boolean,
     resumed: boolean,
     progress?: ProgressReporter,
   ): Parameters<Harness["run"]>[0] {
@@ -222,6 +248,7 @@ export class TurnRunner {
       contact: input.contact,
       skills: input.skills,
       sourceContext,
+      requesterIsOwner,
       resumed,
       precedingEvents:
         input.precedingEvents.length > 0 ? input.precedingEvents : undefined,
