@@ -269,7 +269,7 @@ const CHANNEL_TOKEN_HINTS = {
 };
 
 // Where each skill env var comes from — shown before its prompt.
-const GOOGLE_OAUTH_SETUP_GUIDE = [
+const GOOGLE_OAUTH_CLIENT_SETUP_GUIDE = [
   `Full setup guide: ${c.dim}${link("https://github.com/frdteknikelektro/felix-agent/blob/main/skills/google-workspace/references/setup.md")}${c.reset}`,
   ``,
   `Quick steps:`,
@@ -284,15 +284,12 @@ const GOOGLE_OAUTH_SETUP_GUIDE = [
   `     • Google Forms API`,
   `     • Google People API (Contacts)`,
   `     • Google Tasks API`,
-  `  3. APIs & Services → OAuth consent screen → select "External"`,
-  `     → fill app name & your email → add your email as test user`,
-  `     → go to Audience → Publish app (no verification needed)`,
-  `  4. APIs & Services → Credentials → Create Credentials → OAuth client ID`,
+  `  3. APIs & Services → Credentials → Create Credentials → OAuth client ID`,
   `     → select "Desktop app" → copy the Client ID and Secret below`,
 ].join("\n");
 
 const SKILL_ENV_HINTS = {
-  GOOGLE_CLIENT_ID: GOOGLE_OAUTH_SETUP_GUIDE,
+  GOOGLE_CLIENT_ID: GOOGLE_OAUTH_CLIENT_SETUP_GUIDE,
   GOOGLE_CLIENT_SECRET: `Generated together with the Client ID above. Find it in the downloaded JSON or Credentials page.`,
 };
 
@@ -793,6 +790,10 @@ export async function main() {
       // public list-models endpoint to verify against — skip validation.
       console.log();
       info("OpenCode model, as provider/model — e.g. opencode/... for opencode.ai routing.");
+      info(`Browse available models:`);
+      info(`  opencode:    ${c.dim}${link("https://models.dev/providers/opencode")}${c.reset}`);
+      info(`  opencode-go: ${c.dim}${link("https://models.dev/providers/opencode-go")}${c.reset}`);
+      info(`  openrouter:  ${c.dim}${link("https://models.dev/providers/openrouter")}${c.reset} (requires OPENROUTER_API_KEY)`);
       const ocModel = await promptModelWithValidation({
         message: `OPENCODE_MODEL  ${reqTag(false)}:`,
         default: existing.OPENCODE_MODEL || "opencode/deepseek-v4-flash-free",
