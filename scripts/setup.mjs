@@ -546,6 +546,109 @@ async function runWacliAuth(bin) {
   });
 }
 
+// Full read/write service scopes for gog auth. No `--readonly`: the OAuth token
+// stays write-capable and Felix's permission layer downscopes per command
+// (appends `--readonly` unless a contact holds a write grant). Matches the
+// command in skills/google-workspace/references/setup.md.
+const GOG_AUTH_SERVICES = "gmail,calendar,drive,docs,sheets,slides,forms,contacts,tasks,people";
+
+// gog reads its client + keyring config from the environment. During setup the
+// collected values live in `wizard` (and possibly `existing`) but aren't in
+// process.env or .env yet, so every gog child gets them injected explicitly —
+// the same trick the codex block uses for CODEX_HOME.
+function gogChildEnv(wizard, existing) {
+  const pick = (key) => wizard[key] || existing?.[key] || "";
+  const gogBin = pick("GOG_BIN");
+  return {
+    ...process.env,
+    ...(gogBin ? { GOG_BIN: gogBin } : {}),
+    GOOGLE_CLIENT_ID: pick("GOOGLE_CLIENT_ID"),
+    GOOGLE_CLIENT_SECRET: pick("GOOGLE_CLIENT_SECRET"),
+    GOG_HOME: pick("GOG_HOME") || "/home/node/.config/gogcli",
+    GOG_KEYRING_BACKEND: pick("GOG_KEYRING_BACKEND") || "file",
+    GOG_KEYRING_PASSWORD: pick("GOG_KEYRING_PASSWORD"),
+  };
+}
+
+// True only if the gog CLI actually runs here. On a host dev machine without it
+// (or the wrong GOG_HOME), authorization is skipped rather than crashing setup.
+function gogBinAvailable(bin, env) {
+  try {
+    const result = spawnSync(bin, ["--version"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    });
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+// Mirrors checkSetupWacliAuth: a non-crashing status probe. `auth list --check
+// --json` returns { accounts: [...] } — empty means no account is authorized.
+function checkSetupGogAuth(bin, env) {
+  try {
+    const result = spawnSync(bin, ["auth", "list", "--check", "--json"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+    });
+    if (result.error || result.status !== 0) {
+      return { status: "unknown" };
+    }
+    const parsed = JSON.parse((result.stdout || "").trim() || "{}");
+    const accounts = Array.isArray(parsed?.accounts) ? parsed.accounts : [];
+    if (accounts.length === 0) return { status: "unauthenticated" };
+    // The exact email field isn't authoritatively documented — try the likely
+    // keys and fall back to a bare count so display never depends on the shape.
+    const emails = accounts
+      .map((a) => a?.email || a?.account || a?.address)
+      .filter((e) => typeof e === "string" && e);
+    return { status: "authenticated", emails };
+  } catch {
+    return { status: "unknown" };
+  }
+}
+
+// Imports the OAuth client credentials into gog via the bundled helper, which
+// writes a mode-0600 template to /tmp, runs `gog auth credentials set
+// --expand-env`, and cleans up. Reused rather than reimplemented.
+async function importGogCredentials(root, env) {
+  const script = join(root, "skills", "google-workspace", "scripts", "import-credentials.mjs");
+  if (!existsSync(script)) {
+    return { exitCode: -1, error: "import-credentials.mjs not found" };
+  }
+  const child = spawn(process.execPath, [script], { stdio: "inherit", env });
+  return await new Promise((resolve) => {
+    child.on("error", (err) => resolve({
+      exitCode: -1,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    child.on("close", (code) => resolve({ exitCode: code ?? -1 }));
+  });
+}
+
+// Interactive paste-URL authorization — the flow the chat harness can't run
+// because it needs a persistent terminal. gog prints an auth URL, waits on
+// stdin for the pasted redirect URL, and enforces its own timeout (manual
+// flows default to 5m), so no external kill is needed here.
+async function runGogAuthAdd(bin, email, env) {
+  const child = spawn(bin, ["auth", "add", email, "--manual", "--services", GOG_AUTH_SERVICES], {
+    stdio: "inherit",
+    env,
+  });
+  return await new Promise((resolve) => {
+    child.on("error", (err) => resolve({
+      exitCode: -1,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    child.on("close", (code) => resolve({ exitCode: code ?? -1 }));
+  });
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 
 export async function main() {
@@ -560,6 +663,10 @@ export async function main() {
     const existing = readEnv(ENV_PATH);
     const existingExists = Object.keys(existing).length > 0;
     const wizard = {};
+    // Tracks whether a Google account was authorized this run. If the user then
+    // aborts the review, the keyring password used for auth never reaches .env,
+    // leaving tokens on disk the runtime can't unlock — warn about that.
+    let gogAuthorizedInSession = false;
     const hostUid = String(process.getuid?.() ?? 1000);
     const hostGid = String(process.getgid?.() ?? 1000);
 
@@ -1359,6 +1466,77 @@ export async function main() {
             warn(`${v.key} is required by ${skill} — set it in .env later.`);
           }
         }
+
+        // Authorize a Google account now — the interactive paste-URL flow the
+        // chat harness can't run (it needs a persistent terminal, which this
+        // wizard has). Modeled on the wacli pairing block: check status first,
+        // then guide through the login. Runs inline here, before .env is
+        // written, so values come straight from `wizard`.
+        if (skill === "google-workspace") {
+          const gogEnv = gogChildEnv(wizard, existing);
+          // Resolve the binary the same way gogChildEnv resolves GOG_BIN, so the
+          // spawned command and the injected env never disagree.
+          const gogBin = gogEnv.GOG_BIN || "gog";
+          const haveCreds = gogEnv.GOOGLE_CLIENT_ID && gogEnv.GOOGLE_CLIENT_SECRET;
+
+          if (!haveCreds) {
+            // Nothing to authorize with — the vars loop already warned.
+          } else if (!gogBinAvailable(gogBin, gogEnv)) {
+            console.log();
+            info("Skipping Google account authorization — the gog CLI isn't available here.");
+            info("Authorize later with `gog auth add <email> --manual` inside the Felix container.");
+          } else {
+            console.log();
+            const status = checkSetupGogAuth(gogBin, gogEnv);
+            let doAuth = true;
+            if (status.status === "authenticated") {
+              const who = status.emails?.length ? ` (${status.emails.join(", ")})` : "";
+              succeed(`Google account already authorized${who}.`);
+              doAuth = await confirm({ message: "Authorize another Google account?", default: false });
+            }
+
+            if (doAuth) {
+              info("Importing the OAuth client credentials into gog...");
+              const imported = await importGogCredentials(ROOT, gogEnv);
+              if (imported.exitCode !== 0) {
+                warn(`Couldn't import gog credentials${imported.error ? `: ${imported.error}` : ""}. Skipping authorization.`);
+                info("Check GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, then re-run setup.");
+              } else {
+                const email = await input({
+                  message: "Google account email to authorize:",
+                  validate: (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())
+                    ? true
+                    : "Enter a valid email address",
+                });
+
+                console.log();
+                info("A sign-in URL will be printed below. Open it in your browser, sign in");
+                info("with Google, grant access, then copy the final redirect URL and paste");
+                info("it back here.");
+                info(`Full read/write scopes are requested for: ${c.dim}${GOG_AUTH_SERVICES}${c.reset}`);
+                console.log();
+
+                const { exitCode, error } = await runGogAuthAdd(gogBin, email.trim(), gogEnv);
+                console.log();
+
+                if (exitCode !== 0) {
+                  warn(`gog auth add failed${error ? `: ${error}` : ""}.`);
+                  info(`Run \`gog auth add ${email.trim()} --manual\` inside the container later.`);
+                } else {
+                  const after = checkSetupGogAuth(gogBin, gogEnv);
+                  if (after.status === "authenticated") {
+                    succeed("Google account connected.");
+                    gogAuthorizedInSession = true;
+                  } else {
+                    warn("gog auth add finished but no authorized account was found.");
+                    info("Verify with `gog auth list --check --json`.");
+                  }
+                }
+              }
+            }
+          }
+        }
+
         console.log();
       }
     }
@@ -1430,6 +1608,9 @@ export async function main() {
     console.log();
     const ok = await confirm({ message: "Write .env?", default: true });
     if (!ok) {
+      if (gogAuthorizedInSession) {
+        warn("A Google account was authorized, but .env wasn't written — the gog keyring password wasn't saved, so those tokens can't be unlocked later. Re-run setup to redo it.");
+      }
       console.log(`\n${c.yellow}Aborted.${c.reset}`);
       return;
     }

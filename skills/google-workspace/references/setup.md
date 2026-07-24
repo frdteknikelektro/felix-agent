@@ -98,6 +98,25 @@ use the ephemeral helper above.
 
 ## Step 6: Authorize a Google account
 
+### Option A: During setup (recommended)
+
+The interactive setup wizard authorizes an account for you. After you enter the
+client ID/secret in the Skill Environment step, it imports the credentials and
+runs the paste-URL login right there — the setup terminal is persistent, so the
+manual OAuth flow completes in place:
+
+```bash
+docker compose run --rm --build setup   # Docker
+npm run setup                            # local dev
+```
+
+It prints a sign-in URL, you open it and grant access, then paste the redirect
+URL back into the wizard. If an account is already authorized it offers to add
+another. Full read/write scopes are requested; read-only enforcement happens
+per command via the permission layer.
+
+### Option B: Via chat
+
 Tell Felix: "Set up Google Workspace auth for my@email.com"
 
 Felix will run:
